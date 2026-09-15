@@ -1,3 +1,4 @@
+import aiohttp
 from aiohttp import web
 
 from logger import logger
@@ -43,6 +44,7 @@ try{media=decodeURIComponent(media||'')}catch(e){}
 document.getElementById('t').textContent=fn;
 if(!media){fail('Invalid media link.');return}
 var url='https://litter.catbox.moe/'+media;
+var dl='/download/'+encodeURIComponent(media)+'/'+encodeURIComponent(fn);
 var ext=(media.split('.').pop()||'').toLowerCase();
 var vids=['mp4','webm','mov','mkv','avi','m4v'];
 var imgs=['jpg','jpeg','png','gif','webp','bmp','svg'];
@@ -52,7 +54,7 @@ m.innerHTML='';
 if(vids.includes(ext)){var v=document.createElement('video');v.controls=true;v.autoplay=true;v.muted=true;v.playsInline=true;v.src=url;v.onerror=function(){fail('Media expired or unavailable.')};m.appendChild(v)}
 else if(imgs.includes(ext)){var i=document.createElement('img');i.alt=fn;i.src=url;i.onerror=function(){fail('Media expired or unavailable.')};m.appendChild(i)}
 else{m.innerHTML='<div class="s">Preview not available. Use buttons below.</div>'}
-d.href=url;o.href=url;a.style.display='flex';s.textContent='Available for 24 hours';
+d.href=dl;d.setAttribute('download',fn);o.href=url;a.style.display='flex';s.textContent='Available for 24 hours';
 }
 function fail(msg){m.innerHTML='<div class="s err">'+msg+'</div>';s.textContent='Not available';a.style.display='none'}
 render();
@@ -71,10 +73,42 @@ async def _handle_viewer(request: web.Request) -> web.Response:
     return web.Response(text=VIEWER_HTML, content_type="text/html")
 
 
+async def _handle_download(request: web.Request) -> web.Response:
+    media = request.match_info.get("media", "").strip()
+    filename = request.match_info.get("filename", "file").strip() or "file"
+    if not media:
+        return web.Response(status=400, text="Invalid media link.", content_type="text/plain")
+
+    url = f"https://litter.catbox.moe/{media}"
+    try:
+        timeout = aiohttp.ClientTimeout(total=90)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(url) as resp:
+                if resp.status != 200:
+                    return web.Response(
+                        status=resp.status,
+                        text="Media not available.",
+                        content_type="text/plain",
+                    )
+                data = await resp.read()
+                content_type = resp.headers.get("Content-Type", "application/octet-stream")
+    except Exception as exc:
+        logger.error(f"Download proxy failed for {media}: {exc}")
+        return web.Response(status=502, text="Upstream error.", content_type="text/plain")
+
+    safe_name = filename.replace('"', "").replace("\r", "").replace("\n", "")
+    return web.Response(
+        body=data,
+        content_type=content_type,
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}"'},
+    )
+
+
 def create_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", _handle_root)
     app.router.add_get("/m/{media}/{filename}", _handle_viewer)
+    app.router.add_get("/download/{media}/{filename}", _handle_download)
     return app
 
 
