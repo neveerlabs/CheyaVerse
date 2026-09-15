@@ -106,3 +106,4 @@ python3 main.py
 - server bot dan juga server webapp nya berjalan dari lokal, hanya satu kali command kedua server itu sudah daat berjalan dengan baik
 - Data media untuk upload generate barcode max 10 MB
 - Gka bisa generate barcode dari beberapa file sekaligus (setiap satu barcode yg dibuat harus satu file yg diupload, jika nggak bakal gagal)
+- Jika muncul pesan chat `Unable to upload this file, please try again later.` dari bot saat generate barcode dan di log console lognya seperti ini `[HH:MM:SS] [ERROR] Failed to upload {kind} for {label}: {exc}`, jelas itu bukan kesalahan di kode, tapi emang server LitterBox nya aja yg lagi down
