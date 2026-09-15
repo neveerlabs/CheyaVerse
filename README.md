@@ -38,17 +38,10 @@ Folder `assets/` **wajib** ada 2 file gambar:
 - `cheyaverse.jpg` — logo profile CheyaVerse
 > Karena untuk penggunaan generate barcode
 
-## Setup — Linux (Debian/Ubuntu/Kali/Arch)
-
 ### 1. Update package manager
 
 ```bash
 sudo apt update && sudo apt upgrade -y
-```
-
-**Arch**
-```bash
-sudo pacman -Syu
 ```
 
 ### 2. Verifikasi versi python
@@ -80,11 +73,11 @@ pip install -r requirements.txt
 ### 5. Update isi file `.env`
 ```txt
 BOT_TOKEN=tokenbot
-PUBLIC_URL=http://{ip_local}:8080
+PUBLIC_URL=http://{host}:8080
 WEB_HOST=0.0.0.0
 WEB_PORT=8080
 ```
-> **Disclaimer**: _Ganti `{ip_local}` dengan IP lokal mesin lo. Cek pakai:_
+> **Disclaimer**: _Ganti `{host}` dengan IP lokal (client IP). Cek:
 ```bash
 ip addr show | grep "inet " | grep -v 127.0.0.1
 ```
