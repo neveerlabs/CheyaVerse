@@ -41,7 +41,7 @@ LITTERBOX_API = "https://litterbox.catbox.moe/resources/internals/api.php"
 LITTERBOX_EXPIRY = "24h"
 LITTERBOX_TIMEOUT = 120
 
-OUTPUT_FILENAME = "barcode.png"
+OUTPUT_FILENAME = "barcode.jpg"
 
 USAGE_TEXT = "Usage: /qr <text> or send a photo/video with caption /qr"
 
@@ -137,7 +137,7 @@ def _compose(data: str) -> Image.Image:
     center = qr_size // 2
     qr_resized.paste(logo, (center - logo_size // 2, center - logo_size // 2), logo)
     bg.paste(qr_resized, (qr_x, qr_y))
-    return bg
+    return bg.convert("RGB")
 
 
 async def _upload_to_litterbox(file_bytes: bytes, filename: str) -> str:
@@ -182,7 +182,7 @@ async def _send_qr(message: Message, data: str, source: str) -> None:
     try:
         image = _compose(data)
         buf = io.BytesIO()
-        image.save(buf, format="PNG", optimize=True)
+        image.save(buf, format="JPEG", quality=95, optimize=True)
         buf.seek(0)
 
         await message.answer_photo(
