@@ -7,16 +7,14 @@ from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramAPIError
 from aiogram.types import ErrorEvent
 
-from config import BOT_TOKEN
+from config import BOT_TOKEN, WEB_HOST, WEB_PORT, PUBLIC_URL
 from handlers import help as help_handler
 from handlers import qr as qr_handler
 from handlers import start
 from logger import logger
+from web import start_web
 
-bot = Bot(
-    token=BOT_TOKEN,
-    default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN_V2),
-)
+bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN_V2))
 
 dp = Dispatcher()
 dp.include_router(start.router)
@@ -28,17 +26,12 @@ dp.include_router(qr_handler.router)
 async def on_error(event: ErrorEvent) -> None:
     exc = event.exception
     logger.error(f"Unhandled error: {type(exc).__name__} - {exc}")
-
     update = event.update
     try:
         msg = getattr(update, "message", None)
         cbq = getattr(update, "callback_query", None)
-
         if msg is not None:
-            await msg.answer(
-                "An internal error occurred, please try again later.",
-                parse_mode=None,
-            )
+            await msg.answer("An internal error occurred, please try again later.", parse_mode=None)
         elif cbq is not None:
             await cbq.answer("An internal error occurred.", show_alert=True)
     except TelegramAPIError as tg_exc:
@@ -76,10 +69,21 @@ async def main() -> None:
 
     _verify_assets()
 
+    if not PUBLIC_URL:
+        logger.warning("PUBLIC_URL is empty. QR media will use raw Litterbox URLs.")
+    else:
+        logger.info(f"Public viewer base: {PUBLIC_URL}")
+
     if not await _verify_bot():
         logger.error("Bot failed to start. Check token and network connection.")
         await bot.session.close()
         return
+
+    web_runner = None
+    try:
+        web_runner = await start_web(WEB_HOST, WEB_PORT)
+    except Exception as exc:
+        logger.error(f"Failed to start web viewer: {exc}")
 
     try:
         await bot.delete_webhook(drop_pending_updates=True)
@@ -90,6 +94,11 @@ async def main() -> None:
     except Exception as exc:
         logger.error(f"Fatal error during polling: {exc}")
     finally:
+        if web_runner is not None:
+            try:
+                await web_runner.cleanup()
+            except Exception as exc:
+                logger.error(f"Web runner cleanup failed: {exc}")
         await bot.session.close()
         logger.info("CheyaVerse has shut down.")
 
