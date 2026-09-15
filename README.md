@@ -107,3 +107,5 @@ python3 main.py
 - Data media untuk upload generate barcode max 10 MB
 - Gka bisa generate barcode dari beberapa file sekaligus (setiap satu barcode yg dibuat harus satu file yg diupload, jika nggak bakal gagal)
 - Jika muncul pesan chat `Unable to upload this file, please try again later.` dari bot saat generate barcode dan di log console lognya seperti ini `[HH:MM:SS] [ERROR] Failed to upload {kind} for {label}: {exc}`, jelas itu bukan kesalahan di kode, tapi emang server LitterBox nya aja yg lagi down
+- server bot dan webapp running di lokal, belum di deploy di server luar
+- webapp hanya dapat diakses dari jaringan lokal, dan untuk scan barcode dari barcode yg dibuat dengan upload meida, tidak akan bisa digunakan/tampilkan medianya karena isi barcode media ialah url untuk ke webapp. Jadi intinya, alurnya seperti ini: barcode media (isinya url untuk redirect ke webapp) > scan barcode redirect ke webapp > webapp menampilkan media dari url LitterBox.
