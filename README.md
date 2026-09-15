@@ -1,6 +1,6 @@
 # CheyaVerse — Setup
 
-Panduan lengkap setup CheyaVerse untuk Linux, Windows, Termux (Android), dan macOS.
+Panduan lengkap untuk meng setup bot CheyaVerse
 
 ## Requirements
 
