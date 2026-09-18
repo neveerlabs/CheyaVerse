@@ -30,11 +30,19 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans
 .info{min-width:0;flex:1}
 .info h1{font-size:14.5px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:-.015em;line-height:1.3}
 .info p{font-size:12px;color:var(--muted);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.3;font-weight:500}
-.preview{padding:24px;display:flex;align-items:center;justify-content:center;background:linear-gradient(180deg,#fdfaf5 0%,#f8f1e7 100%);min-height:240px;position:relative}
-.preview img,.preview video{max-width:100%;max-height:55vh;border-radius:var(--radius-sm);display:block;box-shadow:0 8px 24px -8px rgba(74,34,22,.25),0 2px 8px -2px rgba(74,34,22,.08)}
-.status{font-size:13px;color:var(--muted);text-align:center;padding:44px 24px;line-height:1.6;font-weight:500}
+.preview{padding:0;display:flex;align-items:center;justify-content:center;background:#f6ede0;min-height:220px;position:relative;overflow:hidden}
+.preview img,.preview video{display:block;width:100%;height:auto;max-height:78vh;object-fit:contain;position:relative;z-index:1;opacity:0;filter:blur(24px);transform:scale(1.04);transition:opacity .5s ease,filter .5s ease,transform .5s ease}
+.preview img.loaded,.preview video.loaded{opacity:1;filter:blur(0);transform:scale(1)}
+.skeleton{position:absolute;inset:0;background:linear-gradient(90deg,#efe2ce 0%,#faf2e5 25%,#efe2ce 50%,#faf2e5 75%,#efe2ce 100%);background-size:200% 100%;animation:shimmer 1.8s ease-in-out infinite;z-index:0}
+.skeleton::after{content:'';position:absolute;inset:0;background:radial-gradient(circle at 50% 50%,rgba(255,255,255,.35) 0%,transparent 60%);animation:pulse 2.2s ease-in-out infinite}
+@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+@keyframes pulse{0%,100%{opacity:.4}50%{opacity:.85}}
+.skeleton.hidden{opacity:0;transition:opacity .4s ease;pointer-events:none}
+.status{font-size:13px;color:var(--muted);text-align:center;padding:52px 24px;line-height:1.6;font-weight:500;position:relative;z-index:2}
 .status.error{color:var(--danger)}
-.spinner{width:28px;height:28px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 12px}
+.loader{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:2;pointer-events:none;opacity:1;transition:opacity .3s ease}
+.loader.hidden{opacity:0}
+.spinner{width:32px;height:32px;border:3px solid rgba(74,34,22,.12);border-top-color:var(--accent);border-radius:50%;animation:spin .9s linear infinite;filter:drop-shadow(0 2px 6px rgba(74,34,22,.15))}
 @keyframes spin{to{transform:rotate(360deg)}}
 .actions{padding:16px 20px 20px;display:flex;gap:10px}
 .btn{flex:1;padding:13px 18px;border-radius:var(--radius-sm);font-size:13.5px;font-weight:600;text-decoration:none;text-align:center;border:none;cursor:pointer;transition:all var(--transition);display:inline-flex;align-items:center;justify-content:center;gap:7px;font-family:inherit;letter-spacing:-.01em;line-height:1}
@@ -46,7 +54,7 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans
 .btn-secondary{background:var(--soft);color:var(--accent);border:1px solid var(--border)}
 .btn-secondary:hover{background:var(--soft-hover)}
 .btn-secondary svg{stroke:var(--accent)}
-@media(min-width:640px){body{padding:40px}.card{max-width:600px}.header{padding:24px 28px 20px;gap:14px}.badge{width:44px;height:44px;border-radius:13px}.badge svg{width:22px;height:22px}.info h1{font-size:15.5px}.info p{font-size:12.5px;margin-top:4px}.preview{padding:32px;min-height:300px}.preview img,.preview video{max-height:60vh}.actions{padding:20px 28px 24px;gap:12px}.btn{padding:14px 22px;font-size:14px}.btn svg{width:16px;height:16px}}
+@media(min-width:640px){body{padding:40px}.card{max-width:640px}.header{padding:24px 28px 20px;gap:14px}.badge{width:44px;height:44px;border-radius:13px}.badge svg{width:22px;height:22px}.info h1{font-size:15.5px}.info p{font-size:12.5px;margin-top:4px}.preview{min-height:280px}.preview img,.preview video{max-height:82vh}.actions{padding:20px 28px 24px;gap:12px}.btn{padding:14px 22px;font-size:14px}.btn svg{width:16px;height:16px}}
 </style>
 </head>
 <body>
@@ -55,7 +63,7 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans
 <div class="badge"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2.5"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></div>
 <div class="info"><h1 id="t">CheyaVerse Media</h1><p id="s">Loading…</p></div>
 </div>
-<div class="preview" id="m"><div class="status"><div class="spinner"></div>Loading media…</div></div>
+<div class="preview" id="m"><div class="skeleton"></div><div class="loader"><div class="spinner"></div></div></div>
 <div class="actions" id="a" style="display:none"><a class="btn btn-primary" id="d" download><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg><span>Download</span></a><a class="btn btn-secondary" id="o" target="_blank" rel="noopener"><svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg><span>Open Raw</span></a></div>
 </div>
 <script>
@@ -73,12 +81,28 @@ var ext=(media.split('.').pop()||'').toLowerCase();
 var vids=['mp4','webm','mov','mkv','avi','m4v'];
 var imgs=['jpg','jpeg','png','gif','webp','bmp','svg'];
 var m=document.getElementById('m'),a=document.getElementById('a'),d=document.getElementById('d'),o=document.getElementById('o');
+function clearLoading(){
+  var s=m.querySelector('.skeleton');if(s)s.classList.add('hidden');
+  var l=m.querySelector('.loader');if(l)l.classList.add('hidden');
+}
 function render(){
-m.innerHTML='';
-if(vids.includes(ext)){var v=document.createElement('video');v.controls=true;v.autoplay=true;v.muted=true;v.playsInline=true;v.preload='metadata';v.src=url;v.onerror=function(){fail('Media expired or unavailable')};m.appendChild(v)}
-else if(imgs.includes(ext)){var i=document.createElement('img');i.alt=fn;i.src=url;i.onerror=function(){fail('Media expired or unavailable')};m.appendChild(i)}
-else{m.innerHTML='<div class="status">Preview not available for this file type</div>'}
-d.href=dl;d.setAttribute('download',fn);o.href=url;a.style.display='flex';subtitle.textContent=fn+' · available for 24 hours';
+  m.innerHTML='<div class="skeleton"></div><div class="loader"><div class="spinner"></div></div>';
+  if(vids.includes(ext)){
+    var v=document.createElement('video');
+    v.controls=true;v.autoplay=true;v.muted=true;v.playsInline=true;v.preload='metadata';v.src=url;
+    v.onloadeddata=function(){v.classList.add('loaded');clearLoading()};
+    v.onerror=function(){fail('Media expired or unavailable')};
+    m.appendChild(v);
+  }else if(imgs.includes(ext)){
+    var i=document.createElement('img');
+    i.alt=fn;i.src=url;
+    i.onload=function(){i.classList.add('loaded');clearLoading()};
+    i.onerror=function(){fail('Media expired or unavailable')};
+    m.appendChild(i);
+  }else{
+    m.innerHTML='<div class="status">Preview not available for this file type</div>';
+  }
+  d.href=dl;d.setAttribute('download',fn);o.href=url;a.style.display='flex';subtitle.textContent=fn+' · available for 24 hours';
 }
 function fail(msg){m.innerHTML='<div class="status error">'+msg+'</div>';subtitle.textContent='Not available';a.style.display='none'}
 render();
