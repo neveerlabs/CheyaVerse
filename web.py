@@ -148,8 +148,8 @@ video::-webkit-media-controls,video::-webkit-media-controls-enclosure,video::-we
 </div>
 <div class="modal-backdrop" id="modal">
 <div class="modal">
-<h2>Verifikasi Diperlukan</h2>
-<p>Selesaikan verifikasi di bawah untuk mengunduh file ini.</p>
+<h2>Verification Required</h2>
+<p>Complete the verification below to download the file.</p>
 <div class="captcha-box" id="captcha-box" role="checkbox" tabindex="0" aria-checked="false">
 <div class="captcha-check">
 <div class="captcha-spinner"></div>
@@ -157,13 +157,13 @@ video::-webkit-media-controls,video::-webkit-media-controls-enclosure,video::-we
 <svg class="captcha-x-icon" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
 </div>
 <div class="captcha-text">
-<div class="captcha-title">Saya bukan robot</div>
-<div class="captcha-sub">Dilindungi CheyaVerse</div>
+<div class="captcha-title">I am not a robot</div>
+<div class="captcha-sub">Protected by CheyaVerse</div>
 </div>
 <div class="captcha-logo"><img src="/assets/cheyaverse.jpg" alt="Cheya"></div>
 </div>
 <div class="modal-actions">
-<button class="btn btn-secondary" id="modal-cancel" type="button">Batal</button>
+<button class="btn btn-secondary" id="modal-cancel" type="button">Cancel</button>
 <button class="btn btn-primary" id="modal-go" type="button" disabled>Unduh</button>
 </div>
 </div>
