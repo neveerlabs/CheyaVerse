@@ -104,7 +104,7 @@ python3 main.py
 - barcode yg dihasolkan dari media (gambar/video), berfungsi permanen, namun... tidak akan berfungsi lama, hanya 24h saja dikarenakan data medianya disimpan didalam server `LitterBox`
 - webapp view nya untuk menampilkan isi file file foto/video dari barcode yg di scan, hanya dapat di akses di lokal, karena tidak di publish. Jika anda bersedia dan ingin membantu saya atau pun itu memberi, tolonglah, saya ingin webapp nya di deploy, tapi ini membutuhkan `aiohttp` dan tidak statis datanya karena datanya diambil dari url barcode!
 - server bot dan juga server webapp nya berjalan dari lokal, hanya satu kali command kedua server itu sudah daat berjalan dengan baik
-- Data media untuk upload generate barcode max 10 MB
+- Data media untuk upload generate barcode max 5 MB
 - Gka bisa generate barcode dari beberapa file sekaligus (setiap satu barcode yg dibuat harus satu file yg diupload, jika nggak bakal gagal)
 - Jika muncul pesan chat `Unable to upload this file, please try again later.` dari bot saat generate barcode dan di log console lognya seperti ini `[HH:MM:SS] [ERROR] Failed to upload {kind} for {label}: {exc}`, jelas itu bukan kesalahan di kode, tapi emang server LitterBox nya aja yg lagi down
 - server bot dan webapp running di lokal, belum di deploy di server luar
