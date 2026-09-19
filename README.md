@@ -11,6 +11,7 @@ Panduan lengkap untuk meng setup bot & web CheyaVerse
 | Koneksi internet | Wajib |
 | RAM minimum | 256 MB |
 | Storage minimum | 150 MB |
+| Supabase | Wajib |
 
 ## Struktur Folder Setelah Setup
 ```
@@ -81,7 +82,15 @@ BOT_TOKEN=tokenbot
 PUBLIC_URL=http://{host}:8080
 WEB_HOST=0.0.0.0
 WEB_PORT=8080
+SUPABASE_URL=https://xxxxx.supabase.co
+SUPABASE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+SUPABASE_BUCKET=cheyaverse-media
+SUPABASE_TABLE=media
+MEDIA_TTL_DAYS=30
+SIGNED_URL_TTL=2592000
 ```
+> **Catatan:** _Isi file `.env` dengan susunan tutorial dibawah. Data media disimpan selama 30 hari didalm **Supabase**_
+
 > **Disclaimer**: _Ganti `{host}` dengan IP lokal (client IP)._ Cek:
 ```bash
 ip addr show | grep "inet " | grep -v 127.0.0.1
@@ -113,6 +122,135 @@ python3 web.py
   [HH:MM:SS] [INFO] Public viewer base: http://{host}:8080
   [HH:MM:SS] [INFO] CheyaShield captcha enabled on /download.
   ```
+
+---
+
+### Setup supabase
+
+## 1. Buat project
+
+1. Buka [supabase.com](https://supabase.com) → **Start your project**
+2. Klik **New Project**
+3. Isi:
+   - **Name**: `CheyaVerse` (bebas)
+   - **Database Password**: klik `generaye password`, **simpan**
+   - **Region**: pilih terdekat (mis. **Singapore**/**Asia**)
+   - **Pricing Plan**: Free (kalo emang lagi gak ada cuan, xixixi)
+4. Klik **Create new project** → tunggu 1–2 menit
+
+## 2. Ambil URL & Key
+
+1. Di dashboard, klik **Project Settings** → **API Keys** → **Legacy anon, service_role API keys**
+2. Catat 2 value:
+
+| Nama di Dashboard | Masuk ke `.env` sebagai |
+|---|---|
+| **Project URL** | `SUPABASE_URL` |
+| **`anon public`** (di Project API Keys) | `SUPABASE_KEY` |
+> **Notice:** Untuk mendapatkan **Project URL**, ada di bagian **Project Overview** → klik tombol `copy` yg dibawah nama project → klik tombol **Project URL**
+
+**DISCLAIMER:** Ambil key **`anon public`**, jangan `service_role`. Key `service_role` punya akses full admin, **JANGAN pernah** ditaruh / sim[an di kode publik
+
+## 3. Buat Bucket Storage
+
+1. Di sidebar, klik **Storage**
+2. Klik **New bucket**
+3. Isi:
+   - **Name**: `cheyaverse-media` (isinya harus sama dengan yg di `.env`)
+   - **Public bucket**: **JANGAN** dicentang
+   - **File size limit**: biarkan default
+4. Klik **Save**
+> **Saran:** _buat bagian pilihan opsi, ada baiknya gak usah ada yg di centang, tapi terserah_
+
+## 4. Bikin Tabel Media
+
+1. Di sidebar, klik **SQL Editor** → **+ New query**
+2. Isi input SQL berikut:
+
+```sql
+CREATE TABLE IF NOT EXISTS media (
+    id TEXT PRIMARY KEY,
+    filename TEXT NOT NULL,
+    storage_path TEXT NOT NULL,
+    content_type TEXT,
+    file_size BIGINT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    expires_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_media_expires_at ON media (expires_at);
+```
+3. Klik **Run** (atau `Ctrl + Enter`)
+4. Pastikan muncul output **"Success. No rows returned"**
+
+## 5. Setup Row Level Security (RLS) Policy
+**Langkah yang WAJIB**. Tanpa ini, upload akan gagal dengan error `new row violates row-level security policy`
+
+Di **SQL Editor** → **+ New query**
+```sql
+DROP POLICY IF EXISTS "media_select" ON media;
+DROP POLICY IF EXISTS "media_insert" ON media;
+DROP POLICY IF EXISTS "media_delete" ON media;
+
+DROP POLICY IF EXISTS "media_bucket_select" ON storage.objects;
+DROP POLICY IF EXISTS "media_bucket_insert" ON storage.objects;
+DROP POLICY IF EXISTS "media_bucket_delete" ON storage.objects;
+
+ALTER TABLE media ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "media_select" ON media
+    FOR SELECT
+    USING (true);
+
+CREATE POLICY "media_insert" ON media
+    FOR INSERT
+    WITH CHECK (true);
+
+CREATE POLICY "media_delete" ON media
+    FOR DELETE
+    USING (true);
+
+CREATE POLICY "media_bucket_select" ON storage.objects
+    FOR SELECT
+    USING (bucket_id = 'cheyaverse-media');
+
+CREATE POLICY "media_bucket_insert" ON storage.objects
+    FOR INSERT
+    WITH CHECK (bucket_id = 'cheyaverse-media');
+
+CREATE POLICY "media_bucket_delete" ON storage.objects
+    FOR DELETE
+    USING (bucket_id = 'cheyaverse-media');
+```
+Klik **Run**, pastikan outputnya **"Success. No rows returned"**
+
+## 6. Verifikasi Policy
+Jalanin SQL ini buat memastikan policy udah aktif
+```sql
+SELECT schemaname, tablename, policyname, cmd
+FROM pg_policies
+WHERE tablename IN ('media', 'objects')
+ORDER BY tablename, policyname;
+```
+
+## 7. (Opsional) Auto-Cleanup dengan pg_cron
+Kalau mau Supabase yang bersihin media expired otomatis (tanpa perlu bot jalan), aktifkan `pg_cron` di **Database** → **Extensions**, lalu jalanin:
+```sql
+CREATE OR REPLACE FUNCTION delete_expired_media()
+RETURNS void LANGUAGE plpgsql AS $$
+DECLARE r RECORD;
+BEGIN
+    FOR r IN SELECT id, storage_path FROM media WHERE expires_at < NOW() LOOP
+        DELETE FROM storage.objects
+        WHERE bucket_id = 'cheyaverse-media' AND name = r.storage_path;
+        DELETE FROM media WHERE id = r.id;
+    END LOOP;
+END;
+$$;
+
+SELECT cron.schedule('cleanup-expired-media', '0 * * * *', 'SELECT delete_expired_media()');
+```
+> **Pemberitahuan:** Kalo skip langkah ini, bot tetap akan bersihin otomatis saat startup + setiap 6 jam (lihat `main.py`)
 
 ---
 
