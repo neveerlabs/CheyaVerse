@@ -18,6 +18,7 @@ BASE_DIR = Path(__file__).resolve().parent
 ASSETS_DIR = BASE_DIR / "assets"
 LOGO_PATH = ASSETS_DIR / "cheyaverse.jpg"
 MODEL_GIF_PATH = ASSETS_DIR / "model.gif"
+OK_GIF_PATH = ASSETS_DIR / "ok.gif"
 
 VIEWER_HTML = """<!DOCTYPE html>
 <html lang="en">
@@ -142,10 +143,17 @@ video::-webkit-media-controls,video::-webkit-media-controls-enclosure,video::-we
 .captcha-logo{width:40px;height:40px;border-radius:50%;overflow:hidden;flex-shrink:0;border:2px solid #ede4d7;background:#f5ede2;box-shadow:0 2px 8px -2px rgba(74,34,22,.15);transition:transform .2s ease,border-color .18s}
 .captcha-logo img{width:100%;height:100%;display:block;object-fit:cover;-webkit-user-drag:none;user-drag:none;pointer-events:none}
 .captcha-box:hover .captcha-logo{border-color:#d7c8b5;transform:scale(1.05)}
+.captcha-ok-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:flex-start;gap:14px;padding:0 18px;background:linear-gradient(135deg,#f5fbf6 0%,#ecf6ed 100%);border-radius:inherit;opacity:0;visibility:hidden;pointer-events:none;transition:opacity .3s ease,visibility 0s .3s;z-index:5}
+.captcha-box.passed .captcha-ok-overlay{opacity:1;visibility:visible;transition:opacity .3s ease,visibility 0s 0s}
+.captcha-ok-overlay img{width:48px;height:48px;object-fit:contain;display:block;flex-shrink:0;-webkit-user-drag:none;user-drag:none;pointer-events:none;-webkit-touch-callout:none;user-select:none;filter:drop-shadow(0 4px 10px rgba(47,125,50,.22));animation:okBounce .55s cubic-bezier(.34,1.56,.64,1)}
+@keyframes okBounce{0%{transform:scale(.5) rotate(-8deg);opacity:0}60%{transform:scale(1.08) rotate(2deg);opacity:1}100%{transform:scale(1) rotate(0);opacity:1}}
+.captcha-ok-text{display:flex;flex-direction:column;gap:2px;min-width:0;text-align:left}
+.captcha-ok-title{font-size:13.5px;font-weight:700;color:#1e5a22;letter-spacing:-.01em;line-height:1.25}
+.captcha-ok-sub{font-size:11px;font-weight:500;color:#5c8f61;letter-spacing:.01em;line-height:1.35}
 .modal-actions{display:flex;gap:10px}
 .modal-actions .btn{flex:1}
 @keyframes spin{to{transform:rotate(360deg)}}
-@media(min-width:640px){body{padding:40px}.card{max-width:640px}.header{padding:24px 28px 20px;gap:14px}.badge{width:44px;height:44px;border-radius:13px}.badge svg{width:22px;height:22px}.info h1{font-size:15.5px}.info p{font-size:12.5px;margin-top:4px}.media-inner{max-height:70vh}.actions{padding:20px 28px 24px;gap:12px}.btn{padding:14px 22px;font-size:14px}.btn svg{width:16px;height:16px}.btn-icon{width:50px;padding:14px 0}.btn-icon svg{width:18px;height:18px}.sk-actions{padding:20px 28px 24px;gap:12px}.sk-btn{height:48px}.sk-btn-icon{width:50px}}
+@media(min-width:640px){body{padding:40px}.card{max-width:640px}.header{padding:24px 28px 20px;gap:14px}.badge{width:44px;height:44px;border-radius:13px}.badge svg{width:22px;height:22px}.info h1{font-size:15.5px}.info p{font-size:12.5px;margin-top:4px}.media-inner{max-height:70vh}.actions{padding:20px 28px 24px;gap:12px}.btn{padding:14px 22px;font-size:14px}.btn svg{width:16px;height:16px}.btn-icon{width:50px;padding:14px 0}.btn-icon svg{width:18px;height:18px}.sk-actions{padding:20px 28px 24px;gap:12px}.sk-btn{height:48px}.sk-btn-icon{width:50px}.captcha-ok-overlay img{width:56px;height:56px}.captcha-ok-title{font-size:14.5px}.captcha-ok-sub{font-size:11.5px}}
 </style>
 </head>
 <body>
@@ -173,6 +181,13 @@ video::-webkit-media-controls,video::-webkit-media-controls-enclosure,video::-we
 <div class="captcha-sub">Protected by CheyaVerse</div>
 </div>
 <div class="captcha-logo"><img src="/assets/cheyaverse.jpg" alt="Cheya" draggable="false"></div>
+<div class="captcha-ok-overlay" id="captcha-ok">
+<img src="/assets/ok.gif" alt="Verified" draggable="false">
+<div class="captcha-ok-text">
+<div class="captcha-ok-title">Verification successful</div>
+<div class="captcha-ok-sub">Continue to download</div>
+</div>
+</div>
 </div>
 <div class="modal-actions">
 <button class="btn btn-secondary" id="modal-cancel" type="button">Cancel</button>
@@ -199,6 +214,7 @@ var m=document.getElementById('m'),a=document.getElementById('a'),d=document.get
 var aSkel=document.getElementById('a-skel');
 var modal=document.getElementById('modal'),modalGo=document.getElementById('modal-go'),modalCancel=document.getElementById('modal-cancel');
 var captchaBox=document.getElementById('captcha-box');
+var captchaOk=document.getElementById('captcha-ok');
 var currentVideo=null,downloadVerified=false;
 var FS_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>';
 var FS_EXIT_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/></svg>';
@@ -213,7 +229,7 @@ function fallbackCopy(text){var ta=document.createElement('textarea');ta.value=t
 function copyText(text,msg){if(navigator.clipboard&&navigator.clipboard.writeText&&window.isSecureContext){navigator.clipboard.writeText(text).then(function(){showToast(msg)},function(){fallbackCopy(text)})}else{fallbackCopy(text)}}
 function copyLink(){copyText(window.location.href,'Link copied')}
 cp.addEventListener('click',function(e){e.preventDefault();copyLink()});
-function isProtectedTarget(t){if(!t)return false;if(t.tagName==='IMG'||t.tagName==='VIDEO')return true;if(t.closest&&(t.closest('.media-inner')||t.closest('.lost')||t.closest('.captcha-logo')))return true;return false}
+function isProtectedTarget(t){if(!t)return false;if(t.tagName==='IMG'||t.tagName==='VIDEO')return true;if(t.closest&&(t.closest('.media-inner')||t.closest('.lost')||t.closest('.captcha-logo')||t.closest('.captcha-ok-overlay')))return true;return false}
 document.addEventListener('contextmenu',function(e){if(isProtectedTarget(e.target)){e.preventDefault();e.stopPropagation()}},true);
 document.addEventListener('dragstart',function(e){if(isProtectedTarget(e.target)){e.preventDefault();e.stopPropagation()}},true);
 document.addEventListener('selectstart',function(e){if(isProtectedTarget(e.target)){e.preventDefault();e.stopPropagation()}},true);
@@ -246,6 +262,7 @@ captchaBox.classList.add('passed');
 captchaBox.setAttribute('aria-checked','true');
 downloadVerified=true;
 modalGo.disabled=false;
+try{captchaOk.querySelector('img').src='/assets/ok.gif?t='+Date.now()}catch(e){}
 }else{
 captchaBox.classList.add('failed');
 captchaBox.setAttribute('aria-checked','false');
@@ -417,8 +434,8 @@ body::before{content:'';position:fixed;inset:0;background-image:radial-gradient(
 <div class="title">Halaman <span class="num">Nggak Ketemu</span></div>
 <div class="desc">Yah, yang kamu cari udah nggak ada di sini. Bisa jadi URL-nya salah ketik, atau file-nya udah expired &amp; terhapus dari server.</div>
 <div class="actions">
-<a class="btn btn-primary" href="/"><svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg><span>Ke Home</span></a>
-<button class="btn btn-secondary" type="button" onclick="history.length>1?history.back():location.href='/'"><svg viewBox="0 0 24 24"><path d="M19 12H5"/><polyline points="12 19 5 12 12 5"/></svg><span>Kembali</span></button>
+<a class="btn btn-primary" href="/"><svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg><span>Back to Home</span></a>
+<button class="btn btn-secondary" type="button" onclick="history.length>1?history.back():location.href='/'"><svg viewBox="0 0 24 24"><path d="M19 12H5"/><polyline points="12 19 5 12 12 5"/></svg><span>Back</span></button>
 </div>
 <div class="brand"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2.5"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg><span>CheyaVerse Media</span></div>
 </div>
@@ -517,6 +534,16 @@ def _load_model_gif_bytes() -> bytes | None:
     return None
 
 
+@lru_cache(maxsize=1)
+def _load_ok_gif_bytes() -> bytes | None:
+    try:
+        if OK_GIF_PATH.exists():
+            return OK_GIF_PATH.read_bytes()
+    except Exception as exc:
+        logger.error(f"Failed to read ok.gif: {exc}")
+    return None
+
+
 def _build_og_tags(request: web.Request, media: str, filename: str) -> str:
     ext = media.rsplit(".", 1)[-1].lower() if "." in media else ""
     litter_url = f"https://litter.catbox.moe/{media}"
@@ -575,6 +602,20 @@ async def _handle_logo(request: web.Request) -> web.Response:
 
 async def _handle_model_gif(request: web.Request) -> web.Response:
     data = _load_model_gif_bytes()
+    if not data:
+        return web.Response(status=404, text="Not found.", content_type="text/plain")
+    return web.Response(
+        body=data,
+        content_type="image/gif",
+        headers={
+            "Cache-Control": "public, max-age=86400",
+            "Content-Disposition": "inline",
+        },
+    )
+
+
+async def _handle_ok_gif(request: web.Request) -> web.Response:
+    data = _load_ok_gif_bytes()
     if not data:
         return web.Response(status=404, text="Not found.", content_type="text/plain")
     return web.Response(
@@ -758,6 +799,7 @@ def create_app() -> web.Application:
     app.router.add_get("/", _handle_root)
     app.router.add_get("/assets/cheyaverse.jpg", _handle_logo)
     app.router.add_get("/assets/model.gif", _handle_model_gif)
+    app.router.add_get("/assets/ok.gif", _handle_ok_gif)
     app.router.add_get("/m/{media}/{filename}", _handle_viewer)
     app.router.add_post("/captcha/claim", _handle_captcha_claim)
     app.router.add_get("/download/{media}/{filename}", _handle_download)
@@ -783,6 +825,11 @@ async def _run_server() -> int:
         logger.info(f"404 mascot loaded: {MODEL_GIF_PATH}")
     else:
         logger.warning(f"404 mascot not found: {MODEL_GIF_PATH}")
+
+    if OK_GIF_PATH.exists():
+        logger.info(f"Success mascot loaded: {OK_GIF_PATH}")
+    else:
+        logger.warning(f"Success mascot not found: {OK_GIF_PATH}")
 
     app = create_app()
     runner = web.AppRunner(app)
