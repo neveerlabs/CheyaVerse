@@ -7,11 +7,14 @@ from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramAPIError
 from aiogram.types import ErrorEvent
 
+import storage
 from config import BOT_TOKEN, PUBLIC_URL
 from handlers import help as help_handler
 from handlers import qr as qr_handler
 from handlers import start
 from logger import logger
+
+CLEANUP_INTERVAL_SECONDS = 6 * 3600
 
 
 def _verify_assets() -> bool:
@@ -41,6 +44,30 @@ async def _verify_bot(bot: Bot) -> bool:
     except Exception as exc:
         logger.error(f"Unexpected error during bot verification: {exc}")
         return False
+
+
+async def _cleanup_loop() -> None:
+    while True:
+        try:
+            await asyncio.sleep(CLEANUP_INTERVAL_SECONDS)
+            removed = await storage.cleanup_expired()
+            if removed:
+                logger.info(f"Storage cleanup removed {removed} expired item(s)")
+        except asyncio.CancelledError:
+            return
+        except Exception as exc:
+            logger.error(f"Storage cleanup loop error: {exc}")
+
+
+async def _run_cleanup_once() -> None:
+    try:
+        removed = await storage.cleanup_expired()
+        if removed:
+            logger.info(f"Startup cleanup removed {removed} expired item(s)")
+        else:
+            logger.info("Startup cleanup: no expired media found.")
+    except Exception as exc:
+        logger.error(f"Startup cleanup failed: {exc}")
 
 
 async def _run() -> int:
@@ -87,9 +114,11 @@ async def _run() -> int:
     _verify_assets()
 
     if not PUBLIC_URL:
-        logger.warning("PUBLIC_URL is empty. QR media will use raw Litterbox URLs.")
+        logger.warning("PUBLIC_URL is empty. QR media will use raw viewer paths.")
     else:
         logger.info(f"Public viewer base: {PUBLIC_URL}")
+
+    await _run_cleanup_once()
 
     if not await _verify_bot(bot):
         logger.error("Bot failed to start. Check token and network connection.")
@@ -98,6 +127,8 @@ async def _run() -> int:
         except Exception:
             pass
         return 1
+
+    cleanup_task = asyncio.create_task(_cleanup_loop())
 
     exit_code = 0
     try:
@@ -111,6 +142,11 @@ async def _run() -> int:
         logger.error(f"Fatal error during polling: {exc}")
         exit_code = 1
     finally:
+        cleanup_task.cancel()
+        try:
+            await cleanup_task
+        except (asyncio.CancelledError, Exception):
+            pass
         try:
             await bot.session.close()
         except Exception as exc:
