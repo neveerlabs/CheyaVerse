@@ -1,5 +1,6 @@
 import asyncio
 import html
+import json
 import re
 import secrets
 import sys
@@ -11,7 +12,8 @@ from pathlib import Path
 import aiohttp
 from aiohttp import web
 
-from config import PUBLIC_URL, WEB_HOST, WEB_PORT
+import storage
+from config import PUBLIC_URL, SIGNED_URL_TTL, WEB_HOST, WEB_PORT
 from logger import logger
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -198,16 +200,16 @@ video::-webkit-media-controls,video::-webkit-media-controls-enclosure,video::-we
 <script>
 (function(){
 var NONCE="__CAPTCHA_NONCE__";
-var p=window.location.pathname.split('/').filter(Boolean);
-var media=p[1],fn=p[2]||'file';
-try{fn=decodeURIComponent(fn)}catch(e){}
-try{media=decodeURIComponent(media||'')}catch(e){}
+var MEDIA_ID=__MEDIA_ID_JSON__;
+var MEDIA_URL=__MEDIA_URL_JSON__;
+var FILENAME=__MEDIA_FILENAME_JSON__;
 var subtitle=document.getElementById('s');
-if(!media){fail('Invalid media link');return}
-subtitle.textContent=fn;
-var url='https://litter.catbox.moe/'+media;
-var dl='/download/'+encodeURIComponent(media)+'/'+encodeURIComponent(fn);
-var ext=(media.split('.').pop()||'').toLowerCase();
+if(!MEDIA_ID||!MEDIA_URL){fail('Invalid media link');return}
+subtitle.textContent=FILENAME;
+var url=MEDIA_URL;
+var dl='/download/'+encodeURIComponent(MEDIA_ID);
+var fn=FILENAME;
+var ext=(fn.split('.').pop()||'').toLowerCase();
 var vids=['mp4','webm','mov','mkv','avi','m4v'];
 var imgs=['jpg','jpeg','png','gif','webp','bmp','svg'];
 var m=document.getElementById('m'),a=document.getElementById('a'),d=document.getElementById('d'),o=document.getElementById('o'),cp=document.getElementById('cp');
@@ -362,7 +364,7 @@ m.innerHTML='';
 if(vids.indexOf(ext)!==-1){m.appendChild(buildVideo())}
 else if(imgs.indexOf(ext)!==-1){m.appendChild(buildImage())}
 else{m.innerHTML='<div class="media-inner"><div class="status">Preview not available for this file type</div></div>';revealActions()}
-o.removeAttribute('href');subtitle.textContent=fn+' · available for 24 hours';
+o.removeAttribute('href');subtitle.textContent=fn+' · available for 30 days';
 }
 function fail(msg){
 currentVideo=null;
@@ -431,7 +433,7 @@ body::before{content:'';position:fixed;inset:0;background-image:radial-gradient(
 <img src="/assets/model.gif" alt="CheyaVerse mascot" draggable="false">
 </div>
 <div class="code-chip">Error 404</div>
-<div class="title">Halaman <span class="num">Nggak Ketemu</span></div>
+<div class="title">Halaman <span class="num">nggak ketemu</span></div>
 <div class="desc">Yah, yang kamu cari udah nggak ada di sini. Bisa jadi URL-nya salah ketik, atau file-nya udah expired &amp; terhapus dari server.</div>
 <div class="actions">
 <a class="btn btn-primary" href="/"><svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg><span>Back to Home</span></a>
@@ -454,7 +456,7 @@ document.addEventListener('copy',function(e){if(isProtected(e.target)){e.prevent
 </html>
 """
 
-MEDIA_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+MEDIA_ID_RE = re.compile(r"^\d{7}$")
 
 RATE_LIMIT_WINDOW = 60
 RATE_LIMIT_MAX = 30
@@ -463,9 +465,6 @@ RATE_LIMIT_CLEANUP_INTERVAL = 300
 MAX_PROXY_BYTES = 50 * 1024 * 1024
 
 CAPTCHA_TTL = 900
-
-VIDEO_EXTS = {"mp4", "webm", "mov", "mkv", "avi", "m4v"}
-IMAGE_EXTS = {"jpg", "jpeg", "png", "gif", "webp", "bmp"}
 
 _download_hits: dict[str, list[float]] = defaultdict(list)
 _last_rate_cleanup: float = 0.0
@@ -514,6 +513,10 @@ def _cleanup_captcha_stores(now: float) -> None:
             store.pop(k, None)
 
 
+def _valid_media_id(media_id: str) -> bool:
+    return bool(media_id) and bool(MEDIA_ID_RE.match(media_id))
+
+
 @lru_cache(maxsize=1)
 def _load_logo_bytes() -> bytes | None:
     try:
@@ -544,16 +547,23 @@ def _load_ok_gif_bytes() -> bytes | None:
     return None
 
 
-def _build_og_tags(request: web.Request, media: str, filename: str) -> str:
-    ext = media.rsplit(".", 1)[-1].lower() if "." in media else ""
-    litter_url = f"https://litter.catbox.moe/{media}"
+def _build_og_tags(
+    request: web.Request,
+    signed_url: str,
+    filename: str,
+    content_type: str,
+) -> str:
     base = PUBLIC_URL or f"{request.scheme}://{request.host}"
     viewer_url = f"{base}{request.path}"
 
     safe_fn = html.escape(filename or "file", quote=True)
     safe_url = html.escape(viewer_url, quote=True)
-    safe_media = html.escape(litter_url, quote=True)
-    desc = "CheyaVerse Media \u00b7 Available for 24 hours"
+    safe_media = html.escape(signed_url, quote=True)
+
+    is_video = bool(content_type) and content_type.startswith("video/")
+    is_image = bool(content_type) and content_type.startswith("image/")
+
+    desc = "CheyaVerse Media \u00b7 Available for 30 days"
 
     tags = [
         '<meta property="og:site_name" content="CheyaVerse">',
@@ -565,14 +575,14 @@ def _build_og_tags(request: web.Request, media: str, filename: str) -> str:
         f'<meta name="twitter:description" content="{desc}">',
     ]
 
-    if ext in VIDEO_EXTS:
+    if is_video:
         tags.extend([
             '<meta property="og:type" content="video.other">',
             f'<meta property="og:video" content="{safe_media}">',
             f'<meta property="og:video:secure_url" content="{safe_media}">',
             '<meta property="og:video:type" content="video/mp4">',
         ])
-    elif ext in IMAGE_EXTS:
+    elif is_image:
         tags.extend([
             '<meta property="og:type" content="website">',
             f'<meta property="og:image" content="{safe_media}">',
@@ -630,9 +640,26 @@ async def _handle_ok_gif(request: web.Request) -> web.Response:
 
 async def _handle_viewer(request: web.Request) -> web.Response:
     try:
-        media = request.match_info.get("media", "")
-        filename = request.match_info.get("filename", "file")
-        og = _build_og_tags(request, media, filename)
+        media_id = request.match_info.get("id", "").strip()
+        if not _valid_media_id(media_id):
+            return web.Response(text=NOT_FOUND_HTML, content_type="text/html", status=404)
+
+        meta = await storage.fetch_media(media_id)
+        if not meta:
+            return web.Response(text=NOT_FOUND_HTML, content_type="text/html", status=404)
+
+        storage_path = meta.get("storage_path") or ""
+        if not storage_path:
+            return web.Response(text=NOT_FOUND_HTML, content_type="text/html", status=404)
+
+        signed_url = await storage.create_signed_url(storage_path, SIGNED_URL_TTL)
+        if not signed_url:
+            return web.Response(status=502, text="Media gateway error.", content_type="text/plain")
+
+        filename = meta.get("filename") or f"{media_id}"
+        content_type = meta.get("content_type") or ""
+
+        og = _build_og_tags(request, signed_url, filename, content_type)
 
         now = time.monotonic()
         _cleanup_captcha_stores(now)
@@ -641,10 +668,35 @@ async def _handle_viewer(request: web.Request) -> web.Response:
 
         page = VIEWER_HTML.replace("<!--OG_META-->", og)
         page = page.replace("__CAPTCHA_NONCE__", html.escape(nonce, quote=True))
+        page = page.replace("__MEDIA_ID_JSON__", json.dumps(media_id))
+        page = page.replace("__MEDIA_URL_JSON__", json.dumps(signed_url))
+        page = page.replace("__MEDIA_FILENAME_JSON__", json.dumps(filename))
         return web.Response(text=page, content_type="text/html")
     except Exception as exc:
         logger.error(f"Failed to render viewer: {exc}")
         return web.Response(status=500, text="Internal server error.", content_type="text/plain")
+
+
+async def _handle_raw(request: web.Request) -> web.Response:
+    try:
+        media_id = request.match_info.get("id", "").strip()
+        if not _valid_media_id(media_id):
+            raise web.HTTPNotFound()
+        meta = await storage.fetch_media(media_id)
+        if not meta:
+            raise web.HTTPNotFound()
+        storage_path = meta.get("storage_path") or ""
+        if not storage_path:
+            raise web.HTTPNotFound()
+        signed_url = await storage.create_signed_url(storage_path, SIGNED_URL_TTL)
+        if not signed_url:
+            raise web.HTTPBadGateway(text="Media gateway error.")
+        raise web.HTTPFound(location=signed_url)
+    except web.HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"Raw route error: {exc}")
+        raise web.HTTPBadGateway(text="Raw route error.")
 
 
 async def _handle_captcha_claim(request: web.Request) -> web.Response:
@@ -692,10 +744,8 @@ async def _handle_download(request: web.Request) -> web.Response:
             headers={"Retry-After": str(RATE_LIMIT_WINDOW)},
         )
 
-    media = request.match_info.get("media", "").strip()
-    filename = request.match_info.get("filename", "file").strip() or "file"
-
-    if not media or not MEDIA_RE.match(media):
+    media_id = request.match_info.get("id", "").strip()
+    if not _valid_media_id(media_id):
         return web.Response(status=400, text="Invalid media link.", content_type="text/plain")
 
     nonce = (request.query.get("nonce") or "").strip()
@@ -712,8 +762,25 @@ async def _handle_download(request: web.Request) -> web.Response:
         )
     _captcha_verified.pop(nonce, None)
 
+    try:
+        meta = await storage.fetch_media(media_id)
+    except Exception as exc:
+        logger.error(f"Failed to fetch media {media_id}: {exc}")
+        return web.Response(status=502, text="Storage error.", content_type="text/plain")
+
+    if not meta:
+        return web.Response(status=404, text="Media not found.", content_type="text/plain")
+
+    storage_path = meta.get("storage_path") or ""
+    if not storage_path:
+        return web.Response(status=404, text="Media not found.", content_type="text/plain")
+
+    signed_url = await storage.create_signed_url(storage_path, SIGNED_URL_TTL)
+    if not signed_url:
+        return web.Response(status=502, text="Media gateway error.", content_type="text/plain")
+
     safe_name = (
-        filename
+        (meta.get("filename") or f"{media_id}")
         .replace('"', "")
         .replace("\\", "")
         .replace("\r", "")
@@ -723,14 +790,12 @@ async def _handle_download(request: web.Request) -> web.Response:
     if len(safe_name) > 200:
         safe_name = safe_name[:200]
 
-    url = f"https://litter.catbox.moe/{media}"
-
     try:
         timeout = aiohttp.ClientTimeout(total=120, connect=10)
         async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(url) as resp:
+            async with session.get(signed_url) as resp:
                 if resp.status != 200:
-                    logger.warning(f"Upstream {media} returned HTTP {resp.status}")
+                    logger.warning(f"Upstream {media_id} returned HTTP {resp.status}")
                     return web.Response(
                         status=resp.status,
                         text="Media not available.",
@@ -741,7 +806,7 @@ async def _handle_download(request: web.Request) -> web.Response:
                 if cl:
                     try:
                         if int(cl) > MAX_PROXY_BYTES:
-                            logger.warning(f"Media {media} too large ({cl} bytes)")
+                            logger.warning(f"Media {media_id} too large ({cl} bytes)")
                             return web.Response(
                                 status=413,
                                 text="Media too large.",
@@ -750,14 +815,17 @@ async def _handle_download(request: web.Request) -> web.Response:
                     except ValueError:
                         pass
 
-                content_type = resp.headers.get("Content-Type", "application/octet-stream")
+                content_type = resp.headers.get(
+                    "Content-Type",
+                    meta.get("content_type") or "application/octet-stream",
+                )
 
                 chunks: list[bytes] = []
                 total = 0
                 async for chunk in resp.content.iter_chunked(64 * 1024):
                     total += len(chunk)
                     if total > MAX_PROXY_BYTES:
-                        logger.warning(f"Media {media} exceeded size limit during streaming")
+                        logger.warning(f"Media {media_id} exceeded size limit during streaming")
                         return web.Response(
                             status=413,
                             text="Media too large.",
@@ -766,13 +834,13 @@ async def _handle_download(request: web.Request) -> web.Response:
                     chunks.append(chunk)
                 data = b"".join(chunks)
     except aiohttp.ClientError as exc:
-        logger.error(f"Upstream client error for {media}: {exc}")
+        logger.error(f"Upstream client error for {media_id}: {exc}")
         return web.Response(status=502, text="Upstream error.", content_type="text/plain")
     except asyncio.TimeoutError:
-        logger.error(f"Upstream timeout for {media}")
+        logger.error(f"Upstream timeout for {media_id}")
         return web.Response(status=504, text="Upstream timeout.", content_type="text/plain")
     except Exception as exc:
-        logger.error(f"Download proxy failed for {media}: {exc}")
+        logger.error(f"Download proxy failed for {media_id}: {exc}")
         return web.Response(status=502, text="Upstream error.", content_type="text/plain")
 
     return web.Response(
@@ -800,9 +868,10 @@ def create_app() -> web.Application:
     app.router.add_get("/assets/cheyaverse.jpg", _handle_logo)
     app.router.add_get("/assets/model.gif", _handle_model_gif)
     app.router.add_get("/assets/ok.gif", _handle_ok_gif)
-    app.router.add_get("/m/{media}/{filename}", _handle_viewer)
+    app.router.add_get("/m/{id}", _handle_viewer)
+    app.router.add_get("/raw/{id}", _handle_raw)
     app.router.add_post("/captcha/claim", _handle_captcha_claim)
-    app.router.add_get("/download/{media}/{filename}", _handle_download)
+    app.router.add_get("/download/{id}", _handle_download)
     app.router.add_route("*", "/{tail:.*}", _handle_404)
     app.on_shutdown.append(_on_shutdown)
     return app
