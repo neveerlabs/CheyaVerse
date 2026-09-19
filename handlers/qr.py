@@ -35,7 +35,7 @@ QR_DOT_RATIO = 0.90
 
 LOGO_SCALE = 0.20
 
-MAX_FILE_BYTES = 10 * 1024 * 1024
+MAX_FILE_BYTES = 5 * 1024 * 1024
 
 LITTERBOX_API = "https://litterbox.catbox.moe/resources/internals/api.php"
 LITTERBOX_EXPIRY = "24h"
@@ -295,7 +295,7 @@ async def _handle_media(message: Message, file_id: str, kind: str, ext: str) -> 
     except ValueError as exc:
         logger.error(f"Media ({kind}) validation failed for {label}: {exc}")
         try:
-            await message.answer("File too large. Maximum size is 10 MB.", parse_mode=None, reply_parameters=ReplyParameters(message_id=message.message_id))
+            await message.answer("File too large. Maximum size is 5 MB.", parse_mode=None, reply_parameters=ReplyParameters(message_id=message.message_id))
         except Exception as e:
             logger.error(f"Fallback ({kind}) failed: {e}")
         return
