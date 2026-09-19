@@ -1,18 +1,18 @@
 import asyncio
 import io
 import time
+from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
-from urllib.parse import quote
 
-import aiohttp
 import qrcode
 from aiogram import F, Router
 from aiogram.filters import Command, CommandObject
 from aiogram.types import BufferedInputFile, Message, ReplyParameters
 from PIL import Image, ImageDraw
 
-from config import PUBLIC_URL
+import storage
+from config import MEDIA_TTL_DAYS, PUBLIC_URL
 from logger import logger
 
 router = Router(name="qr")
@@ -35,11 +35,7 @@ QR_DOT_RATIO = 0.90
 
 LOGO_SCALE = 0.20
 
-MAX_FILE_BYTES = 5 * 1024 * 1024
-
-LITTERBOX_API = "https://litterbox.catbox.moe/resources/internals/api.php"
-LITTERBOX_EXPIRY = "24h"
-LITTERBOX_TIMEOUT = 120
+MAX_FILE_BYTES = 10 * 1024 * 1024
 
 OUTPUT_FILENAME = "barcode.jpg"
 
@@ -140,39 +136,28 @@ def _compose(data: str) -> Image.Image:
     return bg.convert("RGB")
 
 
-async def _upload_to_litterbox(file_bytes: bytes, filename: str) -> str:
-    form = aiohttp.FormData()
-    form.add_field("reqtype", "fileupload")
-    form.add_field("time", LITTERBOX_EXPIRY)
-    form.add_field(
-        "fileToUpload",
-        file_bytes,
-        filename=filename,
-        content_type="application/octet-stream",
-    )
-
-    timeout = aiohttp.ClientTimeout(total=LITTERBOX_TIMEOUT)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.post(LITTERBOX_API, data=form) as resp:
-            if resp.status != 200:
-                raise RuntimeError(f"Litterbox HTTP {resp.status}")
-            url = (await resp.text()).strip()
-            if not url.startswith("https://litter.catbox.moe/"):
-                raise RuntimeError(f"Unexpected Litterbox response: {url[:80]}")
-            return url
-
-
 def _derive_filename(message: Message, kind: str, ext: str) -> str:
     if kind == "video" and message.video and message.video.file_name:
         return message.video.file_name
     return f"cheyaverse_{kind}_{int(time.time() * 1000)}.{ext}"
 
 
-def _build_viewer_url(litterbox_url: str, filename: str) -> str:
+def _content_type_for(kind: str, ext: str) -> str:
+    if kind == "photo":
+        return "image/jpeg"
+    if kind == "video":
+        return "video/mp4"
+    return "application/octet-stream"
+
+
+def _expires_at_iso() -> str:
+    return (datetime.now(timezone.utc) + timedelta(days=MEDIA_TTL_DAYS)).isoformat()
+
+
+def _build_viewer_url(media_id: str) -> str:
     if not PUBLIC_URL:
-        return litterbox_url
-    media = litterbox_url.rstrip("/").rsplit("/", 1)[-1]
-    return f"{PUBLIC_URL}/m/{quote(media)}/{quote(filename)}"
+        return f"/m/{media_id}"
+    return f"{PUBLIC_URL}/m/{media_id}"
 
 
 async def _send_qr(message: Message, data: str, source: str) -> None:
@@ -290,12 +275,27 @@ async def _handle_media(message: Message, file_id: str, kind: str, ext: str) -> 
         file_bytes = file_io.read()
 
         filename = _derive_filename(message, kind, ext)
-        litterbox_url = await _upload_to_litterbox(file_bytes, filename)
-        qr_payload = _build_viewer_url(litterbox_url, filename)
+        content_type = _content_type_for(kind, ext)
+
+        media_id = await storage.generate_unique_id()
+        storage_path = f"{media_id}.{ext}"
+
+        row = {
+            "id": media_id,
+            "filename": filename,
+            "storage_path": storage_path,
+            "content_type": content_type,
+            "file_size": len(file_bytes),
+            "expires_at": _expires_at_iso(),
+        }
+
+        await storage.upload_media(storage_path, file_bytes, content_type, row)
+        qr_payload = _build_viewer_url(media_id)
+
     except ValueError as exc:
         logger.error(f"Media ({kind}) validation failed for {label}: {exc}")
         try:
-            await message.answer("File too large. Maximum size is 5 MB.", parse_mode=None, reply_parameters=ReplyParameters(message_id=message.message_id))
+            await message.answer("File too large. Maximum size is 10 MB.", parse_mode=None, reply_parameters=ReplyParameters(message_id=message.message_id))
         except Exception as e:
             logger.error(f"Fallback ({kind}) failed: {e}")
         return
