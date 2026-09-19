@@ -31,6 +31,7 @@ CheyaVerse/
 ├── config.py
 ├── logger.py
 ├── main.py
+├── storage.py
 ├── web.py
 └── requirements.txt
 ```
