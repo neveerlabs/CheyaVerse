@@ -1,6 +1,6 @@
 # CheyaVerse — Setup
 
-Panduan lengkap untuk meng setup bot CheyaVerse
+Panduan lengkap untuk meng setup bot & web CheyaVerse
 
 ## Requirements
 
@@ -16,6 +16,8 @@ Panduan lengkap untuk meng setup bot CheyaVerse
 ```
 CheyaVerse/
 ├── assets/
+│ ├── model.gif
+│ ├── ok.gif
 │ ├── background.png
 │ └── cheyaverse.jpg
 ├── handlers/
@@ -34,6 +36,8 @@ CheyaVerse/
 ```
 
 Folder `assets/` **wajib** ada 2 file gambar:
+- `model.gif` — karakter gif page 404
+- `ok.gif` — karakter gif verification
 - `background.png` — template QR
 - `cheyaverse.jpg` — logo profile CheyaVerse
 > Karena untuk penggunaan generate barcode
@@ -77,7 +81,7 @@ PUBLIC_URL=http://{host}:8080
 WEB_HOST=0.0.0.0
 WEB_PORT=8080
 ```
-> **Disclaimer**: _Ganti `{host}` dengan IP lokal (client IP). Cek:
+> **Disclaimer**: _Ganti `{host}` dengan IP lokal (client IP)._ Cek:
 ```bash
 ip addr show | grep "inet " | grep -v 127.0.0.1
 ```
@@ -87,25 +91,38 @@ ip addr show | grep "inet " | grep -v 127.0.0.1
 python3 main.py
 ```
 
-### Log yg benar harus seperti ini
+### 7. Running web
 ```bash
-[HH:MM:SS] [INFO] CheyaVerse is running...
-[HH:MM:SS] [INFO] QR assets verified.
-[HH:MM:SS] [INFO] Public viewer base: http://{ip_local}:8080
-[HH:MM:SS] [INFO] Bot active: @username | Name | ID: 123456
-[HH:MM:SS] [INFO] Web viewer listening on http://0.0.0.0:8080
-[HH:MM:SS] [INFO] Polling engaged. Press CTRL+C to stop.
+python3 web.py
 ```
+
+### Log yg benar harus seperti ini
+- **Server bot**
+  ```bash
+  [HH:MM:SS] [INFO] CheyaVerse is running...
+  [HH:MM:SS] [INFO] QR assets verified.
+  [HH:MM:SS] [INFO] Public viewer base: http://{host}:8080
+  [HH:MM:SS] [INFO] Bot active: @username | Name | ID: 123456
+  [HH:MM:SS] [INFO] Web viewer listening on http://0.0.0.0:8080
+  [HH:MM:SS] [INFO] Polling engaged. Press CTRL+C to stop.
+  ```
+- **server web**
+  ```bash
+  [HH:MM:SS] [INFO] CheyaVerse webapp is starting...
+  [HH:MM:SS] [INFO] Public viewer base: http://{host}:8080
+  [HH:MM:SS] [INFO] CheyaShield captcha enabled on /download.
+  ```
 
 ---
 
 ### Catatan & pemberitahuan
 - barcode yg dihasilkan dari input teks, berfungsi secara permanen
-- barcode yg dihasolkan dari media (gambar/video), berfungsi permanen, namun... tidak akan berfungsi lama, hanya 24h saja dikarenakan data medianya disimpan didalam server `LitterBox`
+- barcode yg dihasolkan dari media (gambar/video), berfungsi permanen, namun... tidak akan berfungsi lama, hanya 30 hari saja dikarenakan data medianya disimpan didalam server `supabase`
 - webapp view nya untuk menampilkan isi file file foto/video dari barcode yg di scan, hanya dapat di akses di lokal, karena tidak di publish. Jika anda bersedia dan ingin membantu saya atau pun itu memberi, tolonglah, saya ingin webapp nya di deploy, tapi ini membutuhkan `aiohttp` dan tidak statis datanya karena datanya diambil dari url barcode!
-- server bot dan juga server webapp nya berjalan dari lokal, hanya satu kali command kedua server itu sudah daat berjalan dengan baik
-- Data media untuk upload generate barcode max 5 MB
-- Gka bisa generate barcode dari beberapa file sekaligus (setiap satu barcode yg dibuat harus satu file yg diupload, jika nggak bakal gagal)
-- Jika muncul pesan chat `Unable to upload this file, please try again later.` dari bot saat generate barcode dan di log console lognya seperti ini `[HH:MM:SS] [ERROR] Failed to upload {kind} for {label}: {exc}`, jelas itu bukan kesalahan di kode, tapi emang server LitterBox nya aja yg lagi down
+- server bot dan juga server webapp nya berjalan dari localhost
+- Data media untuk upload generate barcode max 10 MB
+- Gka bisa generate barcode dari beberapa file sekaligus (setiap satu barcode yg dibuat harus satu file yg diupload)
+- Jika muncul pesan chat `Unable to upload this file, please try again later.` dari bot saat generate barcode dan di log console lognya seperti ini `[HH:MM:SS] [ERROR] Failed to upload {kind} for {label}: {exc}`, jelas itu bukan kesalahan di kode, tapi emang server supabase nya aja yg mungkin lagi down
 - server bot dan webapp running di lokal, belum di deploy di server luar
-- webapp hanya dapat diakses dari jaringan lokal, dan untuk scan barcode dari barcode yg dibuat dengan upload meida, tidak akan bisa digunakan/tampilkan medianya karena isi barcode media ialah url untuk ke webapp. Jadi intinya, alurnya seperti ini: barcode media (isinya url untuk redirect ke webapp) > scan barcode redirect ke webapp > webapp menampilkan media dari url LitterBox.
+- webapp hanya dapat diakses dari jaringan lokal, dan untuk scan barcode dari barcode yg dibuat dengan upload meida, tidak akan bisa digunakan/tampilkan medianya karena isi barcode media ialah url untuk ke webapp. Jadi intinya, alurnya seperti ini: barcode media (isinya url untuk redirect ke webapp) > scan barcode redirect ke webapp > webapp menampilkan media dari url supabase.
+- format isi url dari barcode dan url webapp: `{host}:{port}/m/{id}`
