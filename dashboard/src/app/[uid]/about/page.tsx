@@ -18,7 +18,7 @@ export default function AboutPage() {
       <GroupSection title="Bot">
         <ListRow icon={<Bot size={22} />} title="Nama" value="CheyaVerse" disabled />
         <ListRow icon={<Tag size={22} />} title="Username" value={bot} disabled />
-        <ListRow icon={<Code2 size={22} />} title="Versi" value="v1.2.2" disabled />
+        <ListRow icon={<Code2 size={22} />} title="Versi" value="v1.4.8" disabled />
         <ListRow icon={<Info size={22} />} title="Platform" value="Telegram" disabled />
         <ListRow icon={<Clock size={22} />} title="Status" value="Running" disabled />
       </GroupSection>
