@@ -1,6 +1,5 @@
 import { AppHeader } from "@/components/AppHeader";
 import { CommandRow } from "./CommandRow";
-import { Terminal } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -15,18 +14,14 @@ const COMMANDS = [
 export default function CommandsPage() {
   return (
     <>
-      <AppHeader
-        title="Perintah"
-        subtitle="Command yang tersedia"
-        icon={<Terminal size={22} strokeWidth={2.4} />}
-      />
-      <div className="rounded-2xl bg-white border border-line overflow-hidden animate-fade-up">
+      <AppHeader title="Perintah" subtitle="Tap tombol copy untuk menyalin command" />
+      <div className="flex flex-col px-1 animate-fade-up">
         {COMMANDS.map((c) => (
           <CommandRow key={c.cmd} cmd={c.cmd} desc={c.desc} />
         ))}
       </div>
-      <p className="text-center text-[11px] text-ink-mute py-3 font-medium mt-3">
-        Tap pada perintah untuk menyalin
+      <p className="text-center text-[11.5px] text-ink-mute py-5 font-normal">
+        CheyaVerse · v1.4.8
       </p>
     </>
   );
