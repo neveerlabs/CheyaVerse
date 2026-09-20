@@ -153,7 +153,9 @@ Webapp jalan di `http://localhost:8080`. Buka di browser buat preview viewer & d
 
 ---
 
-## Bikin Tabel Media
+## Setup Supabase
+
+### Bikin Tabel Media
 
 1. Di sidebar, klik **SQL Editor** → **+ New query**
 2. Isi input SQL berikut:
@@ -190,9 +192,9 @@ CREATE INDEX IF NOT EXISTS idx_media_owner_id ON media (owner_id);
 
 > File lama yang belum punya `owner_id` bakal jadi `NULL`. Bisa dihapus manual atau dibiarin (nggak muncul di dashboard manapun).
 
-**DISCLAIMER:** Ambil key **`anon public`**, jangan `service_role`. Key `service_role` punya akses full admin, **JANGAN pernah** ditaruh / sim[an di kode publik
+**DISCLAIMER:** Ambil key **`anon public`**, jangan `service_role`. Key `service_role` punya akses full admin, **JANGAN pernah** ditaruh / simpan di kode publik
 
-## Buat Bucket Storage
+### Buat Bucket Storage
 
 1. Di sidebar, klik **Storage**
 2. Klik **New bucket**
@@ -203,34 +205,14 @@ CREATE INDEX IF NOT EXISTS idx_media_owner_id ON media (owner_id);
 4. Klik **Save**
 > **Saran:** _buat bagian pilihan opsi, ada baiknya gak usah ada yg di centang, tapi terserah_
 
-## Bikin Tabel Media
-
-1. Di sidebar, klik **SQL Editor** → **+ New query**
-2. Isi input SQL berikut:
-
-    ```sql
-    CREATE TABLE IF NOT EXISTS media (
-        id TEXT PRIMARY KEY,
-        filename TEXT NOT NULL,
-        storage_path TEXT NOT NULL,
-        content_type TEXT,
-        file_size BIGINT,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        expires_at TIMESTAMPTZ NOT NULL
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_media_expires_at ON media (expires_at);
-    ```
-3. Klik **Run** (atau `Ctrl + Enter`)
-4. Pastikan muncul output **"Success. No rows returned"**
-
-## Setup Row Level Security (RLS) Policy
-**Langkah yang WAJIB**. Tanpa ini, upload akan gagal dengan error `new row violates row-level security policy`
+### Setup Row Level Security (RLS) Policy
+**Langkah yang WAJIB**. Tanpa ini, upload, rename, & delete akan gagal dengan error `new row violates row-level security policy` atau `permission denied`
 
 Di **SQL Editor** → **+ New query**
 ```sql
 DROP POLICY IF EXISTS "media_select" ON media;
 DROP POLICY IF EXISTS "media_insert" ON media;
+DROP POLICY IF EXISTS "media_update" ON media;
 DROP POLICY IF EXISTS "media_delete" ON media;
 
 DROP POLICY IF EXISTS "media_bucket_select" ON storage.objects;
@@ -245,6 +227,11 @@ CREATE POLICY "media_select" ON media
 
 CREATE POLICY "media_insert" ON media
     FOR INSERT
+    WITH CHECK (true);
+
+CREATE POLICY "media_update" ON media
+    FOR UPDATE
+    USING (true)
     WITH CHECK (true);
 
 CREATE POLICY "media_delete" ON media
@@ -265,7 +252,9 @@ CREATE POLICY "media_bucket_delete" ON storage.objects
 ```
 Klik **Run**, pastikan outputnya **"Success. No rows returned"**
 
-## Verifikasi Policy
+> **Penting:** Policy `media_update` **WAJIB** ada. Tanpa ini, fitur **rename** di dashboard bakal gagal dengan error `db_error` → 500. Rename butuh `UPDATE` permission di tabel `media`.
+
+### Verifikasi Policy
 Jalanin SQL ini buat memastikan policy udah aktif
 ```sql
 SELECT schemaname, tablename, policyname, cmd
@@ -274,7 +263,18 @@ WHERE tablename IN ('media', 'objects')
 ORDER BY tablename, policyname;
 ```
 
-## (Opsional) Auto-Cleanup dengan pg_cron
+Expected output (7 rows):
+| tablename | policyname | cmd |
+|---|---|---|
+| media | media_delete | DELETE |
+| media | media_insert | INSERT |
+| media | media_select | SELECT |
+| media | media_update | UPDATE |
+| objects | media_bucket_delete | DELETE |
+| objects | media_bucket_insert | INSERT |
+| objects | media_bucket_select | SELECT |
+
+### (Opsional) Auto-Cleanup dengan pg_cron
 Kalau mau Supabase yang bersihin media expired otomatis (tanpa perlu bot jalan), aktifkan `pg_cron` di **Database** → **Extensions**, lalu jalanin:
 ```sql
 CREATE OR REPLACE FUNCTION delete_expired_media()
@@ -410,8 +410,11 @@ Klik Download → reCAPTCHA v2 muncul → verify → file di-proxy lewat server
 - Download stuck di reCAPTCHA → cek `NEXT_PUBLIC_RECAPTCHA_SITE_KEY` & `RECAPTCHA_SECRET_KEY` di env vars Vercel
 - Viewer kosong / loading terus → cek `SUPABASE_URL` & `SUPABASE_KEY` di env vars Vercel
 - Dashboard personal nampilin "Belum ada media" padahal udah upload → cek `owner_id` di tabel `media` udah keisi (upload ulang kalau file lama)
+- **Rename gagal dengan error `db_error` (500)** → cek policy `media_update` udah dibuat di Supabase (lihat section RLS di atas)
+- **Delete gagal padahal udah 200 OK di log** → media mungkin udah kehapus sebelumnya (refresh list). Cek juga policy `media_delete` & `media_bucket_delete` udah bener
 
 **Migrasi dari versi lama:**
 - Server web lama (`web.py` aiohttp) **udah deprecated** — diganti Next.js di `dashboard/`
 - Kolom `owner_id` ditambahin di update terbaru. File lama yang belum punya bakal `NULL` dan nggak muncul di dashboard manapun (harus upload ulang)
 - Format URL berubah dari `{host}:{port}/m/{id}` → `{PUBLIC_URL}/{uid}/m/{id}` (scoped per user)
+- Policy `media_update` ditambahin di RLS section — perlu dijalanin kalau lo setup Supabase sebelum update ini
