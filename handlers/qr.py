@@ -154,10 +154,9 @@ def _expires_at_iso() -> str:
     return (datetime.now(timezone.utc) + timedelta(days=MEDIA_TTL_DAYS)).isoformat()
 
 
-def _build_viewer_url(media_id: str) -> str:
-    if not PUBLIC_URL:
-        return f"/m/{media_id}"
-    return f"{PUBLIC_URL}/m/{media_id}"
+def _build_viewer_url(media_id: str, owner_id: int) -> str:
+    base = PUBLIC_URL if PUBLIC_URL else ""
+    return f"{base}/{owner_id}/m/{media_id}"
 
 
 async def _send_qr(message: Message, data: str, source: str) -> None:
@@ -263,6 +262,7 @@ async def _finalize_group(group_id: str) -> None:
 async def _handle_media(message: Message, file_id: str, kind: str, ext: str) -> None:
     user = message.from_user
     label = user.username or user.full_name or str(user.id)
+    owner_id = user.id
 
     try:
         tg_file = await message.bot.get_file(file_id)
@@ -282,6 +282,7 @@ async def _handle_media(message: Message, file_id: str, kind: str, ext: str) -> 
 
         row = {
             "id": media_id,
+            "owner_id": owner_id,
             "filename": filename,
             "storage_path": storage_path,
             "content_type": content_type,
@@ -290,7 +291,7 @@ async def _handle_media(message: Message, file_id: str, kind: str, ext: str) -> 
         }
 
         await storage.upload_media(storage_path, file_bytes, content_type, row)
-        qr_payload = _build_viewer_url(media_id)
+        qr_payload = _build_viewer_url(media_id, owner_id)
 
     except ValueError as exc:
         logger.error(f"Media ({kind}) validation failed for {label}: {exc}")
