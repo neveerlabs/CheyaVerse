@@ -157,6 +157,7 @@ export default function ViewerClient({
   const [isFs, setIsFs] = useState(false);
 
   const mediaRef = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const recaptchaRef = useRef<ReCAPTCHA>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -201,6 +202,74 @@ export default function ViewerClient({
     };
   }, []);
 
+  function toggleFs() {
+    const el = mediaRef.current;
+    if (!el) return;
+    type FsEl = HTMLElement & { webkitRequestFullscreen?: () => void };
+    type FsDoc = Document & {
+      webkitExitFullscreen?: () => void;
+      webkitFullscreenElement?: Element;
+    };
+    if (isFs) {
+      const doc = document as FsDoc;
+      (document.exitFullscreen || doc.webkitExitFullscreen)?.call(document);
+    } else {
+      const anyEl = el as FsEl;
+      (el.requestFullscreen || anyEl.webkitRequestFullscreen)?.call(el);
+    }
+  }
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+      if (tag === "input" || tag === "textarea" || tag === "select") return;
+
+      if (e.key === "Escape") {
+        if (modalOpen) {
+          setModalOpen(false);
+          e.preventDefault();
+          return;
+        }
+      }
+
+      if (e.key === "f" || e.key === "F") {
+        if (mediaRef.current) {
+          toggleFs();
+          e.preventDefault();
+        }
+        return;
+      }
+
+      const v = videoRef.current;
+      if (!v) return;
+
+      if (e.code === "Space") {
+        e.preventDefault();
+        if (v.paused) v.play().catch(() => {});
+        else v.pause();
+      } else if (e.code === "ArrowLeft") {
+        e.preventDefault();
+        v.currentTime = Math.max(0, v.currentTime - 5);
+      } else if (e.code === "ArrowRight") {
+        e.preventDefault();
+        if (isFinite(v.duration) && v.duration > 0) {
+          v.currentTime = Math.min(v.duration, v.currentTime + 5);
+        }
+      } else if (e.code === "ArrowUp") {
+        e.preventDefault();
+        v.volume = Math.min(1, v.volume + 0.1);
+      } else if (e.code === "ArrowDown") {
+        e.preventDefault();
+        v.volume = Math.max(0, v.volume - 0.1);
+      } else if (e.key === "m" || e.key === "M") {
+        e.preventDefault();
+        v.muted = !v.muted;
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [modalOpen, isFs]);
+
   function triggerDownload(recaptchaToken: string) {
     window.location.href = `/download/${encodeURIComponent(mediaId)}?token=${encodeURIComponent(recaptchaToken)}`;
   }
@@ -243,23 +312,6 @@ export default function ViewerClient({
       try { document.execCommand("copy"); showToast("Link disalin"); }
       catch { showToast("Gagal menyalin"); }
       document.body.removeChild(ta);
-    }
-  }
-
-  function toggleFs() {
-    const el = mediaRef.current;
-    if (!el) return;
-    type FsEl = HTMLElement & { webkitRequestFullscreen?: () => void };
-    type FsDoc = Document & {
-      webkitExitFullscreen?: () => void;
-      webkitFullscreenElement?: Element;
-    };
-    if (isFs) {
-      const doc = document as FsDoc;
-      (document.exitFullscreen || doc.webkitExitFullscreen)?.call(document);
-    } else {
-      const anyEl = el as FsEl;
-      (el.requestFullscreen || anyEl.webkitRequestFullscreen)?.call(el);
     }
   }
 
@@ -318,6 +370,7 @@ export default function ViewerClient({
 
         {kind === "video" && (
           <VideoPlayer
+            ref={videoRef}
             src={signedUrl}
             onReady={() => setReady(true)}
             onError={() => setFailed(true)}
