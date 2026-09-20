@@ -16,25 +16,38 @@ export function TabBar({ uid }: { uid: string }) {
   ];
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 h-[calc(70px+env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] bg-white/95 backdrop-blur-xl border-t border-line flex">
-      {TABS.map(({ href, label, icon: Icon }) => {
-        const active = href === base ? pathname === base : pathname.startsWith(href);
-        return (
-          <Link
-            key={href}
-            href={href}
-            className={`flex-1 flex flex-col items-center justify-center gap-1 pt-1 relative text-[10.5px] font-semibold transition-colors ${
-              active ? "text-ink" : "text-ink-mute hover:text-ink-soft"
-            }`}
-          >
-            {active && (
-              <span className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-[3px] rounded-b bg-ink" />
-            )}
-            <Icon size={22} strokeWidth={active ? 2.4 : 2} />
-            <span>{label}</span>
-          </Link>
-        );
-      })}
+    <nav className="fixed bottom-0 left-0 right-0 z-50 pb-[env(safe-area-inset-bottom)] bg-white/92 backdrop-blur-xl border-t border-divider">
+      <div className="flex h-[54px] max-w-[600px] mx-auto">
+        {TABS.map(({ href, label, icon: Icon }) => {
+          const active = href === base ? pathname === base : pathname.startsWith(href);
+          return (
+            <Link
+              key={href}
+              href={href}
+              className="flex-1 flex flex-col items-center justify-center gap-0.5 relative transition-colors"
+            >
+              <span
+                className={`flex items-center justify-center w-12 h-6 rounded-full transition-colors duration-200 ${
+                  active ? "bg-[#f2f2f2]" : ""
+                }`}
+              >
+                <Icon
+                  size={19}
+                  strokeWidth={active ? 2.4 : 1.8}
+                  className={active ? "text-ink" : "text-ink-mute"}
+                />
+              </span>
+              <span
+                className={`text-[10.5px] tracking-[-.005em] leading-none ${
+                  active ? "font-semibold text-ink" : "font-normal text-ink-mute"
+                }`}
+              >
+                {label}
+              </span>
+            </Link>
+          );
+        })}
+      </div>
     </nav>
   );
 }
