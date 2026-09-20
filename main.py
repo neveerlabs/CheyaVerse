@@ -1,18 +1,17 @@
 import asyncio
 import sys
-
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramAPIError
 from aiogram.types import ErrorEvent
-
 import storage
 from config import BOT_TOKEN, PUBLIC_URL
 from handlers import help as help_handler
 from handlers import qr as qr_handler
 from handlers import start
 from logger import logger
+from handlers import web as web_handler
 
 CLEANUP_INTERVAL_SECONDS = 6 * 3600
 
@@ -88,6 +87,7 @@ async def _run() -> int:
     dp.include_router(start.router)
     dp.include_router(help_handler.router)
     dp.include_router(qr_handler.router)
+    dp.include_router(web_handler.router)
 
     @dp.errors()
     async def on_error(event: ErrorEvent) -> None:
