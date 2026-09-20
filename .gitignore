@@ -1,8 +1,29 @@
-.env
+# Python
 __pycache__/
-*.pyc
-*.pyo
-.venv/
+*.py[cod]
+*.egg-info/
 venv/
-.idea/
+.venv/
+env/
+.env
+.env.local
+
+# Node
+node_modules/
+.next/
+out/
+build/
+dist/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
 .vscode/
+.idea/
+*.swp
+
+# Logs
+*.log
+logs/
