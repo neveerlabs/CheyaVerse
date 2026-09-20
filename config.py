@@ -13,12 +13,10 @@ def _int_env(name: str, default: int) -> int:
     except ValueError:
         return default
 
-
 BOT_TOKEN: str = os.getenv("BOT_TOKEN", "").strip()
 PUBLIC_URL: str = os.getenv("PUBLIC_URL", "").strip().rstrip("/")
 WEB_HOST: str = os.getenv("WEB_HOST", "0.0.0.0").strip() or "0.0.0.0"
 WEB_PORT: int = _int_env("WEB_PORT", 8080)
-
 SUPABASE_URL: str = os.getenv("SUPABASE_URL", "").strip()
 SUPABASE_KEY: str = os.getenv("SUPABASE_KEY", "").strip()
 SUPABASE_BUCKET: str = os.getenv("SUPABASE_BUCKET", "cheyaverse-media").strip()
