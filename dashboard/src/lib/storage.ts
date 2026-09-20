@@ -55,3 +55,46 @@ export async function getStats(uid: number) {
   const active = activeRes.count ?? 0;
   return { total, active, expired: Math.max(0, total - active) };
 }
+
+export async function deleteMediaById(
+  mediaId: string,
+  ownerId: number,
+): Promise<{ ok: boolean; reason?: string }> {
+  const sb = getSupabase();
+  const meta = await fetchMedia(mediaId);
+  if (!meta) return { ok: false, reason: "not_found" };
+  if (meta.owner_id !== ownerId) return { ok: false, reason: "forbidden" };
+
+  if (meta.storage_path) {
+    try {
+      await sb.storage.from(config.supabase.bucket).remove([meta.storage_path]);
+    } catch (err) {
+      console.error("Storage remove failed:", err);
+    }
+  }
+
+  const { error } = await sb.from(config.supabase.table).delete().eq("id", mediaId);
+  if (error) return { ok: false, reason: "db_error" };
+  return { ok: true };
+}
+
+export async function renameMediaById(
+  mediaId: string,
+  ownerId: number,
+  newName: string,
+): Promise<{ ok: boolean; reason?: string }> {
+  const sb = getSupabase();
+  const meta = await fetchMedia(mediaId);
+  if (!meta) return { ok: false, reason: "not_found" };
+  if (meta.owner_id !== ownerId) return { ok: false, reason: "forbidden" };
+
+  const cleaned = newName.replace(/[\\/\r\n\t]/g, "").trim().slice(0, 200);
+  if (!cleaned) return { ok: false, reason: "invalid_name" };
+
+  const { error } = await sb
+    .from(config.supabase.table)
+    .update({ filename: cleaned })
+    .eq("id", mediaId);
+  if (error) return { ok: false, reason: "db_error" };
+  return { ok: true };
+}
