@@ -1,10 +1,8 @@
 # Python
 __pycache__/
 *.py[cod]
-*.egg-info/
 venv/
 .venv/
-env/
 .env
 .env.local
 
@@ -13,7 +11,6 @@ node_modules/
 .next/
 out/
 build/
-dist/
 
 # OS
 .DS_Store
@@ -22,8 +19,3 @@ Thumbs.db
 # Editor
 .vscode/
 .idea/
-*.swp
-
-# Logs
-*.log
-logs/
