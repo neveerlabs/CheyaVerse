@@ -25,7 +25,7 @@ CheyaVerse/
 │   ├── qr.py
 │   ├── start.py
 │   └── web.py
-├── dashboard/                    ← webapp (Next.js)
+├── dashboard/
 │   ├── public/
 │   │   └── assets/
 │   │       ├── cheyaverse.jpg
