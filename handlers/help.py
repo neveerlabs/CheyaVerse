@@ -23,9 +23,9 @@ HELP_TEXT = (
     "• /start — Start Cheya\n"
     "• /help — Command help\n"
     "• /qr <text> — Generate QR code from text\n"
+    "• /web — Dapatkan URL dashboard personal\n"
     "```\n"
 )
-
 
 def build_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
