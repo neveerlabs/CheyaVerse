@@ -386,6 +386,7 @@ Klik Download → reCAPTCHA v2 muncul → verify → file di-proxy lewat server
 - Tombol Raw sekarang **fullscreen**, bukan redirect
 - reCAPTCHA v2 (Google) dipakai buat verifikasi sebelum download
 - Kolom `owner_id` di tabel `media` → user cuma bisa lihat dashboard & file miliknya sendiri
+- View preference (list/grid) disimpan di cookie, bukan database — biar gak ada tracking tambahan ke server
 
 **Batasan:**
 - Max upload file: **5 MB**
@@ -412,6 +413,7 @@ Klik Download → reCAPTCHA v2 muncul → verify → file di-proxy lewat server
 - Dashboard personal nampilin "Belum ada media" padahal udah upload → cek `owner_id` di tabel `media` udah keisi (upload ulang kalau file lama)
 - **Rename gagal dengan error `db_error` (500)** → cek policy `media_update` udah dibuat di Supabase (lihat section RLS di atas)
 - **Delete gagal padahal udah 200 OK di log** → media mungkin udah kehapus sebelumnya (refresh list). Cek juga policy `media_delete` & `media_bucket_delete` udah bener
+- **Video thumbnail gak muncul** → browser gagal decode frame. Coba hard refresh (Ctrl+Shift+R). Kalau tetap gagal, video corrupt atau format tidak didukung browser.
 
 **Migrasi dari versi lama:**
 - Server web lama (`web.py` aiohttp) **udah deprecated** — diganti Next.js di `dashboard/`
