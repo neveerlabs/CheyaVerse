@@ -13,19 +13,27 @@ Panduan lengkap untuk meng setup bot & web CheyaVerse
 | Storage minimum | 150 MB |
 | Supabase | Wajib |
 
-## Struktur Folder Setelah Setup
+## Struktur Folder
 ```
 CheyaVerse/
 ├── assets/
-│ ├── model.gif
-│ ├── ok.gif
-│ ├── background.png
-│ └── cheyaverse.jpg
+│   ├── background.png
+│   └── cheyaverse.jpg
 ├── handlers/
-│ ├── init.py
-│ ├── help.py
-│ ├── qr.py
-│ └── start.py
+│   ├── __init__.py
+│   ├── help.py
+│   ├── qr.py
+│   ├── start.py
+│   └── web.py
+├── dashboard/                    ← webapp (Next.js)
+│   ├── public/
+│   │   └── assets/
+│   │       ├── cheyaverse.jpg
+│   │       ├── model.gif
+│   │       └── ok.gif
+│   ├── src/
+│   ├── package.json
+│   └── ...
 ├── .env
 ├── .env.example
 ├── .gitignore
@@ -33,16 +41,14 @@ CheyaVerse/
 ├── logger.py
 ├── main.py
 ├── storage.py
-├── web.py
 └── requirements.txt
 ```
 
-Folder `assets/` **wajib** ada 2 file gambar:
-- `model.gif` — karakter gif page 404
-- `ok.gif` — karakter gif verification
-- `background.png` — template QR
-- `cheyaverse.jpg` — logo profile CheyaVerse
-> Karena untuk penggunaan generate barcode
+**Catatan:**
+- Folder `assets/` di root **dipake bot** buat generate QR — wajib ada `background.png` & `cheyaverse.jpg`
+- Folder `dashboard/` adalah webapp (viewer + dashboard personal). Kalau mau jalanin webapp, install Node.js dan pindah ke folder `dashboard/`
+- File `web.py` yang lama (server aiohttp) **udah nggak dipake**. Webapp sekarang di folder `dashboard/` (Next.js)
+- Handler `handlers/web.py` adalah command `/web` di bot (buat nampilin URL dashboard personal), **bukan** server web
 
 ### 1. Update package manager
 
@@ -79,9 +85,10 @@ pip install -r requirements.txt
 ### 5. Update isi file `.env`
 ```txt
 BOT_TOKEN=tokenbot
-PUBLIC_URL=http://{host}:8080
+PUBLIC_URL=https://{host}:{port}
 WEB_HOST=0.0.0.0
 WEB_PORT=8080
+BOT_USERNAME=CheyaVersebot
 SUPABASE_URL=https://xxxxx.supabase.co
 SUPABASE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 SUPABASE_BUCKET=cheyaverse-media
@@ -89,7 +96,10 @@ SUPABASE_TABLE=media
 MEDIA_TTL_DAYS=30
 SIGNED_URL_TTL=2592000
 ```
-> **Catatan:** _Isi file `.env` dengan susunan tutorial dibawah. Data media disimpan selama 30 hari didalm **Supabase**_
+> **Catatan:**
+> - `PUBLIC_URL` = URL webapp. Isi dengan URL Vercel (`https://cheyaverse.vercel.app`) kalau udah deploy, atau IP lokal (`http://192.168.x.x:8080`) kalau masih `deploymen`
+> - `BOT_USERNAME` = username bot Telegram tanpa `@`. Dipakai webapp buat tombol "Buka Bot"
+> - Data media disimpan selama 30 hari di **Supabase**
 
 > **Disclaimer**: _Ganti `{host}` dengan IP lokal (client IP)._ Cek:
 ```bash
@@ -97,61 +107,92 @@ ip addr show | grep "inet " | grep -v 127.0.0.1
 ```
 
 ### 6. Running bot
+
 ```bash
 python3 main.py
 ```
 
-### 7. Running web
+Bot akan jalan dan polling ke Telegram. Biarkan terminal ini tetap terbuka.
+
+### 7. Running webapp (opsional, kalau deploymen)
+
+> **Skip bagian ini kalau webapp udah di-deploy di Vercel.** Bot tetap bisa jalan tanpa webapp lokal, karena link QR nunjuk ke `PUBLIC_URL`
+
+Kalau mau jalanin webapp lokal:
+
 ```bash
-python3 web.py
+cd dashboard
+npm install
+npm run dev
 ```
 
+Webapp jalan di `http://localhost:8080`. Buka di browser buat preview viewer & dashboard.
+
+> **Penting:** Set `PUBLIC_URL=http://192.168.x.x:8080` di `.env` Python kalau mau QR bisa di-scan dari HP lain di WiFi yang sama.
+
 ### Log yg benar harus seperti ini
-- **Server bot**
-  ```bash
-  [HH:MM:SS] [INFO] CheyaVerse is running...
-  [HH:MM:SS] [INFO] QR assets verified.
-  [HH:MM:SS] [INFO] Public viewer base: http://{host}:8080
-  [HH:MM:SS] [INFO] Bot active: @username | Name | ID: 123456
-  [HH:MM:SS] [INFO] Web viewer listening on http://0.0.0.0:8080
-  [HH:MM:SS] [INFO] Polling engaged. Press CTRL+C to stop.
-  ```
-- **server web**
-  ```bash
-  [HH:MM:SS] [INFO] CheyaVerse webapp is starting...
-  [HH:MM:SS] [INFO] Public viewer base: http://{host}:8080
-  [HH:MM:SS] [INFO] CheyaShield captcha enabled on /download.
-  ```
+
+**Server bot**
+```bash
+[HH:MM:SS] [INFO] CheyaVerse bot is starting...
+[HH:MM:SS] [INFO] QR assets verified.
+[HH:MM:SS] [INFO] Public viewer base: https://cheyaverse.vercel.app
+[HH:MM:SS] [INFO] Startup cleanup: no expired media found.
+[HH:MM:SS] [INFO] Bot active: @username | Name | ID: 123456789
+[HH:MM:SS] [INFO] Polling engaged. Press CTRL+C to stop.
+```
+
+**Server webapp**
+```bash
+▲ Next.js 14.2.18
+- Local:        http://localhost:8080
+✓ Ready in 2.1s
+```
+
+> **Catatan:** Log webapp cuma muncul kalo dijalanin dilokal. Kalo udah di Vercel, log-nya ada di dashboard Vercel → Deployments → Logs
 
 ---
 
-### Setup supabase
+## Bikin Tabel Media
 
-## 1. Buat project
+1. Di sidebar, klik **SQL Editor** → **+ New query**
+2. Isi input SQL berikut:
 
-1. Buka [supabase.com](https://supabase.com) → **Start your project**
-2. Klik **New Project**
-3. Isi:
-   - **Name**: `CheyaVerse` (bebas)
-   - **Database Password**: klik `generaye password`, **simpan**
-   - **Region**: pilih terdekat (mis. **Singapore**/**Asia**)
-   - **Pricing Plan**: Free (kalo emang lagi gak ada cuan, xixixi)
-4. Klik **Create new project** → tunggu 1–2 menit
+    ```sql
+    CREATE TABLE IF NOT EXISTS media (
+        id TEXT PRIMARY KEY,
+        owner_id BIGINT,
+        filename TEXT NOT NULL,
+        storage_path TEXT NOT NULL,
+        content_type TEXT,
+        file_size BIGINT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        expires_at TIMESTAMPTZ NOT NULL
+    );
 
-## 2. Ambil URL & Key
+    CREATE INDEX IF NOT EXISTS idx_media_expires_at ON media (expires_at);
+    CREATE INDEX IF NOT EXISTS idx_media_owner_id ON media (owner_id);
+    ```
 
-1. Di dashboard, klik **Project Settings** → **API Keys** → **Legacy anon, service_role API keys**
-2. Catat 2 value:
+3. Klik **Run** (atau `Ctrl + Enter`)
+4. Pastikan muncul output **"Success. No rows returned"**
 
-| Nama di Dashboard | Masuk ke `.env` sebagai |
-|---|---|
-| **Project URL** | `SUPABASE_URL` |
-| **`anon public`** (di Project API Keys) | `SUPABASE_KEY` |
-> **Notice:** Untuk mendapatkan **Project URL**, ada di bagian **Project Overview** → klik tombol `copy` yg dibawah nama project → klik tombol **Project URL**
+> **Catatan:** Kolom `owner_id` nyimpen Telegram user ID pemilik file. Dipakai webapp buat filter dashboard personal — user cuma bisa liat file yang dia upload
+
+### (Migrasi) Kalo tabel `media` udah ada sebelumnya
+
+Kalau lo udah pernah bikin tabel `media` sebelum update ini, jalanin SQL ini buat nambahin kolom `owner_id` tanpa kehilangan data:
+
+```sql
+ALTER TABLE media ADD COLUMN IF NOT EXISTS owner_id BIGINT;
+CREATE INDEX IF NOT EXISTS idx_media_owner_id ON media (owner_id);
+```
+
+> File lama yang belum punya `owner_id` bakal jadi `NULL`. Bisa dihapus manual atau dibiarin (nggak muncul di dashboard manapun).
 
 **DISCLAIMER:** Ambil key **`anon public`**, jangan `service_role`. Key `service_role` punya akses full admin, **JANGAN pernah** ditaruh / sim[an di kode publik
 
-## 3. Buat Bucket Storage
+## Buat Bucket Storage
 
 1. Di sidebar, klik **Storage**
 2. Klik **New bucket**
@@ -162,28 +203,28 @@ python3 web.py
 4. Klik **Save**
 > **Saran:** _buat bagian pilihan opsi, ada baiknya gak usah ada yg di centang, tapi terserah_
 
-## 4. Bikin Tabel Media
+## Bikin Tabel Media
 
 1. Di sidebar, klik **SQL Editor** → **+ New query**
 2. Isi input SQL berikut:
 
-```sql
-CREATE TABLE IF NOT EXISTS media (
-    id TEXT PRIMARY KEY,
-    filename TEXT NOT NULL,
-    storage_path TEXT NOT NULL,
-    content_type TEXT,
-    file_size BIGINT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    expires_at TIMESTAMPTZ NOT NULL
-);
+    ```sql
+    CREATE TABLE IF NOT EXISTS media (
+        id TEXT PRIMARY KEY,
+        filename TEXT NOT NULL,
+        storage_path TEXT NOT NULL,
+        content_type TEXT,
+        file_size BIGINT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        expires_at TIMESTAMPTZ NOT NULL
+    );
 
-CREATE INDEX IF NOT EXISTS idx_media_expires_at ON media (expires_at);
-```
+    CREATE INDEX IF NOT EXISTS idx_media_expires_at ON media (expires_at);
+    ```
 3. Klik **Run** (atau `Ctrl + Enter`)
 4. Pastikan muncul output **"Success. No rows returned"**
 
-## 5. Setup Row Level Security (RLS) Policy
+## Setup Row Level Security (RLS) Policy
 **Langkah yang WAJIB**. Tanpa ini, upload akan gagal dengan error `new row violates row-level security policy`
 
 Di **SQL Editor** → **+ New query**
@@ -224,7 +265,7 @@ CREATE POLICY "media_bucket_delete" ON storage.objects
 ```
 Klik **Run**, pastikan outputnya **"Success. No rows returned"**
 
-## 6. Verifikasi Policy
+## Verifikasi Policy
 Jalanin SQL ini buat memastikan policy udah aktif
 ```sql
 SELECT schemaname, tablename, policyname, cmd
@@ -233,7 +274,7 @@ WHERE tablename IN ('media', 'objects')
 ORDER BY tablename, policyname;
 ```
 
-## 7. (Opsional) Auto-Cleanup dengan pg_cron
+## (Opsional) Auto-Cleanup dengan pg_cron
 Kalau mau Supabase yang bersihin media expired otomatis (tanpa perlu bot jalan), aktifkan `pg_cron` di **Database** → **Extensions**, lalu jalanin:
 ```sql
 CREATE OR REPLACE FUNCTION delete_expired_media()
@@ -254,14 +295,123 @@ SELECT cron.schedule('cleanup-expired-media', '0 * * * *', 'SELECT delete_expire
 
 ---
 
-### Catatan & pemberitahuan
-- barcode yg dihasilkan dari input teks, berfungsi secara permanen
-- barcode yg dihasolkan dari media (gambar/video), berfungsi permanen, namun... tidak akan berfungsi lama, hanya 30 hari saja dikarenakan data medianya disimpan didalam server `supabase`
-- webapp view nya untuk menampilkan isi file file foto/video dari barcode yg di scan, hanya dapat di akses di lokal, karena tidak di publish. Jika anda bersedia dan ingin membantu saya atau pun itu memberi, tolonglah, saya ingin webapp nya di deploy, tapi ini membutuhkan `aiohttp` dan tidak statis datanya karena datanya diambil dari url barcode!
-- server bot dan juga server webapp nya berjalan dari localhost
-- Data media untuk upload generate barcode max 10 MB
-- Gka bisa generate barcode dari beberapa file sekaligus (setiap satu barcode yg dibuat harus satu file yg diupload)
-- Jika muncul pesan chat `Unable to upload this file, please try again later.` dari bot saat generate barcode dan di log console lognya seperti ini `[HH:MM:SS] [ERROR] Failed to upload {kind} for {label}: {exc}`, jelas itu bukan kesalahan di kode, tapi emang server supabase nya aja yg mungkin lagi down
-- server bot dan webapp running di lokal, belum di deploy di server luar
-- webapp hanya dapat diakses dari jaringan lokal, dan untuk scan barcode dari barcode yg dibuat dengan upload meida, tidak akan bisa digunakan/tampilkan medianya karena isi barcode media ialah url untuk ke webapp. Jadi intinya, alurnya seperti ini: barcode media (isinya url untuk redirect ke webapp) > scan barcode redirect ke webapp > webapp menampilkan media dari url supabase.
-- format isi url dari barcode dan url webapp: `{host}:{port}/m/{id}`
+### Setup Webapp (Vercel)
+
+## 1. Persiapan
+
+Pastikan repo udah di-push ke GitHub dengan struktur folder `dashboard/`
+
+## 2. Deploy ke Vercel
+
+1. Buka [vercel.com/new](https://vercel.com/new) → login dengan GitHub
+2. Pilih repo project → klik **Import**
+3. **Root Directory**: ubah ke **`dashboard`** (bukan `root)`!
+4. **Framework Preset**: pastikan **Next.js** (auto-detect setelah Root Directory di-set)
+5. **Build Command**: `next build` (default)
+6. **Output Directory**: `.next` (default)
+7. **Install Command**: `npm install` (default)
+
+## 3. Environment Variables
+
+Di section **Environment Variables**, tambahin satu-satu (klik **Add** tiap kali, centang 3 checkbox: Production, Preview, Development):
+
+| Key | Value |
+|---|---|
+| `SUPABASE_URL` | `https://xxxxx.supabase.co` |
+| `SUPABASE_KEY` | `eyJhbGci...` |
+| `SUPABASE_BUCKET` | `cheyaverse-media` |
+| `SUPABASE_TABLE` | `media` |
+| `MEDIA_TTL_DAYS` | `30` |
+| `SIGNED_URL_TTL` | `2592000` |
+| `BOT_USERNAME` | `CheyaVersebot` |
+| `PUBLIC_URL` | `https://cheyaverse.vercel.app` |
+| `NEXT_PUBLIC_RECAPTCHA_SITE_KEY` | (dari reCAPTCHA admin) |
+| `RECAPTCHA_SECRET_KEY` | (dari reCAPTCHA admin) |
+
+## 4. Setup reCAPTCHA v2
+
+1. Buka [google.com/recaptcha/admin](https://www.google.com/recaptcha/admin)
+2. **Create** → label bebas, type **reCAPTCHA v2 Checkbox**
+3. **Domains**: tambahin `cheyaverse.vercel.app` dan `localhost`
+4. Submit → dapet **Site Key** & **Secret Key**
+5. Masukkan ke env vars Vercel di atas
+
+## 5. Deploy
+
+Klik **Deploy**. Tunggu ~2-3 menit. Kalau sukses, dapet URL production.
+
+## 6. Update `PUBLIC_URL` di bot
+
+Setelah deploy berhasil, update `.env` **bot** (bukan **webapp**):
+```txt
+PUBLIC_URL=https://cheyaverse.vercel.app
+```
+Restart bot, QR baru bakal nunjuk ke domain Vercel
+
+---
+
+### Catatan & Pemberitahuan
+
+**Tentang barcode:**
+- Barcode dari input teks → berfungsi **permanen** (nggak ada TTL, karena cuma nyimpen string)
+- Barcode dari media (gambar/video) → berfungsi selama `MEDIA_TTL_DAYS` (default **30 hari**). Setelah expired, file media dihapus otomatis dari Supabase, tapi gambar barcode tetep ada
+
+**Format URL:**
+| Tipe | Format | Contoh |
+|---|---|---|
+| Barcode / dashboard personal | `{PUBLIC_URL}/{uid}/m/{id}` | `https://cheyaverse.vercel.app/123456789/m/7654321` |
+| Link publik (hasil tombol Copy) | `{PUBLIC_URL}/m/{id}` | `https://cheyaverse.vercel.app/m/7654321` |
+| Dashboard personal user | `{PUBLIC_URL}/{uid}` | `https://cheyaverse.vercel.app/123456789` |
+
+- Link publik (`/m/{id}`) nampilin viewer **tanpa TabBar navigasi** — biar user yang di-share link nggak bisa lihat dashboard pemilik file
+- Command `/web` di bot ngasih URL dashboard personal user
+
+**Alur sistem:**
+```
+User upload media ke bot (caption /qr)
+↓
+Bot download dari Telegram → upload ke Supabase
+↓
+Bot generate QR berisi: {PUBLIC_URL}/{uid}/m/{id}
+↓
+User scan QR → browser buka viewer
+↓
+Viewer fetch signed URL dari Supabase → tampilkan media
+↓
+Klik Download → reCAPTCHA v2 muncul → verify → file di-proxy lewat server
+```
+
+**Keamanan:**
+- File media **nggak pernah** di-redirect langsung ke Supabase URL — selalu di-proxy lewat server (biar signed URL nggak keliatan user)
+- Tombol Raw sekarang **fullscreen**, bukan redirect
+- reCAPTCHA v2 (Google) dipakai buat verifikasi sebelum download
+- Kolom `owner_id` di tabel `media` → user cuma bisa lihat dashboard & file miliknya sendiri
+
+**Batasan:**
+- Max upload file: **5 MB**
+- 1 barcode = 1 file (kecuali pakai media group di Telegram → bisa multi-file sekaligus)
+- Media disimpan di Supabase, bukan di server bot
+
+**Arsitektur Server:**
+| Komponen | Hosting | Alasan |
+|---|---|---|
+| Bot Python (aiogram) | Lokal / VPS | Butuh long-running process, nggak bisa di Vercel |
+| Webapp (Next.js) | **Vercel** | Serverless, scalable, gratis untuk personal |
+| Media Storage | Supabase | Object storage + database |
+
+- Bot jalan di **lokal** atau VPS (butuh polling Telegram 24/7 running)
+- Webapp **udah di-deploy** di Vercel: `https://cheyaverse.vercel.app`
+- Webapp juga bisa jalan lokal (`cd dashboard && npm run dev`) buat development
+- Kalau mau ganti domain, update `PUBLIC_URL` di dua tempat: `.env` bot & env vars Vercel
+
+**Troubleshooting:**
+- Muncul chat `Unable to upload this file, please try again later.` + log `[ERROR] Failed to upload {kind} for {label}: {exc}` → server Supabase lagi down atau rate-limited, coba lagi beberapa saat
+- QR di-scan tapi media nggak muncul → cek file udah expired (default 30 hari) atau `PUBLIC_URL` di `.env` salah
+- Download stuck di reCAPTCHA → cek `NEXT_PUBLIC_RECAPTCHA_SITE_KEY` & `RECAPTCHA_SECRET_KEY` di env vars Vercel
+- Viewer kosong / loading terus → cek `SUPABASE_URL` & `SUPABASE_KEY` di env vars Vercel
+- Dashboard personal nampilin "Belum ada media" padahal udah upload → cek `owner_id` di tabel `media` udah keisi (upload ulang kalau file lama)
+
+**Migrasi dari versi lama:**
+- Server web lama (`web.py` aiohttp) **udah deprecated** — diganti Next.js di `dashboard/`
+- Kolom `owner_id` ditambahin di update terbaru. File lama yang belum punya bakal `NULL` dan nggak muncul di dashboard manapun (harus upload ulang)
+- Format URL berubah dari `{host}:{port}/m/{id}` → `{PUBLIC_URL}/{uid}/m/{id}` (scoped per user)
