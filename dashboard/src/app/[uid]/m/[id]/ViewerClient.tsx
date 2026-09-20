@@ -10,7 +10,7 @@ import {
 import { config } from "@/lib/config";
 
 type Props = {
-  uid: string;
+  uid?: string;
   mediaId: string;
   signedUrl: string;
   filename: string;
@@ -147,6 +147,7 @@ export default function ViewerClient({
 }: Props) {
   const kind = detectKind(filename, contentType);
   const siteKey = config.recaptchaSiteKey;
+  const homeHref = uid ? `/${uid}` : "/";
 
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -226,7 +227,7 @@ export default function ViewerClient({
   }
 
   function copyLink() {
-    const url = window.location.href;
+    const url = `${window.location.origin}/m/${encodeURIComponent(mediaId)}`;
     if (navigator.clipboard?.writeText && window.isSecureContext) {
       navigator.clipboard.writeText(url).then(
         () => showToast("Link disalin"),
@@ -283,7 +284,7 @@ export default function ViewerClient({
           <p className="text-[12.5px] text-ink-soft mb-5">
             Kemungkinan link salah, file sudah expired, atau telah dihapus.
           </p>
-          <Link href={`/${uid}`}
+          <Link href={homeHref}
                 className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-ink text-white text-[13px] font-semibold">
             <Home size={15} /> Beranda
           </Link>
