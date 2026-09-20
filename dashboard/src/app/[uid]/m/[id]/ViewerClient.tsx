@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState, forwardRef } from "react";
 import Link from "next/link";
+import ReCAPTCHA from "react-google-recaptcha";
 import {
   Image as ImageIcon, Download, Maximize2, Minimize2, Copy,
   Play, Pause, Home, AlertCircle,
 } from "lucide-react";
+import { config } from "@/lib/config";
 
 type Props = {
   uid: string;
@@ -13,7 +15,6 @@ type Props = {
   signedUrl: string;
   filename: string;
   contentType: string;
-  nonce: string;
 };
 
 const VID_EXT = ["mp4", "webm", "mov", "mkv", "avi", "m4v"];
@@ -101,10 +102,7 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoProps>(
         {!playing && (
           <button
             type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              toggle();
-            }}
+            onClick={(e) => { e.stopPropagation(); toggle(); }}
             aria-label="Play"
             className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-20 w-[68px] h-[68px] rounded-full bg-black/55 backdrop-blur-xl border-2 border-white/25 text-white flex items-center justify-center active:scale-95 transition-transform"
           >
@@ -115,18 +113,11 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoProps>(
         <div className="absolute left-0 right-0 bottom-0 z-[6] flex items-center gap-2.5 px-3 pt-6 pb-2.5 bg-gradient-to-t from-black/85 via-black/55 to-transparent">
           <button
             type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              toggle();
-            }}
+            onClick={(e) => { e.stopPropagation(); toggle(); }}
             aria-label={playing ? "Pause" : "Play"}
             className="w-8 h-8 rounded-full bg-white/15 backdrop-blur-md text-white flex items-center justify-center flex-shrink-0 active:scale-90 transition-transform"
           >
-            {playing ? (
-              <Pause size={13} className="fill-white" />
-            ) : (
-              <Play size={13} className="fill-white ml-0.5" />
-            )}
+            {playing ? <Pause size={13} className="fill-white" /> : <Play size={13} className="fill-white ml-0.5" />}
           </button>
           <input
             type="range"
@@ -135,9 +126,7 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoProps>(
             max={1000}
             step={1}
             value={dur ? Math.floor((ct / dur) * 1000) : 0}
-            style={
-              { ["--p" as never]: `${dur ? (ct / dur) * 100 : 0}%` } as React.CSSProperties
-            }
+            style={{ ["--p" as never]: `${dur ? (ct / dur) * 100 : 0}%` } as React.CSSProperties}
             onChange={(e) => {
               const v = localRef.current;
               if (!v || !dur) return;
@@ -154,20 +143,20 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoProps>(
 );
 
 export default function ViewerClient({
-  uid, mediaId, signedUrl, filename, contentType, nonce,
+  uid, mediaId, signedUrl, filename, contentType,
 }: Props) {
   const kind = detectKind(filename, contentType);
+  const siteKey = config.recaptchaSiteKey;
 
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
-  const [verified, setVerified] = useState(false);
-  const [claiming, setClaiming] = useState(false);
+  const [token, setToken] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [isFs, setIsFs] = useState(false);
 
   const mediaRef = useRef<HTMLDivElement>(null);
-  const signals = useRef({ moves: 0, keys: 0, touches: 0, start: Date.now() });
+  const recaptchaRef = useRef<ReCAPTCHA>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showToast = useCallback((msg: string) => {
@@ -179,28 +168,6 @@ export default function ViewerClient({
   useEffect(() => {
     const t = setTimeout(() => setReady(true), 4000);
     return () => clearTimeout(t);
-  }, []);
-
-  useEffect(() => {
-    const onMove = () => {
-      signals.current.moves++;
-    };
-    const onKey = () => {
-      signals.current.keys++;
-    };
-    const onTouch = () => {
-      signals.current.touches++;
-    };
-    window.addEventListener("pointermove", onMove, { passive: true });
-    window.addEventListener("keydown", onKey);
-    window.addEventListener("touchstart", onTouch, { passive: true });
-    window.addEventListener("touchmove", onTouch, { passive: true });
-    return () => {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("keydown", onKey);
-      window.removeEventListener("touchstart", onTouch);
-      window.removeEventListener("touchmove", onTouch);
-    };
   }, []);
 
   useEffect(() => {
@@ -233,49 +200,29 @@ export default function ViewerClient({
     };
   }, []);
 
-  async function claimCaptcha() {
-    if (claiming || verified) return;
-    setClaiming(true);
-    await new Promise((r) => setTimeout(r, 500));
-    try {
-      const elapsed = (Date.now() - signals.current.start) / 1000;
-      const res = await fetch("/captcha/claim", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          nonce,
-          signals: {
-            moves: signals.current.moves,
-            keys: signals.current.keys,
-            touches: signals.current.touches,
-            elapsed,
-          },
-        }),
-      });
-      const json = await res.json();
-      if (json.ok) {
-        setVerified(true);
-        showToast("Verifikasi berhasil");
-      } else {
-        showToast("Verifikasi gagal, coba lagi");
-      }
-    } catch {
-      showToast("Verifikasi gagal");
-    } finally {
-      setClaiming(false);
-    }
-  }
-
-  function triggerDownload() {
-    window.location.href = `/download/${encodeURIComponent(mediaId)}?nonce=${encodeURIComponent(nonce)}`;
+  function triggerDownload(recaptchaToken: string) {
+    window.location.href = `/download/${encodeURIComponent(mediaId)}?token=${encodeURIComponent(recaptchaToken)}`;
   }
 
   function startDownload() {
-    if (!verified) {
+    if (!token) {
       setModalOpen(true);
       return;
     }
-    triggerDownload();
+    triggerDownload(token);
+  }
+
+  function onCaptchaSuccess(value: string | null) {
+    if (!value) return;
+    setToken(value);
+    setModalOpen(false);
+    showToast("Verifikasi berhasil");
+    triggerDownload(value);
+  }
+
+  function onCaptchaExpired() {
+    setToken(null);
+    showToast("Verifikasi expired, coba lagi");
   }
 
   function copyLink() {
@@ -292,12 +239,8 @@ export default function ViewerClient({
       ta.style.top = "-9999px";
       document.body.appendChild(ta);
       ta.select();
-      try {
-        document.execCommand("copy");
-        showToast("Link disalin");
-      } catch {
-        showToast("Gagal menyalin");
-      }
+      try { document.execCommand("copy"); showToast("Link disalin"); }
+      catch { showToast("Gagal menyalin"); }
       document.body.removeChild(ta);
     }
   }
@@ -327,29 +270,21 @@ export default function ViewerClient({
             <AlertCircle size={22} className="text-white" />
           </div>
           <div className="min-w-0 flex-1">
-            <h1 className="text-[15px] font-semibold truncate text-ink">
-              CheyaVerse Media
-            </h1>
+            <h1 className="text-[15px] font-semibold truncate text-ink">CheyaVerse Media</h1>
             <p className="text-[12px] text-ink-soft truncate">Not available</p>
           </div>
         </div>
         <div className="rounded-2xl bg-white border border-line p-8 text-center">
           <div className="w-32 h-32 mx-auto mb-3">
-            <img
-              src="/assets/model.gif"
-              alt="Lost"
-              draggable={false}
-              className="protect w-full h-full object-contain"
-            />
+            <img src="/assets/model.gif" alt="Lost" draggable={false}
+                 className="protect w-full h-full object-contain" />
           </div>
           <h2 className="text-[15px] font-semibold mb-1.5 text-ink">File tidak ditemukan</h2>
           <p className="text-[12.5px] text-ink-soft mb-5">
             Kemungkinan link salah, file sudah expired, atau telah dihapus.
           </p>
-          <Link
-            href={`/${uid}`}
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-ink text-white text-[13px] font-semibold"
-          >
+          <Link href={`/${uid}`}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-ink text-white text-[13px] font-semibold">
             <Home size={15} /> Beranda
           </Link>
         </div>
@@ -449,11 +384,9 @@ export default function ViewerClient({
         </div>
       )}
 
-      {modalOpen && (
+      {modalOpen && siteKey && (
         <div
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setModalOpen(false);
-          }}
+          onClick={(e) => { if (e.target === e.currentTarget) setModalOpen(false); }}
           className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-md flex items-center justify-center p-5"
         >
           <div className="w-full max-w-[380px] rounded-2xl bg-white border border-line p-6 animate-fade-up">
@@ -463,70 +396,22 @@ export default function ViewerClient({
             <p className="text-[12.5px] text-ink-soft text-center mb-5">
               Selesaikan verifikasi untuk mengunduh file.
             </p>
+            <div className="flex justify-center mb-4">
+              <ReCAPTCHA
+                ref={recaptchaRef}
+                sitekey={siteKey}
+                onChange={onCaptchaSuccess}
+                onExpired={onCaptchaExpired}
+                theme="light"
+              />
+            </div>
             <button
               type="button"
-              onClick={claimCaptcha}
-              className={`w-full flex items-center gap-3.5 p-4 rounded-xl mb-4 text-left transition-all border-[1.5px] ${
-                verified
-                  ? "bg-[#f0fdf4] border-[#86efac] cursor-default"
-                  : "bg-[#fafafa] border-line hover:border-[#d4d4d4] cursor-pointer"
-              }`}
+              onClick={() => setModalOpen(false)}
+              className="w-full px-4 py-3 rounded-xl bg-[#fafafa] border border-line text-ink text-[13px] font-semibold active:scale-[.97] transition-transform"
             >
-              <span
-                className={`w-8 h-8 rounded-lg border-2 flex items-center justify-center flex-shrink-0 transition-all ${
-                  verified ? "bg-success border-success" : "border-[#d4d4d4] bg-white"
-                }`}
-              >
-                {verified && (
-                  <svg
-                    viewBox="0 0 24 24"
-                    className="w-5 h-5 stroke-white stroke-[3] fill-none"
-                  >
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                )}
-                {claiming && !verified && (
-                  <span className="w-4 h-4 border-2 border-[#d4d4d4] border-t-ink rounded-full animate-spin" />
-                )}
-              </span>
-              <span className="flex-1 min-w-0">
-                <span className="block text-[13.5px] font-semibold text-ink">
-                  {verified ? "Verifikasi berhasil" : "I am not a robot"}
-                </span>
-                <span className="block text-[11px] text-ink-mute mt-0.5">
-                  Protected by CheyaVerse
-                </span>
-              </span>
-              <span className="w-10 h-10 rounded-full overflow-hidden border-2 border-line flex-shrink-0">
-                <img
-                  src="/assets/cheyaverse.jpg"
-                  alt="Cheya"
-                  draggable={false}
-                  className="w-full h-full object-cover"
-                />
-              </span>
+              Batal
             </button>
-            <div className="flex gap-2.5">
-              <button
-                type="button"
-                onClick={() => setModalOpen(false)}
-                className="flex-1 px-4 py-3 rounded-xl bg-[#fafafa] border border-line text-ink text-[13px] font-semibold active:scale-[.97] transition-transform"
-              >
-                Batal
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (!verified) return;
-                  setModalOpen(false);
-                  triggerDownload();
-                }}
-                disabled={!verified}
-                className="flex-1 px-4 py-3 rounded-xl bg-ink hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed text-white text-[13px] font-semibold transition-all active:scale-[.97]"
-              >
-                Unduh
-              </button>
-            </div>
           </div>
         </div>
       )}
