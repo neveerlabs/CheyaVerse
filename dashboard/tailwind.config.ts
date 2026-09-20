@@ -9,7 +9,7 @@ const config: Config = {
         "bg-soft": "#fafafa",
         surface: "#ffffff",
         "surface-2": "#f5f5f5",
-        divider: "#f0f0f0",
+        divider: "#ebebeb",
         line: "#e8e8e8",
         "line-strong": "#d4d4d4",
         ink: "#0a0a0a",
