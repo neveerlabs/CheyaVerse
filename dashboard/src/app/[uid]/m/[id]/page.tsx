@@ -1,23 +1,10 @@
 import { notFound } from "next/navigation";
 import { fetchMedia, createSignedUrl } from "@/lib/storage";
 import { config } from "@/lib/config";
-import { issueNonce } from "@/lib/captcha";
 import ViewerClient from "./ViewerClient";
 
 export const dynamic = "force-dynamic";
-
 const MEDIA_ID_RE = /^\d{7}$/;
-
-export async function generateMetadata({
-  params,
-}: {
-  params: { uid: string; id: string };
-}) {
-  if (!MEDIA_ID_RE.test(params.id)) return { title: "CheyaVerse Media" };
-  const meta = await fetchMedia(params.id).catch(() => null);
-  const fn = meta?.filename ?? "CheyaVerse Media";
-  return { title: `${fn} · CheyaVerse` };
-}
 
 export default async function ViewerPage({
   params,
@@ -34,8 +21,6 @@ export default async function ViewerPage({
   const signedUrl = await createSignedUrl(meta.storage_path, config.signedUrlTtl);
   if (!signedUrl) notFound();
 
-  const nonce = issueNonce();
-
   return (
     <ViewerClient
       uid={params.uid}
@@ -43,7 +28,6 @@ export default async function ViewerPage({
       signedUrl={signedUrl}
       filename={meta.filename || params.id}
       contentType={meta.content_type || ""}
-      nonce={nonce}
     />
   );
 }
