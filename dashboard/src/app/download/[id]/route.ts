@@ -28,5 +28,21 @@ export async function GET(
     return new NextResponse("Media gateway error.", { status: 502 });
   }
 
-  return NextResponse.redirect(signed, 302);
+  const upstream = await fetch(signed);
+  if (!upstream.ok || !upstream.body) {
+    return new NextResponse("Media not available.", { status: upstream.status });
+  }
+
+  const safeName = (meta.filename || params.id)
+    .replace(/["\\\r\n]/g, "")
+    .slice(0, 200) || "file";
+
+  return new NextResponse(upstream.body, {
+    status: 200,
+    headers: {
+      "Content-Type": meta.content_type || "application/octet-stream",
+      "Content-Disposition": `attachment; filename="${safeName}"`,
+      "Cache-Control": "no-store",
+    },
+  });
 }
