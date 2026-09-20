@@ -422,10 +422,11 @@ export default function ViewerClient({
           </button>
           <button
             type="button"
-            onClick={() => window.open(`/raw/${mediaId}`, "_blank")}
+            onClick={toggleFs}
             className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3.5 rounded-xl bg-[#fafafa] hover:bg-[#f0f0f0] border border-line text-ink text-[13.5px] font-semibold transition-all active:scale-[.97]"
           >
-            <Maximize2 size={15} strokeWidth={2.4} /> Raw
+            {isFs ? <Minimize2 size={15} strokeWidth={2.4} /> : <Maximize2 size={15} strokeWidth={2.4} />}
+            {isFs ? "Exit" : "Raw"}
           </button>
           <button
             type="button"
