@@ -28,7 +28,7 @@ export default function AboutPage() {
         <ListRow icon={<Database size={22} />} title="Storage" value="Supabase" disabled />
       </GroupSection>
       <p className="text-center text-[11px] text-ink-mute py-3 font-medium">
-        Made with ♥ · CheyaVerse
+        Made with ♥ CheyaVerse
       </p>
     </>
   );
