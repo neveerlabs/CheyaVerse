@@ -4,6 +4,4 @@ out/
 build/
 .env
 .env.local
-.env.production
-*.log
-.DS_Store
+.env.production.local
