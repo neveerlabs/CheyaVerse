@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { config } from "@/lib/config";
 import { setViewPreferenceClient, type MediaView } from "@/lib/view-preference-client";
+import { VideoThumbnail } from "@/components/VideoThumbnail";
 
 type Item = {
   id: string;
@@ -44,6 +45,10 @@ function formatDate(iso: string): string {
 
 function isImage(type: string): boolean {
   return type.startsWith("image/");
+}
+
+function isVideo(type: string): boolean {
+  return type.startsWith("video/");
 }
 
 export function MediaClient({
@@ -389,6 +394,8 @@ export function MediaClient({
                       className="w-full h-full object-cover"
                       loading="lazy"
                     />
+                  ) : isVideo(m.content_type) && m.thumbnailUrl ? (
+                    <VideoThumbnail src={m.thumbnailUrl} iconSize={20} />
                   ) : (
                     <ImageIcon size={20} className="text-ink-soft" strokeWidth={1.8} />
                   )}
@@ -450,6 +457,8 @@ export function MediaClient({
                     loading="lazy"
                     className="w-full h-full object-cover"
                   />
+                ) : isVideo(m.content_type) && m.thumbnailUrl ? (
+                  <VideoThumbnail src={m.thumbnailUrl} iconSize={28} />
                 ) : (
                   <div className="w-full h-full flex flex-col items-center justify-center gap-1 text-ink-mute">
                     <ImageIcon size={28} strokeWidth={1.6} />
