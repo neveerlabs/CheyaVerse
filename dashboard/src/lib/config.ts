@@ -9,8 +9,6 @@ export const config = {
   publicUrl: (process.env.PUBLIC_URL ?? "").replace(/\/+$/, ""),
   mediaTtlDays: Number(process.env.MEDIA_TTL_DAYS ?? 30),
   signedUrlTtl: Number(process.env.SIGNED_URL_TTL ?? 2592000),
-  maxProxyBytes: Number(process.env.MAX_PROXY_BYTES ?? 50 * 1024 * 1024),
-  captchaTtlSec: 900,
-  rateLimitWindowSec: 60,
-  rateLimitMax: 30,
+  recaptchaSiteKey: process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY ?? "",
+  recaptchaSecretKey: process.env.RECAPTCHA_SECRET_KEY ?? "",
 } as const;
