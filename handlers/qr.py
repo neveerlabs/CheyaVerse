@@ -12,7 +12,7 @@ from aiogram.types import BufferedInputFile, Message, ReplyParameters
 from PIL import Image, ImageDraw
 
 import storage
-from config import MEDIA_TTL_DAYS, PUBLIC_URL
+from config import MEDIA_TTL_DAYS, PUBLIC_URL, TELEGRAM_STORAGE_CHAT_ID
 from logger import logger
 
 router = Router(name="qr")
@@ -271,26 +271,45 @@ async def _handle_media(message: Message, file_id: str, kind: str, ext: str) -> 
         if not tg_file.file_path:
             raise ValueError("Telegram returned empty file_path")
 
-        file_io = await message.bot.download_file(tg_file.file_path)
-        file_bytes = file_io.read()
+        if not TELEGRAM_STORAGE_CHAT_ID:
+            raise ValueError("TELEGRAM_STORAGE_CHAT_ID is not configured")
+
+        if kind == "photo":
+            sent = await message.bot.send_photo(
+                chat_id=TELEGRAM_STORAGE_CHAT_ID,
+                photo=file_id,
+            )
+            if not sent.photo:
+                raise ValueError("Telegram returned empty photo")
+            storage_file_id = sent.photo[-1].file_id
+        elif kind == "video":
+            sent = await message.bot.send_video(
+                chat_id=TELEGRAM_STORAGE_CHAT_ID,
+                video=file_id,
+            )
+            if not sent.video:
+                raise ValueError("Telegram returned empty video")
+            storage_file_id = sent.video.file_id
+        else:
+            raise ValueError(f"Unsupported media kind: {kind}")
 
         filename = _derive_filename(message, kind, ext)
         content_type = _content_type_for(kind, ext)
 
         media_id = await storage.generate_unique_id()
-        storage_path = f"{media_id}.{ext}"
 
         row = {
             "id": media_id,
             "owner_id": owner_id,
             "filename": filename,
-            "storage_path": storage_path,
+            "storage_path": storage_file_id,
+            "storage_message_id": sent.message_id,
             "content_type": content_type,
-            "file_size": len(file_bytes),
+            "file_size": tg_file.file_size or 0,
             "expires_at": _expires_at_iso(),
         }
 
-        await storage.upload_media(storage_path, file_bytes, content_type, row)
+        await storage.insert_media(row)
         qr_payload = _build_viewer_url(media_id, owner_id)
 
     except ValueError as exc:
