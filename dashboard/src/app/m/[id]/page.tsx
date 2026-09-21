@@ -1,6 +1,5 @@
 import { notFound } from "next/navigation";
-import { fetchMedia, createSignedUrl } from "@/lib/storage";
-import { config } from "@/lib/config";
+import { fetchMedia } from "@/lib/storage";
 import ViewerClient from "@/app/[uid]/m/[id]/ViewerClient";
 
 export const dynamic = "force-dynamic";
@@ -27,13 +26,10 @@ export default async function PublicViewerPage({
   const meta = await fetchMedia(params.id).catch(() => null);
   if (!meta?.storage_path) notFound();
 
-  const signedUrl = await createSignedUrl(meta.storage_path, config.signedUrlTtl);
-  if (!signedUrl) notFound();
-
   return (
     <ViewerClient
       mediaId={params.id}
-      signedUrl={signedUrl}
+      signedUrl={`/api/media/${params.id}/content`}
       filename={meta.filename || params.id}
       contentType={meta.content_type || ""}
     />
