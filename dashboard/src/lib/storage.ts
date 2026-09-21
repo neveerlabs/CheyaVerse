@@ -1,4 +1,4 @@
-import { getSupabase } from "./supabase";
+import { getTurso } from "./turso";
 import { config } from "./config";
 
 export type MediaMeta = {
@@ -11,48 +11,49 @@ export type MediaMeta = {
   expires_at: string;
 };
 
+function rowToMedia(row: Record<string, unknown>): MediaMeta {
+  return {
+    id: String(row.id ?? ""),
+    owner_id: row.owner_id == null ? null : Number(row.owner_id),
+    filename: String(row.filename ?? ""),
+    storage_path: String(row.storage_path ?? ""),
+    content_type: String(row.content_type ?? ""),
+    file_size: Number(row.file_size ?? 0),
+    expires_at: String(row.expires_at ?? ""),
+  };
+}
+
 export async function fetchMedia(mediaId: string): Promise<MediaMeta | null> {
-  const { data, error } = await getSupabase()
-    .from(config.supabase.table)
-    .select("*")
-    .eq("id", mediaId)
-    .limit(1)
-    .maybeSingle();
-  if (error || !data) return null;
-  return data as MediaMeta;
+  const result = await getTurso().execute({
+    sql: "SELECT * FROM media WHERE id = ? LIMIT 1",
+    args: [mediaId],
+  });
+  if (result.rows.length === 0) return null;
+  return rowToMedia(result.rows[0] as unknown as Record<string, unknown>);
 }
 
 export async function listRecentMedia(uid: number, limit = 50): Promise<MediaMeta[]> {
-  const { data, error } = await getSupabase()
-    .from(config.supabase.table)
-    .select("*")
-    .eq("owner_id", uid)
-    .order("expires_at", { ascending: false })
-    .limit(limit);
-  if (error || !data) return [];
-  return data as MediaMeta[];
-}
-
-export async function createSignedUrl(
-  storagePath: string,
-  expiresIn: number,
-): Promise<string | null> {
-  const { data, error } = await getSupabase()
-    .storage.from(config.supabase.bucket)
-    .createSignedUrl(storagePath, expiresIn);
-  if (error || !data?.signedUrl) return null;
-  return data.signedUrl;
+  const result = await getTurso().execute({
+    sql: "SELECT * FROM media WHERE owner_id = ? ORDER BY expires_at DESC LIMIT ?",
+    args: [uid, limit],
+  });
+  return result.rows.map((r) => rowToMedia(r as unknown as Record<string, unknown>));
 }
 
 export async function getStats(uid: number) {
-  const sb = getSupabase();
   const nowIso = new Date().toISOString();
   const [totalRes, activeRes] = await Promise.all([
-    sb.from(config.supabase.table).select("id", { count: "exact", head: true }).eq("owner_id", uid),
-    sb.from(config.supabase.table).select("id", { count: "exact", head: true }).eq("owner_id", uid).gte("expires_at", nowIso),
+    getTurso().execute({
+      sql: "SELECT COUNT(*) as c FROM media WHERE owner_id = ?",
+      args: [uid],
+    }),
+    getTurso().execute({
+      sql: "SELECT COUNT(*) as c FROM media WHERE owner_id = ? AND expires_at >= ?",
+      args: [uid, nowIso],
+    }),
   ]);
-  const total = totalRes.count ?? 0;
-  const active = activeRes.count ?? 0;
+  const total = Number(totalRes.rows[0]?.c ?? 0);
+  const active = Number(activeRes.rows[0]?.c ?? 0);
   return { total, active, expired: Math.max(0, total - active) };
 }
 
@@ -60,22 +61,20 @@ export async function deleteMediaById(
   mediaId: string,
   ownerId: number,
 ): Promise<{ ok: boolean; reason?: string }> {
-  const sb = getSupabase();
   const meta = await fetchMedia(mediaId);
   if (!meta) return { ok: false, reason: "not_found" };
   if (meta.owner_id !== ownerId) return { ok: false, reason: "forbidden" };
 
-  if (meta.storage_path) {
-    try {
-      await sb.storage.from(config.supabase.bucket).remove([meta.storage_path]);
-    } catch (err) {
-      console.error("Storage remove failed:", err);
-    }
+  try {
+    const result = await getTurso().execute({
+      sql: "DELETE FROM media WHERE id = ?",
+      args: [mediaId],
+    });
+    if (result.rowsAffected === 0) return { ok: false, reason: "db_error" };
+    return { ok: true };
+  } catch {
+    return { ok: false, reason: "db_error" };
   }
-
-  const { error } = await sb.from(config.supabase.table).delete().eq("id", mediaId);
-  if (error) return { ok: false, reason: "db_error" };
-  return { ok: true };
 }
 
 export async function renameMediaById(
@@ -83,7 +82,6 @@ export async function renameMediaById(
   ownerId: number,
   newName: string,
 ): Promise<{ ok: boolean; reason?: string }> {
-  const sb = getSupabase();
   const meta = await fetchMedia(mediaId);
   if (!meta) return { ok: false, reason: "not_found" };
   if (meta.owner_id !== ownerId) return { ok: false, reason: "forbidden" };
@@ -91,10 +89,13 @@ export async function renameMediaById(
   const cleaned = newName.replace(/[\\/\r\n\t]/g, "").trim().slice(0, 200);
   if (!cleaned) return { ok: false, reason: "invalid_name" };
 
-  const { error } = await sb
-    .from(config.supabase.table)
-    .update({ filename: cleaned })
-    .eq("id", mediaId);
-  if (error) return { ok: false, reason: "db_error" };
-  return { ok: true };
+  try {
+    await getTurso().execute({
+      sql: "UPDATE media SET filename = ? WHERE id = ?",
+      args: [cleaned, mediaId],
+    });
+    return { ok: true };
+  } catch {
+    return { ok: false, reason: "db_error" };
+  }
 }
