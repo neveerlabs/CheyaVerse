@@ -1,31 +1,37 @@
 import { NextRequest, NextResponse } from "next/server";
-import { deleteMediaById } from "@/lib/storage";
+import { fetchMedia } from "@/lib/storage";
+import { fetchTelegramFile } from "@/lib/telegram";
 
 export const runtime = "nodejs";
 
 const MEDIA_ID_RE = /^\d{7}$/;
 
-export async function DELETE(
-  req: NextRequest,
+export async function GET(
+  _req: NextRequest,
   { params }: { params: { id: string } },
 ) {
-  const uid = Number(req.nextUrl.searchParams.get("uid"));
-  if (!Number.isInteger(uid) || uid <= 0) {
-    return NextResponse.json({ ok: false, error: "invalid_uid" }, { status: 400 });
-  }
   if (!MEDIA_ID_RE.test(params.id)) {
-    return NextResponse.json({ ok: false, error: "invalid_id" }, { status: 400 });
+    return new NextResponse("Invalid media link.", { status: 400 });
   }
 
-  const result = await deleteMediaById(params.id, uid).catch(() => ({ ok: false, reason: "error" }));
-  if (!result.ok) {
-    const status =
-      result.reason === "forbidden"
-        ? 403
-        : result.reason === "db_error"
-        ? 500
-        : 404;
-    return NextResponse.json({ ok: false, error: result.reason }, { status });
+  const meta = await fetchMedia(params.id).catch(() => null);
+  if (!meta?.storage_path) {
+    return new NextResponse("Media not found.", { status: 404 });
   }
-  return NextResponse.json({ ok: true });
+
+  const upstream = await fetchTelegramFile(meta.storage_path);
+  if (!upstream || !upstream.body) {
+    return new NextResponse("Media not available.", { status: 502 });
+  }
+
+  const headers = new Headers();
+  headers.set(
+    "Content-Type",
+    meta.content_type || upstream.headers.get("Content-Type") || "application/octet-stream",
+  );
+  const len = upstream.headers.get("Content-Length");
+  if (len) headers.set("Content-Length", len);
+  headers.set("Cache-Control", "public, max-age=3600, immutable");
+
+  return new NextResponse(upstream.body, { status: 200, headers });
 }
