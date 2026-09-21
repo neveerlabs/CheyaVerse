@@ -45,11 +45,11 @@ async def _verify_bot(bot: Bot) -> bool:
         return False
 
 
-async def _cleanup_loop() -> None:
+async def _cleanup_loop(bot: Bot) -> None:
     while True:
         try:
             await asyncio.sleep(CLEANUP_INTERVAL_SECONDS)
-            removed = await storage.cleanup_expired()
+            removed = await storage.cleanup_expired(bot=bot)
             if removed:
                 logger.info(f"Storage cleanup removed {removed} expired item(s)")
         except asyncio.CancelledError:
@@ -58,9 +58,9 @@ async def _cleanup_loop() -> None:
             logger.error(f"Storage cleanup loop error: {exc}")
 
 
-async def _run_cleanup_once() -> None:
+async def _run_cleanup_once(bot: Bot) -> None:
     try:
-        removed = await storage.cleanup_expired()
+        removed = await storage.cleanup_expired(bot=bot)
         if removed:
             logger.info(f"Startup cleanup removed {removed} expired item(s)")
         else:
@@ -118,7 +118,7 @@ async def _run() -> int:
     else:
         logger.info(f"Public viewer base: {PUBLIC_URL}")
 
-    await _run_cleanup_once()
+    await _run_cleanup_once(bot)
 
     if not await _verify_bot(bot):
         logger.error("Bot failed to start. Check token and network connection.")
@@ -128,7 +128,7 @@ async def _run() -> int:
             pass
         return 1
 
-    cleanup_task = asyncio.create_task(_cleanup_loop())
+    cleanup_task = asyncio.create_task(_cleanup_loop(bot))
 
     exit_code = 0
     try:
