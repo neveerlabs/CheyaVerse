@@ -25,7 +25,7 @@ export default function AboutPage() {
       <GroupSection title="Developer">
         <ListRow icon={<User size={22} />} title="Nama" value="M. Syalman Al Farizi" disabled />
         <ListRow icon={<Code2 size={22} />} title="Stack" value="aiogram · Next.js" disabled />
-        <ListRow icon={<Database size={22} />} title="Storage" value="Supabase" disabled />
+        <ListRow icon={<Database size={22} />} title="Storage" value="Telegram + Turso" disabled />
       </GroupSection>
       <p className="text-center text-[11px] text-ink-mute py-3 font-medium">
         Made with ♥ CheyaVerse
