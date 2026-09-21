@@ -1,176 +1,179 @@
-import asyncio
+import base64
 import random
 from datetime import datetime, timezone
 from typing import Optional
 
-from config import (
-    SUPABASE_URL,
-    SUPABASE_KEY,
-    SUPABASE_BUCKET,
-    SUPABASE_TABLE,
-)
+import aiohttp
+
+from config import TURSO_URL, TURSO_AUTH_TOKEN, TELEGRAM_STORAGE_CHAT_ID
 from logger import logger
 
-_client = None
+
+def _http_url() -> str:
+    if TURSO_URL.startswith("libsql://"):
+        return "https://" + TURSO_URL[len("libsql://"):]
+    if TURSO_URL.startswith("wss://"):
+        return "https://" + TURSO_URL[len("wss://"):]
+    if TURSO_URL.startswith("ws://"):
+        return "http://" + TURSO_URL[len("ws://"):]
+    return TURSO_URL
 
 
-def _get_client():
-    global _client
-    if _client is None:
-        if not SUPABASE_URL or not SUPABASE_KEY:
-            raise RuntimeError(
-                "Supabase credentials not configured. Set SUPABASE_URL and SUPABASE_KEY in .env"
-            )
-        from supabase import create_client
-        _client = create_client(SUPABASE_URL, SUPABASE_KEY)
-    return _client
+def _to_arg(v):
+    if v is None:
+        return {"type": "null"}
+    if isinstance(v, bool):
+        return {"type": "integer", "value": "1" if v else "0"}
+    if isinstance(v, int):
+        return {"type": "integer", "value": str(v)}
+    if isinstance(v, float):
+        return {"type": "float", "value": v}
+    if isinstance(v, (bytes, bytearray)):
+        return {"type": "blob", "base64": base64.b64encode(bytes(v)).decode()}
+    return {"type": "text", "value": str(v)}
+
+
+def _from_cell(cell):
+    t = cell.get("type")
+    if t == "null":
+        return None
+    if t == "integer":
+        return int(cell["value"])
+    if t == "float":
+        return float(cell["value"])
+    if t == "blob":
+        return base64.b64decode(cell["base64"])
+    return cell.get("value")
+
+
+async def _execute(sql: str, args: list):
+    url = f"{_http_url()}/v2/pipeline"
+    body = {
+        "requests": [
+            {
+                "type": "execute",
+                "stmt": {"sql": sql, "args": [_to_arg(a) for a in args]},
+            },
+            {"type": "close"},
+        ]
+    }
+    headers = {
+        "Authorization": f"Bearer {TURSO_AUTH_TOKEN}",
+        "Content-Type": "application/json",
+    }
+    timeout = aiohttp.ClientTimeout(total=30)
+    async with aiohttp.ClientSession(timeout=timeout) as sess:
+        async with sess.post(url, json=body, headers=headers) as resp:
+            if resp.status != 200:
+                text = await resp.text()
+                raise RuntimeError(f"Turso HTTP {resp.status}: {text}")
+            data = await resp.json()
+
+    results = data.get("results") or []
+    if not results:
+        raise RuntimeError("Empty Turso response")
+    first = results[0]
+    if first.get("type") == "error":
+        err = first.get("error") or {}
+        raise RuntimeError(err.get("message", "Turso error"))
+    if first.get("type") != "ok":
+        raise RuntimeError(f"Unexpected Turso response: {first.get('type')}")
+
+    response = first.get("response") or {}
+    result = response.get("result") or {}
+    cols = [c["name"] for c in result.get("cols", [])]
+    rows = []
+    for row in result.get("rows", []):
+        rows.append([_from_cell(cell) for cell in row])
+    return cols, rows
 
 
 def _gen_random_id() -> str:
     return str(random.randint(1000000, 9999999))
 
 
-def _id_exists_sync(media_id: str) -> bool:
-    res = (
-        _get_client()
-        .table(SUPABASE_TABLE)
-        .select("id")
-        .eq("id", media_id)
-        .limit(1)
-        .execute()
+async def _id_exists(media_id: str) -> bool:
+    _cols, rows = await _execute(
+        "SELECT id FROM media WHERE id = ? LIMIT 1", [media_id]
     )
-    return bool(res.data)
+    return len(rows) > 0
 
 
-def _generate_unique_id_sync() -> str:
+async def generate_unique_id() -> str:
     for _ in range(12):
         candidate = _gen_random_id()
-        if not _id_exists_sync(candidate):
+        if not await _id_exists(candidate):
             return candidate
     raise RuntimeError("Failed to generate a unique numeric ID")
 
 
-async def generate_unique_id() -> str:
-    return await asyncio.to_thread(_generate_unique_id_sync)
-
-
-def _upload_sync(storage_path: str, file_bytes: bytes, content_type: str) -> None:
-    _get_client().storage.from_(SUPABASE_BUCKET).upload(
-        path=storage_path,
-        file=file_bytes,
-        file_options={
-            "content-type": content_type,
-            "upsert": "false",
-        },
+async def insert_media(row: dict) -> None:
+    await _execute(
+        """
+        INSERT INTO media (id, owner_id, filename, storage_path, storage_message_id, content_type, file_size, expires_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            row["id"],
+            row["owner_id"],
+            row["filename"],
+            row["storage_path"],
+            row.get("storage_message_id"),
+            row["content_type"],
+            row["file_size"],
+            row["expires_at"],
+        ],
     )
-
-
-def _insert_row_sync(row: dict) -> None:
-    _get_client().table(SUPABASE_TABLE).insert(row).execute()
-
-
-def _remove_objects_sync(paths: list) -> None:
-    if not paths:
-        return
-    _get_client().storage.from_(SUPABASE_BUCKET).remove(paths)
-
-
-async def upload_media(
-    storage_path: str,
-    file_bytes: bytes,
-    content_type: str,
-    row: dict,
-) -> None:
-    await asyncio.to_thread(_upload_sync, storage_path, file_bytes, content_type)
-    try:
-        await asyncio.to_thread(_insert_row_sync, row)
-    except Exception:
-        try:
-            await asyncio.to_thread(_remove_objects_sync, [storage_path])
-        except Exception:
-            pass
-        raise
-
-
-def _fetch_media_sync(media_id: str) -> Optional[dict]:
-    res = (
-        _get_client()
-        .table(SUPABASE_TABLE)
-        .select("*")
-        .eq("id", media_id)
-        .limit(1)
-        .execute()
-    )
-    return res.data[0] if res.data else None
 
 
 async def fetch_media(media_id: str) -> Optional[dict]:
-    return await asyncio.to_thread(_fetch_media_sync, media_id)
-
-
-def _create_signed_url_sync(storage_path: str, expires_in: int) -> Optional[str]:
-    try:
-        res = _get_client().storage.from_(SUPABASE_BUCKET).create_signed_url(
-            storage_path, expires_in
-        )
-    except Exception as exc:
-        logger.error(f"Signed URL error for {storage_path}: {exc}")
+    cols, rows = await _execute(
+        "SELECT * FROM media WHERE id = ? LIMIT 1", [media_id]
+    )
+    if not rows:
         return None
-
-    if isinstance(res, dict):
-        for key in ("signedURL", "signedUrl", "signed_url"):
-            val = res.get(key)
-            if val:
-                return val
-        return None
-
-    for attr in ("signed_url", "signedURL", "signedUrl"):
-        val = getattr(res, attr, None)
-        if val:
-            return val
-    return None
+    return dict(zip(cols, rows[0]))
 
 
-async def create_signed_url(storage_path: str, expires_in: int) -> Optional[str]:
-    return await asyncio.to_thread(_create_signed_url_sync, storage_path, expires_in)
-
-
-def _cleanup_expired_sync() -> int:
-    client = _get_client()
+async def cleanup_expired(bot=None) -> int:
     now_iso = datetime.now(timezone.utc).isoformat()
-
     try:
-        res = (
-            client.table(SUPABASE_TABLE)
-            .select("id,storage_path")
-            .lt("expires_at", now_iso)
-            .execute()
+        cols, rows = await _execute(
+            "SELECT id, storage_message_id FROM media WHERE expires_at < ?",
+            [now_iso],
         )
     except Exception as exc:
         logger.error(f"Failed to query expired media: {exc}")
         return 0
 
-    rows = res.data or []
     if not rows:
         return 0
 
-    ids = [r["id"] for r in rows if r.get("id")]
-    paths = [r["storage_path"] for r in rows if r.get("storage_path")]
+    records = [dict(zip(cols, r)) for r in rows]
+    ids = [r["id"] for r in records if r.get("id")]
+    if not ids:
+        return 0
 
-    if paths:
-        try:
-            client.storage.from_(SUPABASE_BUCKET).remove(paths)
-        except Exception as exc:
-            logger.error(f"Failed to remove expired objects: {exc}")
+    placeholders = ",".join(["?" for _ in ids])
+    try:
+        await _execute(
+            f"DELETE FROM media WHERE id IN ({placeholders})", ids
+        )
+    except Exception as exc:
+        logger.error(f"Failed to delete expired rows: {exc}")
+        return 0
 
-    if ids:
-        try:
-            client.table(SUPABASE_TABLE).delete().in_("id", ids).execute()
-        except Exception as exc:
-            logger.error(f"Failed to delete expired rows: {exc}")
+    if bot is not None and TELEGRAM_STORAGE_CHAT_ID:
+        for row in records:
+            msg_id = row.get("storage_message_id")
+            if not msg_id:
+                continue
+            try:
+                await bot.delete_message(
+                    chat_id=TELEGRAM_STORAGE_CHAT_ID,
+                    message_id=int(msg_id),
+                )
+            except Exception as exc:
+                logger.warning(f"Failed to delete storage message {msg_id}: {exc}")
 
-    return len(ids)
-
-
-async def cleanup_expired() -> int:
-    return await asyncio.to_thread(_cleanup_expired_sync)
+    return len(records)
