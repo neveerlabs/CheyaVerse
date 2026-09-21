@@ -31,7 +31,7 @@ export default async function StatsPage({ params }: { params: { uid: string } })
       </div>
       <GroupSection title="Konfigurasi">
         <ListRow icon={<Clock size={22} />} title="Masa simpan media" value={`${config.mediaTtlDays} hari`} disabled />
-        <ListRow icon={<HardDrive size={22} />} title="Storage backend" value="Supabase" disabled />
+        <ListRow icon={<HardDrive size={22} />} title="Storage backend" value="Telegram + Turso" disabled />
       </GroupSection>
       <p className="text-center text-[11px] text-ink-mute py-3 font-medium">
         CheyaVerse · v1.4.8
