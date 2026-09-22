@@ -107,7 +107,7 @@ export function ProfileClient({
   }, []);
 
   useEffect(() => {
-    if (!menuOpen || isMobile) return;
+    if (!menuOpen) return;
     function onAny(e: MouseEvent) {
       const t = e.target as HTMLElement | null;
       if (!t) return;
@@ -117,13 +117,18 @@ export function ProfileClient({
     function onEsc(e: KeyboardEvent) {
       if (e.key === "Escape") closeMenu();
     }
+    function onScroll() {
+      closeMenu();
+    }
     document.addEventListener("mousedown", onAny);
     document.addEventListener("keydown", onEsc);
+    document.addEventListener("scroll", onScroll, true);
     return () => {
       document.removeEventListener("mousedown", onAny);
       document.removeEventListener("keydown", onEsc);
+      document.removeEventListener("scroll", onScroll, true);
     };
-  }, [menuOpen, isMobile]);
+  }, [menuOpen]);
 
   useEffect(() => {
     if (!menuItem) return;
@@ -327,9 +332,7 @@ export function ProfileClient({
     .toUpperCase();
 
   function openMenu() {
-    if (isMobile) {
-      setMenuAnchor(null);
-    } else if (triggerRef.current) {
+    if (triggerRef.current) {
       const rect = triggerRef.current.getBoundingClientRect();
       const menuWidth = 240;
       const menuHeight = 320;
@@ -563,7 +566,7 @@ export function ProfileClient({
               else openMenu();
             }}
             aria-label="Menu"
-            className="absolute top-3 right-3 w-9 h-9 rounded-full flex items-center justify-center text-ink hover:bg-black/5 active:scale-90 transition-all"
+            className="absolute top-3 right-3 w-9 h-9 rounded-full flex items-center justify-center text-ink sm:hover:bg-black/5 active:scale-90 transition-all"
           >
             <MoreVertical size={20} strokeWidth={2} />
           </button>
@@ -652,7 +655,7 @@ export function ProfileClient({
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 sm:gap-3 px-1">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-1 sm:gap-2 px-1">
             {localMedia.map((m) => (
               <div
                 key={m.id}
@@ -931,52 +934,7 @@ export function ProfileClient({
         </div>
       )}
 
-      {menuOpen && isMobile && (
-        <div
-          data-profile-menu
-          onClick={(e) => {
-            if (e.target === e.currentTarget) closeMenu();
-          }}
-          className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-sm flex items-end justify-center"
-        >
-          <div className="w-full bg-white border-t border-line rounded-t-3xl p-3 pt-3 animate-fade-up pb-[calc(12px+env(safe-area-inset-bottom))]">
-            <div className="w-10 h-1 rounded-full bg-[#e0e0e0] mx-auto mb-3" />
-            <div className="px-2 pb-2 mb-1 flex items-center justify-between">
-              <p className="text-[13px] font-semibold text-ink">Menu</p>
-              <button
-                type="button"
-                onClick={closeMenu}
-                aria-label="Tutup"
-                className="w-7 h-7 rounded-full flex items-center justify-center text-ink-mute hover:text-ink"
-              >
-                <X size={15} strokeWidth={2.2} />
-              </button>
-            </div>
-            {MENU.map(({ href, label, icon }) => (
-              <Link
-                key={href}
-                href={href}
-                onClick={closeMenu}
-                className="w-full flex items-center gap-3 px-2 py-3 rounded-xl text-left text-[14px] font-medium text-ink sm:hover:bg-[#f5f5f5] active:scale-[.99] transition-all"
-              >
-                <span className="w-5 h-5 flex items-center justify-center text-ink-soft flex-shrink-0">
-                  {icon}
-                </span>
-                {label}
-              </Link>
-            ))}
-            <button
-              type="button"
-              onClick={closeMenu}
-              className="w-full mt-2 px-4 py-3 rounded-2xl bg-[#fafafa] text-ink text-[13px] font-semibold active:scale-[.97] transition-transform"
-            >
-              Batal
-            </button>
-          </div>
-        </div>
-      )}
-
-      {menuOpen && !isMobile && menuAnchor && (
+      {menuOpen && menuAnchor && (
         <div
           data-profile-menu
           style={{ top: menuAnchor.y, left: menuAnchor.x, width: 240 }}
