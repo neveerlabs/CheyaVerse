@@ -1,11 +1,13 @@
 import { getTurso } from "./turso";
 import { config } from "./config";
+import { deleteTelegramMessage } from "./telegram";
 
 export type MediaMeta = {
   id: string;
   owner_id: number | null;
   filename: string;
   storage_path: string;
+  storage_message_id: number | null;
   content_type: string;
   file_size: number;
   expires_at: string;
@@ -17,6 +19,8 @@ function rowToMedia(row: Record<string, unknown>): MediaMeta {
     owner_id: row.owner_id == null ? null : Number(row.owner_id),
     filename: String(row.filename ?? ""),
     storage_path: String(row.storage_path ?? ""),
+    storage_message_id:
+      row.storage_message_id == null ? null : Number(row.storage_message_id),
     content_type: String(row.content_type ?? ""),
     file_size: Number(row.file_size ?? 0),
     expires_at: String(row.expires_at ?? ""),
@@ -71,6 +75,16 @@ export async function deleteMediaById(
       args: [mediaId],
     });
     if (result.rowsAffected === 0) return { ok: false, reason: "db_error" };
+
+    if (meta.storage_message_id) {
+      const deleted = await deleteTelegramMessage(meta.storage_message_id);
+      if (!deleted) {
+        console.warn(
+          `Failed to delete Telegram storage message ${meta.storage_message_id} for media ${mediaId}`,
+        );
+      }
+    }
+
     return { ok: true };
   } catch {
     return { ok: false, reason: "db_error" };
