@@ -32,3 +32,36 @@ export async function fetchTelegramFile(fileId: string): Promise<Response | null
     return null;
   }
 }
+
+export async function deleteTelegramMessage(
+  messageId: number | string,
+): Promise<boolean> {
+  if (!config.telegram.botToken) {
+    console.error("TELEGRAM_BOT_TOKEN not configured");
+    return false;
+  }
+  if (!config.telegram.storageChatId) {
+    console.error("TELEGRAM_STORAGE_CHAT_ID not configured");
+    return false;
+  }
+  try {
+    const res = await fetch(
+      `https://api.telegram.org/bot${config.telegram.botToken}/deleteMessage`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: config.telegram.storageChatId,
+          message_id: Number(messageId),
+        }),
+        cache: "no-store",
+      },
+    );
+    if (!res.ok) return false;
+    const data = await res.json();
+    return data?.ok === true;
+  } catch (err) {
+    console.error("Telegram deleteMessage error:", err);
+    return false;
+  }
+}
