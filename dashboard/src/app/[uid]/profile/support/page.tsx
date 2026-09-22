@@ -8,44 +8,44 @@ const FAQS: { q: string; a: string[] }[] = [
   {
     q: "Media tidak muncul di dashboard",
     a: [
-      "Pastikan Anda mengunggah media melalui bot Telegram dengan caption /qr, bukan langsung dari galeri.",
-      "Cek apakah media sudah melewati masa simpan 30 hari. Media yang expired akan dihapus otomatis.",
-      "Lakukan refresh halaman (tarik ke bawah atau tekan tombol reload browser).",
-      "Jika media lama diunggah sebelum pembaruan akun, media tersebut tidak akan muncul di dashboard. Silakan unggah ulang.",
+      "Media hanya diproses bila diunggah melalui bot Telegram dengan caption /qr. Upload langsung dari galeri perangkat tidak masuk ke sistem.",
+      "Masa simpan media adalah 30 hari sejak tanggal unggahan. Setelah 30 hari, media dihapus otomatis dari database dan Telegram Storage Chat.",
+      "Media yang diunggah sebelum akun terdaftar tidak akan tertaut ke dashboard. Lakukan upload ulang setelah akun aktif.",
+      "Jika media belum muncul dalam 30 detik, muat ulang halaman atau periksa koneksi internet perangkat.",
     ],
   },
   {
     q: "Upload foto atau video gagal",
     a: [
-      "Ukuran file maksimum adalah 5 MB. Kompres atau perkecil terlebih dahulu sebelum mengunggah.",
-      "Pastikan koneksi internet stabil saat mengirim media ke bot.",
-      "Beberapa format video tidak didukung. Gunakan format MP4 untuk hasil terbaik.",
-      "Jika masalah berlanjut, tunggu beberapa saat lalu coba lagi — server Telegram mungkin sedang sibuk.",
+      "Batas ukuran file adalah 5 MB per file. Kompresi media bila melebihi batas.",
+      "Koneksi internet harus stabil selama proses upload. Koneksi tidak stabil dapat mengakibatkan upload terputus.",
+      "Format video mengikuti dukungan browser modern. Format MP4 direkomendasikan untuk kompatibilitas maksimal.",
+      "Jika kegagalan berlanjut, tunggu beberapa menit lalu ulangi. Server Telegram kemungkinan sedang overload.",
     ],
   },
   {
     q: "Download stuck di verifikasi reCAPTCHA",
     a: [
-      "Selesaikan verifikasi reCAPTCHA terlebih dahulu, baru proses download akan berjalan.",
-      "Jika verifikasi expired, tekan tombol Download sekali lagi untuk mendapatkan tantangan baru.",
-      "Nonaktifkan pemblokir iklan atau ekstensi yang mungkin menghalangi reCAPTCHA.",
-      "Jika tetap gagal, coba browser lain atau mode incognito.",
+      "Verifikasi reCAPTCHA bersifat wajib. Proses download hanya dimulai setelah verifikasi berhasil.",
+      "Token verifikasi memiliki masa berlaku terbatas. Jika kedaluwarsa, tekan tombol Download kembali untuk memuat tantangan baru.",
+      "Nonaktifkan pemblokir iklan, ekstensi privasi, atau VPN yang dapat memblokir reCAPTCHA.",
+      "Jika gagal berulang, gunakan mode incognito atau browser lain.",
     ],
   },
   {
     q: "Video tidak dapat diputar",
     a: [
-      "Kodek video mungkin tidak didukung oleh browser. Coba putar menggunakan browser Chrome, Safari, atau Edge versi terbaru.",
-      "Coba lakukan hard refresh (Ctrl + Shift + R di desktop, atau bersihkan cache di mobile).",
-      "Jika video tetap tidak dapat diputar, kemungkinan file rusak. Silakan unggah ulang dari bot.",
+      "Kodek video mengikuti dukungan browser. Format H.264/MP4 memiliki kompatibilitas terbaik. Format AVI, MKV, atau WMV kemungkinan tidak didukung.",
+      "Lakukan hard refresh untuk memuat ulang resource yang ter-cache: Ctrl + Shift + R (desktop) atau bersihkan cache browser (mobile).",
+      "Jika masih gagal, kemungkinan file korup. Lakukan upload ulang dari bot Telegram.",
     ],
   },
   {
     q: "Link QR tidak bisa dibuka",
     a: [
-      "Pastikan Anda membuka link melalui browser modern dengan koneksi internet aktif.",
-      "Cek kembali apakah tautan yang diketik sudah sesuai dengan yang ada di barcode.",
-      "Jika media sudah expired, link akan menampilkan halaman kosong. Unggah ulang media melalui bot untuk mendapatkan link baru.",
+      "Link hanya dapat dibuka melalui browser modern dengan koneksi internet aktif.",
+      "Periksa kembali ID media pada URL. ID bersifat unik 7 digit dan case-sensitive.",
+      "Bila media sudah melewati masa simpan 30 hari, link menampilkan halaman kosong. Upload ulang untuk mendapatkan link baru.",
     ],
   },
 ];
@@ -67,9 +67,9 @@ export default function SupportPage({
       />
 
       <p className="text-[13.5px] text-ink-soft leading-[1.75] px-1 mb-6 animate-fade-up">
-        Jika Anda mengalami kendala saat menggunakan CheyaVerse, silakan periksa
-        panduan berikut. Sebagian besar masalah dapat diselesaikan dengan
-        beberapa langkah sederhana.
+        Bagian ini berisi panduan penanganan kendala yang umum terjadi saat
+        menggunakan CheyaVerse. Sebagian besar kendala dapat diselesaikan
+        dengan langkah-langkah berikut.
       </p>
 
       <section className="mb-6 animate-fade-up">
@@ -84,7 +84,7 @@ export default function SupportPage({
                 idx !== FAQS.length - 1 ? "border-b border-divider" : ""
               }`}
             >
-              <summary className="flex items-center justify-between gap-3 px-4 py-[15px] min-h-[56px] cursor-pointer list-none select-none [&::-webkit-details-marker]:hidden transition-colors hover:bg-[#fafafa]">
+              <summary className="flex items-center justify-between gap-3 px-4 py-[15px] min-h-[56px] cursor-pointer list-none select-none [&::-webkit-details-marker]:hidden transition-colors sm:hover:bg-[#fafafa]">
                 <span className="text-[14px] font-medium text-ink leading-snug tracking-[-.005em]">
                   {item.q}
                 </span>
@@ -118,14 +118,14 @@ export default function SupportPage({
         </h2>
         <div className="rounded-2xl bg-white border border-line p-5">
           <p className="text-[13px] text-ink-soft leading-[1.7] mb-4">
-            Jika Anda menemukan bug, kendala teknis yang tidak dapat
-            diselesaikan melalui panduan di atas, atau perilaku tidak wajar
-            pada aplikasi, silakan laporkan melalui email. Sertakan deskripsi
-            masalah, langkah reproduksi, dan tangkapan layar bila memungkinkan.
+            Bug, kendala teknis di luar panduan di atas, atau perilaku tidak
+            wajar pada aplikasi dapat dilaporkan melalui email. Sertakan
+            deskripsi masalah, langkah reproduksi, dan tangkapan layar bila
+            memungkinkan.
           </p>
           <a
             href="mailto:userlinuxorg@gmail.com?subject=Laporan%20Bug%20CheyaVerse"
-            className="inline-flex items-center gap-2 px-4 py-3 rounded-xl bg-ink text-white text-[13px] font-medium transition-all active:scale-[.97] hover:bg-accent-hover"
+            className="inline-flex items-center gap-2 px-4 py-3 rounded-xl bg-ink text-white text-[13px] font-medium transition-all active:scale-[.97] sm:hover:bg-accent-hover"
           >
             <Mail size={15} strokeWidth={2.2} />
             userlinuxorg@gmail.com
