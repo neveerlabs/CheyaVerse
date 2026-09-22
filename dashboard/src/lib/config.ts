@@ -5,6 +5,7 @@ export const config = {
   },
   telegram: {
     botToken: process.env.TELEGRAM_BOT_TOKEN ?? "",
+    storageChatId: process.env.TELEGRAM_STORAGE_CHAT_ID ?? "",
   },
   botUsername: (process.env.BOT_USERNAME ?? "").replace(/^@/, ""),
   publicUrl: (process.env.PUBLIC_URL ?? "").replace(/\/+$/, ""),
