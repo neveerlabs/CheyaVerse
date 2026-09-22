@@ -1,0 +1,123 @@
+import { config } from "./config";
+
+export type TelegramUserInfo = {
+  id: number;
+  first_name?: string;
+  last_name?: string;
+  username?: string;
+};
+
+export async function getTelegramFileUrl(fileId: string): Promise<string | null> {
+  if (!config.telegram.botToken) {
+    console.error("TELEGRAM_BOT_TOKEN not configured");
+    return null;
+  }
+  try {
+    const res = await fetch(
+      `https://api.telegram.org/bot${config.telegram.botToken}/getFile?file_id=${encodeURIComponent(fileId)}`,
+      { cache: "no-store" },
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data?.ok || !data?.result?.file_path) return null;
+    return `https://api.telegram.org/file/bot${config.telegram.botToken}/${data.result.file_path}`;
+  } catch (err) {
+    console.error("Telegram getFile error:", err);
+    return null;
+  }
+}
+
+export async function fetchTelegramFile(fileId: string): Promise<Response | null> {
+  const url = await getTelegramFileUrl(fileId);
+  if (!url) return null;
+  try {
+    const upstream = await fetch(url, { cache: "no-store" });
+    if (!upstream.ok || !upstream.body) return null;
+    return upstream;
+  } catch (err) {
+    console.error("Telegram fetch file error:", err);
+    return null;
+  }
+}
+
+export async function deleteTelegramMessage(
+  messageId: number | string,
+): Promise<boolean> {
+  if (!config.telegram.botToken) {
+    console.error("TELEGRAM_BOT_TOKEN not configured");
+    return false;
+  }
+  if (!config.telegram.storageChatId) {
+    console.error("TELEGRAM_STORAGE_CHAT_ID not configured");
+    return false;
+  }
+  try {
+    const res = await fetch(
+      `https://api.telegram.org/bot${config.telegram.botToken}/deleteMessage`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: config.telegram.storageChatId,
+          message_id: Number(messageId),
+        }),
+        cache: "no-store",
+      },
+    );
+    if (!res.ok) return false;
+    const data = await res.json();
+    return data?.ok === true;
+  } catch (err) {
+    console.error("Telegram deleteMessage error:", err);
+    return false;
+  }
+}
+
+export async function getTelegramChatInfo(
+  userId: string | number,
+): Promise<TelegramUserInfo | null> {
+  if (!config.telegram.botToken) return null;
+  try {
+    const res = await fetch(
+      `https://api.telegram.org/bot${config.telegram.botToken}/getChat?chat_id=${encodeURIComponent(String(userId))}`,
+      { cache: "no-store" },
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data?.ok || !data?.result) return null;
+    const r = data.result;
+    return {
+      id: Number(r.id),
+      first_name: r.first_name ?? undefined,
+      last_name: r.last_name ?? undefined,
+      username: r.username ?? undefined,
+    };
+  } catch (err) {
+    console.error("Telegram getChat error:", err);
+    return null;
+  }
+}
+
+export async function getTelegramAvatarFileId(
+  userId: string | number,
+): Promise<string | null> {
+  if (!config.telegram.botToken) return null;
+  try {
+    const res = await fetch(
+      `https://api.telegram.org/bot${config.telegram.botToken}/getUserProfilePhotos?user_id=${encodeURIComponent(String(userId))}&limit=1`,
+      { cache: "no-store" },
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data?.ok) return null;
+    const photos = data.result?.photos;
+    if (!Array.isArray(photos) || photos.length === 0) return null;
+    const sizes = photos[0];
+    if (!Array.isArray(sizes) || sizes.length === 0) return null;
+    const best = sizes[sizes.length - 1];
+    return best?.file_id ?? null;
+  } catch (err) {
+    console.error("Telegram getUserProfilePhotos error:", err);
+    return null;
+  }
+}
