@@ -242,6 +242,7 @@ Di section **Environment Variables**, tambahin satu-satu (klik **Add** tiap kali
 | `MEDIA_TTL_DAYS` | `30` |
 | `NEXT_PUBLIC_RECAPTCHA_SITE_KEY` | (dari reCAPTCHA admin) |
 | `RECAPTCHA_SECRET_KEY` | (dari reCAPTCHA admin) |
+| `TELEGRAM_STORAGE_CHAT_ID` | **ID Grup Channel** |
 
 > `TELEGRAM_BOT_TOKEN` di webapp harus sama dengan `BOT_TOKEN` di `.env` bot. Dipake webapp buat proxy file dari Telegram API
 
@@ -276,6 +277,7 @@ RECAPTCHA_SECRET_KEY=
 TURSO_URL=
 TURSO_AUTH_TOKEN=
 TELEGRAM_BOT_TOKEN=
+TELEGRAM_STORAGE_CHAT_ID=
 ```
 
 ## Catatan & Pemberitahuan
@@ -283,6 +285,7 @@ TELEGRAM_BOT_TOKEN=
 **Tentang barcode:**
 - Barcode dari input teks → berfungsi **permanen** (nggak ada TTL, karena cuma nyimpen string)
 - Barcode dari media (gambar/video) → berfungsi selama `MEDIA_TTL_DAYS` (default **30 hari**). Setelah expired, file media dihapus otomatis dari Telegram Storage Chat, tapi gambar barcode tetep ada
+- Isi `TELEGRAM_STORAGE_CHAT_ID` di isi dengna **ID grup Channel**
 
 **Format URL:**
 
