@@ -378,7 +378,7 @@ export function MediaClient({
           ))}
         </div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 sm:gap-3 px-1 animate-fade-up">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-1 sm:gap-2 px-1 animate-fade-up">
           {localItems.map((m) => (
             <div
               key={m.id}
