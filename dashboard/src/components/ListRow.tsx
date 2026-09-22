@@ -46,7 +46,7 @@ export function ListRow({
     "before:bg-divider last:before:hidden " +
     (disabled
       ? "cursor-default"
-      : "hover:opacity-60 active:opacity-40 cursor-pointer");
+      : "sm:hover:opacity-60 active:opacity-40 cursor-pointer");
 
   if (disabled) return <div className={cls}>{inner}</div>;
   if (href) {
