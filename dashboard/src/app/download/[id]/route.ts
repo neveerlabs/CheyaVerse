@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { fetchMedia, createSignedUrl } from "@/lib/storage";
+import { fetchMedia } from "@/lib/storage";
+import { fetchTelegramFile } from "@/lib/telegram";
 import { verifyRecaptcha } from "@/lib/recaptcha";
+
+export const runtime = "nodejs";
 
 const MEDIA_ID_RE = /^\d{7}$/;
 
@@ -23,19 +26,13 @@ export async function GET(
     return new NextResponse("Media not found.", { status: 404 });
   }
 
-  const signed = await createSignedUrl(meta.storage_path, 60);
-  if (!signed) {
-    return new NextResponse("Media gateway error.", { status: 502 });
+  const upstream = await fetchTelegramFile(meta.storage_path);
+  if (!upstream || !upstream.body) {
+    return new NextResponse("Media not available.", { status: 502 });
   }
 
-  const upstream = await fetch(signed);
-  if (!upstream.ok || !upstream.body) {
-    return new NextResponse("Media not available.", { status: upstream.status });
-  }
-
-  const safeName = (meta.filename || params.id)
-    .replace(/["\\\r\n]/g, "")
-    .slice(0, 200) || "file";
+  const safeName =
+    (meta.filename || params.id).replace(/["\\\r\n]/g, "").slice(0, 200) || "file";
 
   return new NextResponse(upstream.body, {
     status: 200,
