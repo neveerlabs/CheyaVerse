@@ -36,10 +36,29 @@ export function TabBar({ uid }: { uid: string }) {
         </Link>
 
         <div className="relative w-[78px] flex-shrink-0">
+          <div
+            aria-hidden
+            className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 w-[64px] h-[64px] pointer-events-none"
+          >
+            <span
+              className="absolute inset-0 rounded-full blur-[9px] opacity-75 animate-[spin_7s_linear_infinite]"
+              style={{
+                background:
+                  "conic-gradient(from 0deg, #22d3ee, #3b82f6, #8b5cf6, #ec4899, #f59e0b, #22d3ee)",
+              }}
+            />
+            <span
+              className="absolute inset-[6px] rounded-full animate-[spin_4s_linear_infinite]"
+              style={{
+                background:
+                  "conic-gradient(from 0deg, #22d3ee, #3b82f6, #8b5cf6, #ec4899, #f59e0b, #22d3ee)",
+              }}
+            />
+          </div>
           <Link
             href={mediaHref}
             aria-label="Media"
-            className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 w-[50px] h-[50px] rounded-full bg-ink text-white flex items-center justify-center shadow-[0_8px_22px_-6px_rgba(0,0,0,.4)] ring-4 ring-white active:scale-95 transition-transform"
+            className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 w-[50px] h-[50px] rounded-full bg-ink text-white flex items-center justify-center shadow-[0_8px_22px_-6px_rgba(0,0,0,.4)] active:scale-95 transition-transform"
           >
             <ImageIcon size={20} strokeWidth={2.2} />
           </Link>
