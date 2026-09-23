@@ -616,7 +616,7 @@ export function ProfileClient({
               else openMenu();
             }}
             aria-label="Menu"
-            className={`absolute top-3 right-3 z-20 w-9 h-9 rounded-full flex items-center justify-center sm:hover:bg-black/5 active:scale-90 transition-all ${
+            className={`absolute top-3 right-2 z-20 w-9 h-9 rounded-full flex items-center justify-center sm:hover:bg-black/5 active:scale-90 transition-all ${
               cover ? "text-white drop-shadow-[0_1px_3px_rgba(0,0,0,.55)]" : "text-ink"
             }`}
           >
