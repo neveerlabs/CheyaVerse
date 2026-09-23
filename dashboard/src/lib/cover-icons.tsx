@@ -1,6 +1,6 @@
 "use client";
 
-import type { ComponentType, CSSProperties } from "react";
+import type { LucideProps } from "lucide-react";
 import {
   Sparkles, Star, Heart, Zap, Flame, Crown, Rocket, Moon, Sun, Cloud,
   Snowflake, Ghost, Skull, Cat, Dog, Bird, Fish, Flower, Leaf, TreePine,
@@ -9,10 +9,9 @@ import {
   Trophy, Target, Compass, Plane, Globe, Atom, Lightbulb, Brain, Eye,
   Gem, Anchor, MapPin,
 } from "lucide-react";
+import type { ComponentType } from "react";
 
-type IconProps = { size?: number; strokeWidth?: number; className?: string; style?: CSSProperties };
-
-export const COVER_ICONS: Record<string, ComponentType<IconProps>> = {
+export const COVER_ICONS: Record<string, ComponentType<LucideProps>> = {
   sparkles: Sparkles, star: Star, heart: Heart, zap: Zap, flame: Flame,
   crown: Crown, rocket: Rocket, moon: Moon, sun: Sun, cloud: Cloud,
   snowflake: Snowflake, ghost: Ghost, skull: Skull, cat: Cat, dog: Dog,
