@@ -17,7 +17,7 @@ const FAQS: { q: string; a: string[] }[] = [
   {
     q: "Upload foto atau video gagal",
     a: [
-      "Batas ukuran file adalah 5 MB per file. Kompresi media bila melebihi batas.",
+      "Batas ukuran file adalah 15 MB per file. Kompresi media bila melebihi batas.",
       "Koneksi internet harus stabil selama proses upload. Koneksi tidak stabil dapat mengakibatkan upload terputus.",
       "Format video mengikuti dukungan browser modern. Format MP4 direkomendasikan untuk kompatibilitas maksimal.",
       "Jika kegagalan berlanjut, tunggu beberapa menit lalu ulangi. Server Telegram kemungkinan sedang overload.",
