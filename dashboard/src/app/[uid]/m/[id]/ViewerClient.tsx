@@ -5,7 +5,7 @@ import Link from "next/link";
 import ReCAPTCHA from "react-google-recaptcha";
 import {
   Image as ImageIcon, Download, Maximize2, Minimize2, Copy,
-  Play, Pause, Home, AlertCircle, Trash2,
+  Play, Pause, Home, AlertCircle, Trash2, Rewind, FastForward,
 } from "lucide-react";
 import { config } from "@/lib/config";
 
@@ -40,12 +40,20 @@ type VideoProps = {
   src: string;
   onReady: () => void;
   onError: () => void;
+  controlsHidden: boolean;
+  onSeek: (clientX: number) => void;
 };
 
 const VideoPlayer = forwardRef<HTMLVideoElement, VideoProps>(
-  function VideoPlayer({ src, onReady, onError }, externalRef) {
+  function VideoPlayer({ src, onReady, onError, controlsHidden, onSeek }, externalRef) {
     const localRef = useRef<HTMLVideoElement | null>(null);
     const readySent = useRef(false);
+    const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const lastTouchEnd = useRef(0);
+    const suppressClickUntil = useRef(0);
+    const barRef = useRef<HTMLDivElement | null>(null);
+    const scrubbingRef = useRef(false);
+    const wasPlayingRef = useRef(false);
     const [playing, setPlaying] = useState(false);
     const [ct, setCt] = useState(0);
     const [dur, setDur] = useState(0);
@@ -64,12 +72,134 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoProps>(
       }
     }, [externalRef]);
 
+    useEffect(() => {
+      const v = localRef.current;
+      if (!v) return;
+      const trySync = () => {
+        if (v.readyState >= 1 && isFinite(v.duration) && v.duration > 0) {
+          setDur(v.duration);
+          if (isFinite(v.currentTime)) setCt(v.currentTime);
+          markReady();
+          return true;
+        }
+        return false;
+      };
+      if (trySync()) return;
+      const iv = window.setInterval(() => {
+        if (trySync()) window.clearInterval(iv);
+      }, 250);
+      return () => window.clearInterval(iv);
+    }, []);
+
+    useEffect(() => {
+      return () => {
+        if (clickTimer.current) clearTimeout(clickTimer.current);
+      };
+    }, []);
+
     function toggle() {
       const v = localRef.current;
       if (!v) return;
       if (v.paused) v.play().catch(() => {});
       else v.pause();
     }
+
+    function cancelPendingToggle() {
+      if (clickTimer.current) {
+        clearTimeout(clickTimer.current);
+        clickTimer.current = null;
+      }
+    }
+
+    function handleVideoClick(e: React.MouseEvent<HTMLVideoElement>) {
+      if (Date.now() < suppressClickUntil.current) {
+        e.preventDefault();
+        return;
+      }
+      if (e.detail >= 2) {
+        cancelPendingToggle();
+        onSeek(e.clientX);
+        return;
+      }
+      cancelPendingToggle();
+      clickTimer.current = setTimeout(() => {
+        clickTimer.current = null;
+        toggle();
+      }, 300);
+    }
+
+    function handleVideoTouchEnd(e: React.TouchEvent<HTMLVideoElement>) {
+      if (e.touches.length > 0) return;
+      const touch = e.changedTouches[0];
+      if (!touch) return;
+      const now = Date.now();
+      if (now - lastTouchEnd.current < 300) {
+        lastTouchEnd.current = 0;
+        cancelPendingToggle();
+        suppressClickUntil.current = now + 500;
+        onSeek(touch.clientX);
+      } else {
+        lastTouchEnd.current = now;
+      }
+    }
+
+    function ratioFromClientX(clientX: number): number {
+      const el = barRef.current;
+      if (!el) return 0;
+      const rect = el.getBoundingClientRect();
+      if (rect.width <= 0) return 0;
+      let r = (clientX - rect.left) / rect.width;
+      if (r < 0) r = 0;
+      if (r > 1) r = 1;
+      return r;
+    }
+
+    function applyScrub(clientX: number) {
+      const v = localRef.current;
+      if (!v) return;
+      const total = isFinite(v.duration) && v.duration > 0 ? v.duration : dur;
+      if (!total) return;
+      const r = ratioFromClientX(clientX);
+      const t = r * total;
+      v.currentTime = t;
+      setCt(t);
+      if (dur !== total) setDur(total);
+    }
+
+    function onBarPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+      const v = localRef.current;
+      if (!v) return;
+      e.stopPropagation();
+      scrubbingRef.current = true;
+      wasPlayingRef.current = !v.paused;
+      if (wasPlayingRef.current) v.pause();
+      applyScrub(e.clientX);
+      try {
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      } catch {}
+    }
+
+    function onBarPointerMove(e: React.PointerEvent<HTMLDivElement>) {
+      if (!scrubbingRef.current) return;
+      e.stopPropagation();
+      applyScrub(e.clientX);
+    }
+
+    function onBarPointerUp(e: React.PointerEvent<HTMLDivElement>) {
+      if (!scrubbingRef.current) return;
+      e.stopPropagation();
+      scrubbingRef.current = false;
+      const v = localRef.current;
+      if (v && wasPlayingRef.current) {
+        v.play().catch(() => {});
+      }
+      wasPlayingRef.current = false;
+      try {
+        (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+      } catch {}
+    }
+
+    const pct = dur > 0 ? Math.max(0, Math.min(1, ct / dur)) * 100 : 0;
 
     return (
       <>
@@ -82,7 +212,8 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoProps>(
           controlsList="nodownload noplaybackrate noremoteplayback"
           disablePictureInPicture
           draggable={false}
-          onClick={toggle}
+          onClick={handleVideoClick}
+          onTouchEnd={handleVideoTouchEnd}
           onLoadedMetadata={(e) => {
             const v = e.currentTarget;
             if (isFinite(v.duration)) setDur(v.duration);
@@ -90,7 +221,10 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoProps>(
           }}
           onLoadedData={markReady}
           onCanPlay={markReady}
-          onTimeUpdate={(e) => setCt(e.currentTarget.currentTime)}
+          onTimeUpdate={(e) => {
+            if (scrubbingRef.current) return;
+            setCt(e.currentTarget.currentTime);
+          }}
           onPlay={() => setPlaying(true)}
           onPause={() => setPlaying(false)}
           onEnded={() => setPlaying(false)}
@@ -104,13 +238,21 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoProps>(
             type="button"
             onClick={(e) => { e.stopPropagation(); toggle(); }}
             aria-label="Play"
-            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-20 w-[68px] h-[68px] rounded-full bg-black/55 backdrop-blur-xl border-2 border-white/25 text-white flex items-center justify-center active:scale-95 transition-transform"
+            className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-20 w-[68px] h-[68px] rounded-full bg-black/55 backdrop-blur-xl border-2 border-white/25 text-white flex items-center justify-center transition-all duration-300 ease-out ${
+              controlsHidden
+                ? "opacity-0 pointer-events-none scale-90"
+                : "opacity-100 scale-100 active:scale-95"
+            }`}
           >
             <Play size={26} className="fill-white ml-0.5" />
           </button>
         )}
 
-        <div className="absolute left-0 right-0 bottom-0 z-[6] flex items-center gap-2.5 px-3 pt-6 pb-2.5 bg-gradient-to-t from-black/85 via-black/55 to-transparent">
+        <div
+          className={`absolute left-0 right-0 bottom-0 z-[6] flex items-center gap-2.5 px-3 pt-6 pb-2.5 bg-gradient-to-t from-black/85 via-black/55 to-transparent transition-opacity duration-300 ease-out ${
+            controlsHidden ? "opacity-0 pointer-events-none" : "opacity-100"
+          }`}
+        >
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); toggle(); }}
@@ -119,20 +261,34 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoProps>(
           >
             {playing ? <Pause size={13} className="fill-white" /> : <Play size={13} className="fill-white ml-0.5" />}
           </button>
-          <input
-            type="range"
-            className="progress flex-1"
-            min={0}
-            max={1000}
-            step={1}
-            value={dur ? Math.floor((ct / dur) * 1000) : 0}
-            style={{ ["--p" as never]: `${dur ? (ct / dur) * 100 : 0}%` } as React.CSSProperties}
-            onChange={(e) => {
-              const v = localRef.current;
-              if (!v || !dur) return;
-              v.currentTime = (Number(e.target.value) / 1000) * dur;
-            }}
-          />
+
+          <div
+            ref={barRef}
+            role="slider"
+            data-control
+            aria-label="Seek"
+            aria-valuemin={0}
+            aria-valuemax={Math.round(dur)}
+            aria-valuenow={Math.round(ct)}
+            onPointerDown={onBarPointerDown}
+            onPointerMove={onBarPointerMove}
+            onPointerUp={onBarPointerUp}
+            onPointerCancel={onBarPointerUp}
+            className="relative flex-1 h-7 flex items-center cursor-pointer select-none"
+            style={{ touchAction: "none" }}
+          >
+            <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-[4px] rounded-full bg-white/30 overflow-hidden pointer-events-none">
+              <div
+                className="h-full rounded-full bg-white"
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+            <div
+              className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3.5 h-3.5 rounded-full bg-white shadow-[0_0_0_3px_rgba(255,255,255,.2)] pointer-events-none"
+              style={{ left: `${pct}%` }}
+            />
+          </div>
+
           <span className="text-[11.5px] font-semibold text-white tabular-nums whitespace-nowrap flex-shrink-0">
             {fmt(ct)} / {fmt(dur)}
           </span>
@@ -158,11 +314,31 @@ export default function ViewerClient({
   const [isFs, setIsFs] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [controlsHidden, setControlsHidden] = useState(false);
+  const [zoomPop, setZoomPop] = useState(false);
+  const [seekFx, setSeekFx] = useState<{ side: "left" | "right"; key: number } | null>(null);
 
   const mediaRef = useRef<HTMLDivElement>(null);
+  const innerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const recaptchaRef = useRef<ReCAPTCHA>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSeekAtRef = useRef(0);
+  const scaleRef = useRef(1);
+  const txRef = useRef(0);
+  const tyRef = useRef(0);
+  const suppressClickRef = useRef(false);
+  const isFsRef = useRef(false);
+  const kindRef = useRef(kind);
+
+  useEffect(() => {
+    kindRef.current = kind;
+  }, [kind]);
+
+  useEffect(() => {
+    isFsRef.current = isFs;
+  }, [isFs]);
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -202,6 +378,237 @@ export default function ViewerClient({
     return () => {
       document.removeEventListener("fullscreenchange", onFs);
       document.removeEventListener("webkitfullscreenchange", onFs);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!seekFx) return;
+    const t = setTimeout(() => setSeekFx(null), 720);
+    return () => clearTimeout(t);
+  }, [seekFx]);
+
+  useEffect(() => {
+    return () => {
+      if (controlsTimerRef.current) clearTimeout(controlsTimerRef.current);
+    };
+  }, []);
+
+  const handleSeek = useCallback((clientX: number) => {
+    if (kindRef.current !== "video") return;
+    const v = videoRef.current;
+    const c = mediaRef.current;
+    if (!v || !c) return;
+
+    const now = Date.now();
+    if (now - lastSeekAtRef.current < 250) return;
+    lastSeekAtRef.current = now;
+
+    const rect = c.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const isLeft = x < rect.width / 2;
+    const dur = isFinite(v.duration) && v.duration > 0 ? v.duration : 0;
+    let nt = v.currentTime + (isLeft ? -5 : 5);
+    if (nt < 0) nt = 0;
+    if (dur > 0 && nt > dur) nt = dur;
+
+    v.currentTime = nt;
+
+    if (v.paused) {
+      v.play().catch(() => {});
+    }
+
+    setSeekFx({ side: isLeft ? "left" : "right", key: Date.now() });
+  }, []);
+
+  useEffect(() => {
+    const container = mediaRef.current;
+    const inner = innerRef.current;
+    if (!container || !inner) return;
+
+    let rectW = container.clientWidth;
+    let rectH = container.clientHeight;
+    let startDist = 0;
+    let startScale = 1;
+    let startM0x = 0;
+    let startM0y = 0;
+    let startTx = 0;
+    let startTy = 0;
+    let centerX = 0;
+    let centerY = 0;
+    let pinching = false;
+    let panning = false;
+    let wasPinching = false;
+    let panStartX = 0;
+    let panStartY = 0;
+    let panStartTx = 0;
+    let panStartTy = 0;
+    const MAX_SCALE = 4;
+
+    function readRect() {
+      const r = container!.getBoundingClientRect();
+      rectW = r.width;
+      rectH = r.height;
+      centerX = r.left + r.width / 2;
+      centerY = r.top + r.height / 2;
+    }
+
+    function clampT(tx: number, ty: number, s: number): [number, number] {
+      const mX = (rectW / 2) * Math.max(0, s - 1);
+      const mY = (rectH / 2) * Math.max(0, s - 1);
+      const cx = tx < -mX ? -mX : tx > mX ? mX : tx;
+      const cy = ty < -mY ? -mY : ty > mY ? mY : ty;
+      return [cx, cy];
+    }
+
+    function writeTransform(tx: number, ty: number, s: number) {
+      const [cx, cy] = clampT(tx, ty, s);
+      txRef.current = cx;
+      tyRef.current = cy;
+      scaleRef.current = s;
+      inner!.style.transform = `translate3d(${cx}px, ${cy}px, 0) scale(${s})`;
+    }
+
+    function dist(t: TouchList) {
+      const dx = t[0].clientX - t[1].clientX;
+      const dy = t[0].clientY - t[1].clientY;
+      return Math.hypot(dx, dy);
+    }
+
+    function resetZoom() {
+      if (
+        scaleRef.current <= 1.005 &&
+        Math.abs(txRef.current) < 0.5 &&
+        Math.abs(tyRef.current) < 0.5
+      ) {
+        return;
+      }
+      inner!.style.transition = "transform 200ms ease-out";
+      scaleRef.current = 1;
+      txRef.current = 0;
+      tyRef.current = 0;
+      inner!.style.transform = "translate3d(0px, 0px, 0) scale(1)";
+      window.setTimeout(() => {
+        if (inner) inner.style.transition = "";
+      }, 220);
+    }
+
+    function isControl(target: EventTarget | null): boolean {
+      const t = target as HTMLElement | null;
+      if (!t) return false;
+      if (t.tagName === "INPUT" || t.tagName === "TEXTAREA") return true;
+      if (
+        t.closest &&
+        t.closest("button, input, [role='button'], [role='slider'], [data-control]")
+      )
+        return true;
+      return false;
+    }
+
+    function hideControlsNow() {
+      if (controlsTimerRef.current) {
+        clearTimeout(controlsTimerRef.current);
+        controlsTimerRef.current = null;
+      }
+      setControlsHidden(true);
+    }
+
+    function scheduleShowControls() {
+      if (controlsTimerRef.current) clearTimeout(controlsTimerRef.current);
+      controlsTimerRef.current = setTimeout(() => setControlsHidden(false), 600);
+    }
+
+    function onTS(e: TouchEvent) {
+      if (isControl(e.target)) return;
+      readRect();
+      if (e.touches.length >= 2) {
+        e.preventDefault();
+        startDist = dist(e.touches);
+        startScale = scaleRef.current;
+        startM0x = (e.touches[0].clientX + e.touches[1].clientX) / 2 - centerX;
+        startM0y = (e.touches[0].clientY + e.touches[1].clientY) / 2 - centerY;
+        startTx = txRef.current;
+        startTy = tyRef.current;
+        pinching = true;
+        panning = false;
+        inner!.style.transition = "";
+        if (kindRef.current === "video") hideControlsNow();
+        if (!isFsRef.current) setZoomPop(true);
+        wasPinching = true;
+      } else if (e.touches.length === 1) {
+        pinching = false;
+        if (scaleRef.current > 1.005) {
+          panning = true;
+          panStartX = e.touches[0].clientX;
+          panStartY = e.touches[0].clientY;
+          panStartTx = txRef.current;
+          panStartTy = tyRef.current;
+          inner!.style.transition = "";
+        } else {
+          panning = false;
+        }
+      }
+    }
+
+    function onTM(e: TouchEvent) {
+      if (pinching && e.touches.length === 2) {
+        e.preventDefault();
+        const d = dist(e.touches);
+        if (startDist <= 0) return;
+        const ratio = d / startDist;
+        let ns = startScale * ratio;
+        ns = ns < 1 ? 1 : ns > MAX_SCALE ? MAX_SCALE : ns;
+        const k = ns / startScale;
+        const m1x = (e.touches[0].clientX + e.touches[1].clientX) / 2 - centerX;
+        const m1y = (e.touches[0].clientY + e.touches[1].clientY) / 2 - centerY;
+        const tx = m1x - k * (startM0x - startTx);
+        const ty = m1y - k * (startM0y - startTy);
+        writeTransform(tx, ty, ns);
+      } else if (panning && e.touches.length === 1) {
+        e.preventDefault();
+        const dx = e.touches[0].clientX - panStartX;
+        const dy = e.touches[0].clientY - panStartY;
+        writeTransform(panStartTx + dx, panStartTy + dy, scaleRef.current);
+      }
+    }
+
+    function onTE(e: TouchEvent) {
+      if (e.touches.length < 2) pinching = false;
+      if (e.touches.length === 0) {
+        const wasZoomed =
+          scaleRef.current > 1.005 ||
+          Math.abs(txRef.current) > 0.5 ||
+          Math.abs(tyRef.current) > 0.5;
+        panning = false;
+        if (wasZoomed) {
+          suppressClickRef.current = true;
+          window.setTimeout(() => {
+            suppressClickRef.current = false;
+          }, 350);
+        }
+        resetZoom();
+        if (wasPinching) {
+          if (kindRef.current === "video") scheduleShowControls();
+          if (!isFsRef.current) setZoomPop(false);
+          wasPinching = false;
+        }
+      } else if (e.touches.length === 1 && scaleRef.current > 1.005) {
+        panning = true;
+        panStartX = e.touches[0].clientX;
+        panStartY = e.touches[0].clientY;
+        panStartTx = txRef.current;
+        panStartTy = tyRef.current;
+      }
+    }
+
+    container.addEventListener("touchstart", onTS, { passive: false });
+    container.addEventListener("touchmove", onTM, { passive: false });
+    container.addEventListener("touchend", onTE);
+    container.addEventListener("touchcancel", onTE);
+    return () => {
+      container.removeEventListener("touchstart", onTS);
+      container.removeEventListener("touchmove", onTM);
+      container.removeEventListener("touchend", onTE);
+      container.removeEventListener("touchcancel", onTE);
     };
   }, []);
 
@@ -389,7 +796,17 @@ export default function ViewerClient({
 
       <div
         ref={mediaRef}
-        className="protect-zone relative rounded-2xl overflow-hidden bg-black w-full mb-4 animate-fade-up"
+        onClickCapture={(e) => {
+          if (suppressClickRef.current) {
+            e.preventDefault();
+            e.stopPropagation();
+          }
+        }}
+        className={`protect-zone relative rounded-2xl overflow-hidden bg-black w-full mb-4 transition-[transform,box-shadow] duration-[380ms] ease-[cubic-bezier(.22,1,.36,1)] will-change-transform ${
+          zoomPop
+            ? "-translate-y-1 scale-[1.05] shadow-[0_30px_80px_-14px_rgba(0,0,0,.55),0_12px_32px_-8px_rgba(0,0,0,.35)]"
+            : "translate-y-0 scale-100 shadow-[0_0_0_0_rgba(0,0,0,0)]"
+        }`}
         style={{ aspectRatio: "4 / 3", maxHeight: "70vh" }}
       >
         {!ready && kind !== "other" && (
@@ -406,34 +823,81 @@ export default function ViewerClient({
           </div>
         )}
 
-        {kind === "video" && (
-          <VideoPlayer
-            ref={videoRef}
-            src={signedUrl}
-            onReady={() => setReady(true)}
-            onError={() => setFailed(true)}
-          />
-        )}
+        <div
+          ref={innerRef}
+          style={{ transformOrigin: "center center", touchAction: "none" }}
+          className="absolute inset-0 will-change-transform"
+        >
+          {kind === "video" && (
+            <VideoPlayer
+              ref={videoRef}
+              src={signedUrl}
+              onReady={() => setReady(true)}
+              onError={() => setFailed(true)}
+              controlsHidden={controlsHidden}
+              onSeek={handleSeek}
+            />
+          )}
 
-        {kind === "image" && (
-          <img
-            src={signedUrl}
-            alt={filename}
-            draggable={false}
-            onLoad={() => setReady(true)}
-            onError={() => setFailed(true)}
-            className={`protect absolute inset-0 w-full h-full object-contain transition-opacity duration-500 ${
-              ready ? "opacity-100" : "opacity-0"
-            }`}
-          />
-        )}
+          {kind === "image" && (
+            <img
+              src={signedUrl}
+              alt={filename}
+              draggable={false}
+              onLoad={() => setReady(true)}
+              onError={() => setFailed(true)}
+              className={`protect absolute inset-0 w-full h-full object-contain transition-opacity duration-500 ${
+                ready ? "opacity-100" : "opacity-0"
+              }`}
+            />
+          )}
 
-        {kind === "other" && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center px-6 py-14 text-center">
-            <ImageIcon size={32} className="text-white/40 mb-2" />
-            <p className="text-[13px] text-white/70">
-              Preview tidak tersedia untuk tipe file ini
-            </p>
+          {kind === "other" && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center px-6 py-14 text-center">
+              <ImageIcon size={32} className="text-white/40 mb-2" />
+              <p className="text-[13px] text-white/70">
+                Preview tidak tersedia untuk tipe file ini
+              </p>
+            </div>
+          )}
+        </div>
+
+        {kind === "video" && seekFx && (
+          <div
+            key={seekFx.key}
+            className="absolute inset-0 z-[15] pointer-events-none overflow-hidden"
+          >
+            <div
+              className={`absolute inset-y-0 w-1/2 ${
+                seekFx.side === "left" ? "left-0" : "right-0"
+              }`}
+              style={{
+                background:
+                  seekFx.side === "left"
+                    ? "linear-gradient(90deg, rgba(255,255,255,.16), transparent 72%)"
+                    : "linear-gradient(-90deg, rgba(255,255,255,.16), transparent 72%)",
+                animation: "seek-glow 700ms ease-out forwards",
+              }}
+            />
+            <div
+              className={`absolute inset-y-0 w-1/2 flex items-center justify-center ${
+                seekFx.side === "left" ? "left-0" : "right-0"
+              }`}
+            >
+              <span
+                className="relative text-white flex items-center justify-center"
+                style={{
+                  filter: "drop-shadow(0 2px 10px rgba(0,0,0,.6))",
+                  animation: `seek-hint-${seekFx.side} 700ms cubic-bezier(.22,1,.36,1) forwards`,
+                }}
+              >
+                {seekFx.side === "left" ? (
+                  <Rewind size={26} strokeWidth={2.2} />
+                ) : (
+                  <FastForward size={26} strokeWidth={2.2} />
+                )}
+              </span>
+            </div>
           </div>
         )}
 
@@ -442,7 +906,11 @@ export default function ViewerClient({
             type="button"
             onClick={toggleFs}
             aria-label="Fullscreen"
-            className="absolute top-2.5 right-2.5 z-30 w-9 h-9 rounded-full bg-black/50 backdrop-blur-md border border-white/15 text-white flex items-center justify-center active:scale-90 transition-transform"
+            className={`absolute top-2.5 right-2.5 z-30 w-9 h-9 rounded-full bg-black/50 backdrop-blur-md border border-white/15 text-white flex items-center justify-center transition-all duration-300 ease-out ${
+              controlsHidden
+                ? "opacity-0 pointer-events-none"
+                : "opacity-100 active:scale-90"
+            }`}
           >
             {isFs ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
           </button>
