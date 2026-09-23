@@ -65,7 +65,7 @@ export default function AboutPage() {
       </GroupSection>
 
       <GroupSection title="Aplikasi">
-        <ListRow icon={<Code2 size={22} />} title="Versi" value="v1.4.8" disabled />
+        <ListRow icon={<Code2 size={22} />} title="Versi" value="v1.4.8-release" disabled />
         <ListRow
           icon={<ShieldCheck size={22} />}
           title="Status"
@@ -78,11 +78,11 @@ export default function AboutPage() {
       <GroupSection title="Media">
         <ListRow
           icon={<Clock size={22} />}
-          title="Masa simpan"
+          title="Expired file"
           value={`${ttl} hari`}
           disabled
         />
-        <ListRow icon={<ImageIcon size={22} />} title="Ukuran maks" value="5 MB" disabled />
+        <ListRow icon={<ImageIcon size={22} />} title="Max upload" value="15 MB" disabled />
         <ListRow
           icon={<Palette size={22} />}
           title="Sampul profil"
