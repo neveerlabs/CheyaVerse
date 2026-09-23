@@ -22,10 +22,10 @@ const SECTIONS: { title: string; body: string }[] = [
   },
   {
     title: "Batas Ukuran dan Format",
-    body: "Ukuran maksimum file adalah 5 MB per file. Layanan menerima format gambar dan video dengan kodek yang didukung browser modern. Sistem berhak menolak file yang melebihi batas ukuran atau bertipe tidak didukung.",
+    body: "Ukuran maksimum file adalah 15 MB per file. Layanan menerima format gambar dan video dengan kodek yang didukung browser modern. Sistem berhak menolak file yang melebihi batas ukuran atau bertipe tidak didukung.",
   },
   {
-    title: "Masa Simpan Media",
+    title: "Masa Expired Media",
     body: "Media disimpan selama 30 hari sejak tanggal unggahan. Setelah periode tersebut, file dihapus otomatis dan tidak dapat dipulihkan. Pengguna bertanggung jawab mengunduh atau mencadangkan media penting sebelum masa simpan berakhir.",
   },
   {
