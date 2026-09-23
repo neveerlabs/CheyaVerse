@@ -33,33 +33,6 @@ video::-webkit-media-controls-download-button {
   opacity: 0 !important;
 }
 
-input[type="range"].progress {
-  -webkit-appearance: none;
-  appearance: none;
-  height: 4px;
-  border-radius: 999px;
-  background: linear-gradient(to right, #fff var(--p, 0%), rgba(255,255,255,.3) var(--p, 0%));
-  outline: none;
-}
-input[type="range"].progress::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 13px; height: 13px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 0 0 3px rgba(255,255,255,.2);
-  cursor: pointer;
-}
-input[type="range"].progress::-moz-range-thumb {
-  width: 13px; height: 13px;
-  border-radius: 50%;
-  background: #fff;
-  border: none;
-}
-input[type="range"].progress::-moz-range-track {
-  background: transparent; border: none; height: 4px;
-}
-
 main {
   transition: filter 320ms cubic-bezier(.4,0,.2,1), opacity 320ms cubic-bezier(.4,0,.2,1);
 }
@@ -97,4 +70,25 @@ svg {
 a {
   -webkit-user-drag: none;
   user-drag: none;
+}
+
+@keyframes seek-hint-left {
+  0%   { opacity: 0; transform: translateX(28px) scale(.85); }
+  22%  { opacity: 1; transform: translateX(0) scale(1); }
+  58%  { opacity: 1; transform: translateX(0) scale(1); }
+  100% { opacity: 0; transform: translateX(-52px) scale(1.06); }
+}
+
+@keyframes seek-hint-right {
+  0%   { opacity: 0; transform: translateX(-28px) scale(.85); }
+  22%  { opacity: 1; transform: translateX(0) scale(1); }
+  58%  { opacity: 1; transform: translateX(0) scale(1); }
+  100% { opacity: 0; transform: translateX(52px) scale(1.06); }
+}
+
+@keyframes seek-glow {
+  0%   { opacity: 0; }
+  22%  { opacity: 1; }
+  62%  { opacity: 1; }
+  100% { opacity: 0; }
 }
