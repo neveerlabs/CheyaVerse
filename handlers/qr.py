@@ -4,13 +4,11 @@ import time
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
-
 import qrcode
 from aiogram import F, Router
 from aiogram.filters import Command, CommandObject
 from aiogram.types import BufferedInputFile, Message, ReplyParameters
 from PIL import Image, ImageDraw
-
 import storage
 from config import MEDIA_TTL_DAYS, PUBLIC_URL, TELEGRAM_STORAGE_CHAT_ID
 from logger import logger
@@ -21,24 +19,17 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 ASSETS_DIR = BASE_DIR / "assets"
 BACKGROUND_PATH = ASSETS_DIR / "background.png"
 LOGO_PATH = ASSETS_DIR / "cheyaverse.jpg"
-
 QR_X_RATIO = 0.25
 QR_Y_RATIO = 0.35
 QR_SIZE_RATIO = 0.50
-
 QR_FRONT_COLOR = (74, 34, 22, 255)
 QR_BACK_COLOR = (250, 240, 228, 255)
-
 QR_BOX_SIZE = 14
 QR_BORDER = 4
 QR_DOT_RATIO = 0.90
-
 LOGO_SCALE = 0.20
-
-MAX_FILE_BYTES = 5 * 1024 * 1024
-
+MAX_FILE_BYTES = 15 * 1024 * 1024
 OUTPUT_FILENAME = "barcode.jpg"
-
 USAGE_TEXT = "Usage: /qr <text> or send a photo/video with caption /qr"
 
 _GROUP_CACHE: dict[str, list[Message]] = {}
