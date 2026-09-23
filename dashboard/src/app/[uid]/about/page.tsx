@@ -44,7 +44,7 @@ export default function AboutPage() {
               CheyaVerse
             </h2>
             <p className="text-[13px] text-ink-mute mt-0.5">
-              Personal bot webapp · v1.4.8
+              v1.4.8-release
             </p>
           </div>
         </div>
