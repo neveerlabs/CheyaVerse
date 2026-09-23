@@ -47,7 +47,7 @@ export default async function HomePage({ params }: { params: { uid: string } }) 
         <ListRow
           icon={<QrCode size={22} />}
           title="Generate QR"
-          subtitle="Kirim /qr <teks> ke bot"
+          subtitle="Kirim /qr [message]"
           href={botUrl}
           external
           disabled={!bot}
