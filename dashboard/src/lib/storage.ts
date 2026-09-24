@@ -526,3 +526,141 @@ export async function markNotificationsRead(uid: number): Promise<void> {
     });
   } catch {}
 }
+
+export type BlacklistEntry = {
+  uid: number;
+  fingerprint: string;
+  created_at: string;
+};
+
+export async function isFingerprintBlacklisted(
+  uid: number,
+  fingerprint: string,
+): Promise<boolean> {
+  try {
+    const result = await getTurso().execute({
+      sql: "SELECT fingerprint FROM session_blacklist WHERE uid = ? AND fingerprint = ? LIMIT 1",
+      args: [uid, fingerprint],
+    });
+    return result.rows.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+export async function addFingerprintToBlacklist(
+  uid: number,
+  fingerprint: string,
+): Promise<void> {
+  const createdAt = new Date().toISOString();
+  try {
+    await getTurso().execute({
+      sql: `INSERT OR IGNORE INTO session_blacklist
+              (uid, fingerprint, created_at)
+            VALUES (?, ?, ?)`,
+      args: [uid, fingerprint, createdAt],
+    });
+    await getTurso().execute({
+      sql: "DELETE FROM known_devices WHERE uid = ? AND fingerprint = ?",
+      args: [uid, fingerprint],
+    });
+  } catch (err) {
+    console.error("addFingerprintToBlacklist error:", err);
+  }
+}
+
+export async function removeFingerprintFromBlacklist(
+  uid: number,
+  fingerprint: string,
+): Promise<void> {
+  try {
+    await getTurso().execute({
+      sql: "DELETE FROM session_blacklist WHERE uid = ? AND fingerprint = ?",
+      args: [uid, fingerprint],
+    });
+  } catch {}
+}
+
+export async function listBlacklist(uid: number): Promise<BlacklistEntry[]> {
+  try {
+    const result = await getTurso().execute({
+      sql: "SELECT uid, fingerprint, created_at FROM session_blacklist WHERE uid = ? ORDER BY created_at DESC",
+      args: [uid],
+    });
+    return result.rows.map((r) => {
+      const row = r as unknown as Record<string, unknown>;
+      return {
+        uid: Number(row.uid),
+        fingerprint: String(row.fingerprint ?? ""),
+        created_at: String(row.created_at ?? ""),
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
+export async function listKnownDevices(uid: number): Promise<
+  { uid: number; fingerprint: string; first_seen: string }[]
+> {
+  try {
+    const result = await getTurso().execute({
+      sql: "SELECT uid, fingerprint, first_seen FROM known_devices WHERE uid = ? ORDER BY first_seen ASC",
+      args: [uid],
+    });
+    return result.rows.map((r) => {
+      const row = r as unknown as Record<string, unknown>;
+      return {
+        uid: Number(row.uid),
+        fingerprint: String(row.fingerprint ?? ""),
+        first_seen: String(row.first_seen ?? ""),
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
+export async function isKnownDevice(
+  uid: number,
+  fingerprint: string,
+): Promise<boolean> {
+  try {
+    const result = await getTurso().execute({
+      sql: "SELECT fingerprint FROM known_devices WHERE uid = ? AND fingerprint = ? LIMIT 1",
+      args: [uid, fingerprint],
+    });
+    return result.rows.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+export async function addKnownDevice(
+  uid: number,
+  fingerprint: string,
+): Promise<void> {
+  const firstSeen = new Date().toISOString();
+  try {
+    await getTurso().execute({
+      sql: `INSERT OR IGNORE INTO known_devices
+              (uid, fingerprint, first_seen)
+            VALUES (?, ?, ?)`,
+      args: [uid, fingerprint, firstSeen],
+    });
+  } catch (err) {
+    console.error("addKnownDevice error:", err);
+  }
+}
+
+export async function countKnownDevices(uid: number): Promise<number> {
+  try {
+    const result = await getTurso().execute({
+      sql: "SELECT COUNT(*) as c FROM known_devices WHERE uid = ?",
+      args: [uid],
+    });
+    return Number(result.rows[0]?.c ?? 0);
+  } catch {
+    return 0;
+  }
+}
