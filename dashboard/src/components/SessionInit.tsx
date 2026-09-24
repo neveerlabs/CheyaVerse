@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { useRealtime } from "@/lib/use-realtime";
 
 const DEVICE_ID_KEY = "cheya_device_id";
@@ -23,8 +24,10 @@ function redirectToBlocked() {
 }
 
 export function SessionInit({ uid }: { uid: string }) {
+  const router = useRouter();
   const sent = useRef(false);
   const blockedRef = useRef(false);
+  const checkRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -110,6 +113,10 @@ export function SessionInit({ uid }: { uid: string }) {
       } catch {}
     };
 
+    checkRef.current = () => {
+      void checkNow();
+    };
+
     void checkNow();
 
     const iv = window.setInterval(checkNow, CHECK_INTERVAL_MS);
@@ -126,12 +133,27 @@ export function SessionInit({ uid }: { uid: string }) {
 
     return () => {
       cancelled = true;
+      checkRef.current = null;
       window.clearInterval(iv);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("popstate", onPopState);
     };
   }, [uid]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (!e.persisted) return;
+      if (blockedRef.current) return;
+      checkRef.current?.();
+      router.refresh();
+    };
+
+    window.addEventListener("pageshow", onPageShow);
+    return () => window.removeEventListener("pageshow", onPageShow);
+  }, [router]);
 
   return null;
 }
