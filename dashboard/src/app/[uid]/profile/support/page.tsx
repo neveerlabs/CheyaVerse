@@ -132,10 +132,6 @@ export default function SupportPage({
           </a>
         </div>
       </section>
-
-      <p className="text-center text-[11px] text-ink-mute py-3 font-normal">
-        CheyaVerse · v1.4.8
-      </p>
     </>
   );
 }
