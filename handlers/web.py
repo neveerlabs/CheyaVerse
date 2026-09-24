@@ -1,11 +1,33 @@
+from typing import Optional
+
 from aiogram import Router
 from aiogram.filters import Command
-from aiogram.types import Message, ReplyParameters
+from aiogram.types import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+    ReplyParameters,
+)
 
 from config import PUBLIC_URL
 from logger import logger
 
 router = Router(name="web")
+
+
+def _build_web_keyboard(uid: int) -> Optional[InlineKeyboardMarkup]:
+    if not PUBLIC_URL:
+        return None
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Visit site",
+                    url=f"{PUBLIC_URL}/{uid}",
+                ),
+            ],
+        ]
+    )
 
 
 @router.message(Command("web"))
@@ -23,13 +45,14 @@ async def cmd_web(message: Message) -> None:
         "Webapp CheyaVerse kamu\n"
         "──────────────────────────\n"
         f"```\n{url}\n```\n"
-        "_Buka link di atas untuk melihat dashboard personal kamu\\._"
+        "_Buka link di atas untuk melihat dashboard personalmu\\._"
     )
 
     try:
         await message.answer(
             text,
             parse_mode="MarkdownV2",
+            reply_markup=_build_web_keyboard(uid),
             reply_parameters=ReplyParameters(message_id=message.message_id),
         )
         logger.info(f"/web from {label} (ID: {uid})")
