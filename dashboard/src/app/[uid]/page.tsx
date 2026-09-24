@@ -84,7 +84,7 @@ export default async function HomePage({ params }: { params: { uid: string } }) 
       </GroupSection>
 
       <p className="text-center text-[11px] text-ink-mute py-4 font-normal">
-        CheyaVerse · v1.4.8
+        CheyaVerse · v1.7.3-release
       </p>
     </>
   );
