@@ -44,11 +44,15 @@ type VideoProps = {
   onSeek: (clientX: number) => void;
 };
 
+const DOUBLE_TAP_MS = 280;
+const EDGE_GUARD_SEC = 0.08;
+
 const VideoPlayer = forwardRef<HTMLVideoElement, VideoProps>(
   function VideoPlayer({ src, onReady, onError, controlsHidden, onSeek }, externalRef) {
     const localRef = useRef<HTMLVideoElement | null>(null);
     const readySent = useRef(false);
     const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const lastClickAt = useRef(0);
     const lastTouchEnd = useRef(0);
     const suppressClickUntil = useRef(0);
     const barRef = useRef<HTMLDivElement | null>(null);
@@ -100,8 +104,20 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoProps>(
     function toggle() {
       const v = localRef.current;
       if (!v) return;
-      if (v.paused) v.play().catch(() => {});
-      else v.pause();
+      if (v.paused) {
+        if (
+          isFinite(v.duration) &&
+          v.duration > 0 &&
+          v.currentTime >= v.duration - EDGE_GUARD_SEC
+        ) {
+          try {
+            v.currentTime = 0;
+          } catch {}
+        }
+        v.play().catch(() => {});
+      } else {
+        v.pause();
+      }
     }
 
     function cancelPendingToggle() {
@@ -116,16 +132,19 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoProps>(
         e.preventDefault();
         return;
       }
-      if (e.detail >= 2) {
+      const now = Date.now();
+      if (now - lastClickAt.current < DOUBLE_TAP_MS) {
         cancelPendingToggle();
+        lastClickAt.current = 0;
         onSeek(e.clientX);
         return;
       }
+      lastClickAt.current = now;
       cancelPendingToggle();
       clickTimer.current = setTimeout(() => {
         clickTimer.current = null;
         toggle();
-      }, 300);
+      }, DOUBLE_TAP_MS);
     }
 
     function handleVideoTouchEnd(e: React.TouchEvent<HTMLVideoElement>) {
@@ -133,10 +152,10 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoProps>(
       const touch = e.changedTouches[0];
       if (!touch) return;
       const now = Date.now();
-      if (now - lastTouchEnd.current < 300) {
+      if (now - lastTouchEnd.current < DOUBLE_TAP_MS) {
         lastTouchEnd.current = 0;
         cancelPendingToggle();
-        suppressClickUntil.current = now + 500;
+        suppressClickUntil.current = now + 600;
         onSeek(touch.clientX);
       } else {
         lastTouchEnd.current = now;
@@ -158,10 +177,16 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoProps>(
       const v = localRef.current;
       if (!v) return;
       const total = isFinite(v.duration) && v.duration > 0 ? v.duration : dur;
-      if (!total) return;
+      if (!total || total <= 0) return;
       const r = ratioFromClientX(clientX);
-      const t = r * total;
-      v.currentTime = t;
+      let t = r * total;
+      if (!isFinite(t) || t < 0) t = 0;
+      if (t > total - EDGE_GUARD_SEC) t = Math.max(0, total - EDGE_GUARD_SEC);
+      try {
+        v.currentTime = t;
+      } catch {
+        return;
+      }
       setCt(t);
       if (dur !== total) setDur(total);
     }
@@ -172,7 +197,6 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoProps>(
       e.stopPropagation();
       scrubbingRef.current = true;
       wasPlayingRef.current = !v.paused;
-      if (wasPlayingRef.current) v.pause();
       applyScrub(e.clientX);
       try {
         (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
@@ -190,7 +214,7 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoProps>(
       e.stopPropagation();
       scrubbingRef.current = false;
       const v = localRef.current;
-      if (v && wasPlayingRef.current) {
+      if (v && wasPlayingRef.current && v.paused) {
         v.play().catch(() => {});
       }
       wasPlayingRef.current = false;
@@ -207,7 +231,7 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoProps>(
           ref={localRef}
           src={src}
           playsInline
-          preload="auto"
+          preload="metadata"
           controls={false}
           controlsList="nodownload noplaybackrate noremoteplayback"
           disablePictureInPicture
@@ -406,12 +430,16 @@ export default function ViewerClient({
     const rect = c.getBoundingClientRect();
     const x = clientX - rect.left;
     const isLeft = x < rect.width / 2;
-    const dur = isFinite(v.duration) && v.duration > 0 ? v.duration : 0;
+    const d = isFinite(v.duration) && v.duration > 0 ? v.duration : 0;
     let nt = v.currentTime + (isLeft ? -5 : 5);
     if (nt < 0) nt = 0;
-    if (dur > 0 && nt > dur) nt = dur;
+    if (d > 0 && nt > d - 0.1) nt = Math.max(0, d - 0.5);
 
-    v.currentTime = nt;
+    try {
+      v.currentTime = nt;
+    } catch {
+      return;
+    }
 
     if (v.paused) {
       v.play().catch(() => {});
@@ -660,15 +688,28 @@ export default function ViewerClient({
 
       if (e.code === "Space") {
         e.preventDefault();
-        if (v.paused) v.play().catch(() => {});
-        else v.pause();
+        if (v.paused) {
+          if (
+            isFinite(v.duration) &&
+            v.duration > 0 &&
+            v.currentTime >= v.duration - EDGE_GUARD_SEC
+          ) {
+            try {
+              v.currentTime = 0;
+            } catch {}
+          }
+          v.play().catch(() => {});
+        } else {
+          v.pause();
+        }
       } else if (e.code === "ArrowLeft") {
         e.preventDefault();
         v.currentTime = Math.max(0, v.currentTime - 5);
       } else if (e.code === "ArrowRight") {
         e.preventDefault();
         if (isFinite(v.duration) && v.duration > 0) {
-          v.currentTime = Math.min(v.duration, v.currentTime + 5);
+          const target = Math.min(v.duration - EDGE_GUARD_SEC, v.currentTime + 5);
+          v.currentTime = Math.max(0, target);
         }
       } else if (e.code === "ArrowUp") {
         e.preventDefault();
