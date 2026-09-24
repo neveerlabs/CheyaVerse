@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { NavigationBlur } from "@/components/NavigationBlur";
+import { BlockGuard } from "@/components/BlockGuard";
 
 export const metadata: Metadata = {
   title: "CheyaVerse",
@@ -22,6 +23,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="font-sans bg-white text-ink">
         {children}
         <NavigationBlur />
+        <BlockGuard />
       </body>
     </html>
   );
