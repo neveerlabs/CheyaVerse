@@ -34,7 +34,7 @@ export default async function StatsPage({ params }: { params: { uid: string } })
         <ListRow icon={<HardDrive size={22} />} title="Storage backend" value="Telegram + Turso" disabled />
       </GroupSection>
       <p className="text-center text-[11px] text-ink-mute py-3 font-medium">
-        CheyaVerse · v1.4.8
+        CheyaVerse · v1.7.3-release
       </p>
     </>
   );
