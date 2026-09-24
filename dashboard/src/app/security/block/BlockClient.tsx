@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { ShieldCheck, ShieldAlert, Loader2 } from "lucide-react";
 
-export function BlockClient({ uid, fp }: { uid: string; fp: string }) {
+export function BlockClient({ uid, deviceId }: { uid: string; deviceId: string }) {
   const [state, setState] = useState<"idle" | "loading" | "done" | "error">("idle");
 
   async function onBlock() {
@@ -13,7 +13,7 @@ export function BlockClient({ uid, fp }: { uid: string; fp: string }) {
       const res = await fetch("/api/session/blacklist", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ uid, fp }),
+        body: JSON.stringify({ uid, deviceId }),
       });
       if (res.ok) setState("done");
       else setState("error");
@@ -22,7 +22,7 @@ export function BlockClient({ uid, fp }: { uid: string; fp: string }) {
     }
   }
 
-  const valid = Boolean(uid && fp);
+  const valid = Boolean(uid && deviceId);
 
   return (
     <main className="mx-auto max-w-[600px] px-5 min-h-screen flex flex-col items-center justify-center py-10">
@@ -47,14 +47,9 @@ export function BlockClient({ uid, fp }: { uid: string; fp: string }) {
       {valid && state === "idle" && (
         <>
           <p className="text-[13.5px] text-ink-soft text-center max-w-[380px] leading-relaxed mb-6">
-            Perangkat dengan identitas ini akan diblokir dari akun Anda.
-            Tindakan ini akan menolak setiap percobaan masuk dari perangkat
-            tersebut di masa mendatang.
+            Perangkat ini akan diblokir dari akun Anda. Setiap percobaan masuk
+            dari perangkat ini ke akun tersebut akan ditolak secara otomatis.
           </p>
-          <div className="w-full max-w-[360px] rounded-2xl bg-white border border-line p-4 mb-6">
-            <div className="text-[12px] text-ink-mute mb-1">Fingerprint</div>
-            <div className="font-mono text-[12px] text-ink break-all">{fp}</div>
-          </div>
           <button
             type="button"
             onClick={onBlock}
@@ -74,7 +69,7 @@ export function BlockClient({ uid, fp }: { uid: string; fp: string }) {
       {state === "done" && (
         <p className="text-[13.5px] text-ink-soft text-center max-w-[360px] leading-relaxed">
           Perangkat berhasil diblokir. Setiap percobaan masuk dari perangkat ini
-          akan ditolak secara otomatis.
+          ke akun tersebut akan ditolak secara otomatis.
         </p>
       )}
 
