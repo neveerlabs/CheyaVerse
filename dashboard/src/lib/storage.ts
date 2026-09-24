@@ -315,94 +315,6 @@ export async function createNotification(data: {
   }
 }
 
-export type UserSession = {
-  uid: number;
-  device_type: string | null;
-  os: string | null;
-  brand: string | null;
-  model: string | null;
-  browser: string | null;
-  cpu_cores: number | null;
-  ram_gb: number | null;
-  user_agent: string | null;
-  first_seen: string;
-  last_seen: string;
-};
-
-export async function getUserSession(uid: number): Promise<UserSession | null> {
-  try {
-    const result = await getTurso().execute({
-      sql: "SELECT * FROM user_sessions WHERE uid = ? LIMIT 1",
-      args: [uid],
-    });
-    if (result.rows.length === 0) return null;
-    const r = result.rows[0] as unknown as Record<string, unknown>;
-    return {
-      uid: Number(r.uid),
-      device_type: r.device_type == null ? null : String(r.device_type),
-      os: r.os == null ? null : String(r.os),
-      brand: r.brand == null ? null : String(r.brand),
-      model: r.model == null ? null : String(r.model),
-      browser: r.browser == null ? null : String(r.browser),
-      cpu_cores: r.cpu_cores == null ? null : Number(r.cpu_cores),
-      ram_gb: r.ram_gb == null ? null : Number(r.ram_gb),
-      user_agent: r.user_agent == null ? null : String(r.user_agent),
-      first_seen: String(r.first_seen ?? ""),
-      last_seen: String(r.last_seen ?? ""),
-    };
-  } catch {
-    return null;
-  }
-}
-
-export async function upsertUserSession(
-  uid: number,
-  data: {
-    device_type: string | null;
-    os: string | null;
-    brand: string | null;
-    model: string | null;
-    browser: string | null;
-    cpu_cores: number | null;
-    ram_gb: number | null;
-    user_agent: string | null;
-  },
-): Promise<void> {
-  const now = new Date().toISOString();
-  try {
-    await getTurso().execute({
-      sql: `INSERT INTO user_sessions
-              (uid, device_type, os, brand, model, browser, cpu_cores, ram_gb, user_agent, first_seen, last_seen)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(uid) DO UPDATE SET
-              device_type = excluded.device_type,
-              os = excluded.os,
-              brand = excluded.brand,
-              model = excluded.model,
-              browser = excluded.browser,
-              cpu_cores = COALESCE(excluded.cpu_cores, user_sessions.cpu_cores),
-              ram_gb = COALESCE(excluded.ram_gb, user_sessions.ram_gb),
-              user_agent = excluded.user_agent,
-              last_seen = excluded.last_seen`,
-      args: [
-        uid,
-        data.device_type,
-        data.os,
-        data.brand,
-        data.model,
-        data.browser,
-        data.cpu_cores,
-        data.ram_gb,
-        data.user_agent,
-        now,
-        now,
-      ],
-    });
-  } catch (err) {
-    console.error("upsertUserSession error:", err);
-  }
-}
-
 export async function ensureWelcomeNotification(
   uid: number,
   username: string | null,
@@ -527,140 +439,146 @@ export async function markNotificationsRead(uid: number): Promise<void> {
   } catch {}
 }
 
-export type BlacklistEntry = {
+export type DeviceIdRow = {
+  device_id: string;
   uid: number;
   fingerprint: string;
-  created_at: string;
+  device_type: string | null;
+  os: string | null;
+  brand: string | null;
+  model: string | null;
+  browser: string | null;
+  cpu_cores: number | null;
+  ram_gb: number | null;
+  user_agent: string | null;
+  first_seen: string;
+  last_seen: string;
 };
 
-export async function isFingerprintBlacklisted(
+function rowToDeviceId(row: Record<string, unknown>): DeviceIdRow {
+  return {
+    device_id: String(row.device_id ?? ""),
+    uid: Number(row.uid ?? 0),
+    fingerprint: String(row.fingerprint ?? ""),
+    device_type: row.device_type == null ? null : String(row.device_type),
+    os: row.os == null ? null : String(row.os),
+    brand: row.brand == null ? null : String(row.brand),
+    model: row.model == null ? null : String(row.model),
+    browser: row.browser == null ? null : String(row.browser),
+    cpu_cores: row.cpu_cores == null ? null : Number(row.cpu_cores),
+    ram_gb: row.ram_gb == null ? null : Number(row.ram_gb),
+    user_agent: row.user_agent == null ? null : String(row.user_agent),
+    first_seen: String(row.first_seen ?? ""),
+    last_seen: String(row.last_seen ?? ""),
+  };
+}
+
+export async function getDeviceIdRow(
+  deviceId: string,
   uid: number,
-  fingerprint: string,
-): Promise<boolean> {
+): Promise<DeviceIdRow | null> {
   try {
     const result = await getTurso().execute({
-      sql: "SELECT fingerprint FROM session_blacklist WHERE uid = ? AND fingerprint = ? LIMIT 1",
-      args: [uid, fingerprint],
+      sql: "SELECT * FROM device_ids WHERE device_id = ? AND uid = ? LIMIT 1",
+      args: [deviceId, uid],
     });
-    return result.rows.length > 0;
+    if (result.rows.length === 0) return null;
+    return rowToDeviceId(result.rows[0] as unknown as Record<string, unknown>);
   } catch {
-    return false;
+    return null;
   }
 }
 
-export async function addFingerprintToBlacklist(
-  uid: number,
-  fingerprint: string,
-): Promise<void> {
-  const createdAt = new Date().toISOString();
+export async function insertDeviceId(row: DeviceIdRow): Promise<void> {
   try {
     await getTurso().execute({
-      sql: `INSERT OR IGNORE INTO session_blacklist
-              (uid, fingerprint, created_at)
-            VALUES (?, ?, ?)`,
-      args: [uid, fingerprint, createdAt],
-    });
-    await getTurso().execute({
-      sql: "DELETE FROM known_devices WHERE uid = ? AND fingerprint = ?",
-      args: [uid, fingerprint],
+      sql: `INSERT OR IGNORE INTO device_ids
+              (device_id, uid, fingerprint, device_type, os, brand, model, browser, cpu_cores, ram_gb, user_agent, first_seen, last_seen)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        row.device_id,
+        row.uid,
+        row.fingerprint,
+        row.device_type,
+        row.os,
+        row.brand,
+        row.model,
+        row.browser,
+        row.cpu_cores,
+        row.ram_gb,
+        row.user_agent,
+        row.first_seen,
+        row.last_seen,
+      ],
     });
   } catch (err) {
-    console.error("addFingerprintToBlacklist error:", err);
+    console.error("insertDeviceId error:", err);
   }
 }
 
-export async function removeFingerprintFromBlacklist(
+export async function touchDeviceId(
+  deviceId: string,
   uid: number,
-  fingerprint: string,
 ): Promise<void> {
+  const now = new Date().toISOString();
   try {
     await getTurso().execute({
-      sql: "DELETE FROM session_blacklist WHERE uid = ? AND fingerprint = ?",
-      args: [uid, fingerprint],
+      sql: "UPDATE device_ids SET last_seen = ? WHERE device_id = ? AND uid = ?",
+      args: [now, deviceId, uid],
     });
   } catch {}
 }
 
-export async function listBlacklist(uid: number): Promise<BlacklistEntry[]> {
+export async function countDeviceIdsForUid(uid: number): Promise<number> {
   try {
     const result = await getTurso().execute({
-      sql: "SELECT uid, fingerprint, created_at FROM session_blacklist WHERE uid = ? ORDER BY created_at DESC",
-      args: [uid],
-    });
-    return result.rows.map((r) => {
-      const row = r as unknown as Record<string, unknown>;
-      return {
-        uid: Number(row.uid),
-        fingerprint: String(row.fingerprint ?? ""),
-        created_at: String(row.created_at ?? ""),
-      };
-    });
-  } catch {
-    return [];
-  }
-}
-
-export async function listKnownDevices(uid: number): Promise<
-  { uid: number; fingerprint: string; first_seen: string }[]
-> {
-  try {
-    const result = await getTurso().execute({
-      sql: "SELECT uid, fingerprint, first_seen FROM known_devices WHERE uid = ? ORDER BY first_seen ASC",
-      args: [uid],
-    });
-    return result.rows.map((r) => {
-      const row = r as unknown as Record<string, unknown>;
-      return {
-        uid: Number(row.uid),
-        fingerprint: String(row.fingerprint ?? ""),
-        first_seen: String(row.first_seen ?? ""),
-      };
-    });
-  } catch {
-    return [];
-  }
-}
-
-export async function isKnownDevice(
-  uid: number,
-  fingerprint: string,
-): Promise<boolean> {
-  try {
-    const result = await getTurso().execute({
-      sql: "SELECT fingerprint FROM known_devices WHERE uid = ? AND fingerprint = ? LIMIT 1",
-      args: [uid, fingerprint],
-    });
-    return result.rows.length > 0;
-  } catch {
-    return false;
-  }
-}
-
-export async function addKnownDevice(
-  uid: number,
-  fingerprint: string,
-): Promise<void> {
-  const firstSeen = new Date().toISOString();
-  try {
-    await getTurso().execute({
-      sql: `INSERT OR IGNORE INTO known_devices
-              (uid, fingerprint, first_seen)
-            VALUES (?, ?, ?)`,
-      args: [uid, fingerprint, firstSeen],
-    });
-  } catch (err) {
-    console.error("addKnownDevice error:", err);
-  }
-}
-
-export async function countKnownDevices(uid: number): Promise<number> {
-  try {
-    const result = await getTurso().execute({
-      sql: "SELECT COUNT(*) as c FROM known_devices WHERE uid = ?",
+      sql: "SELECT COUNT(*) as c FROM device_ids WHERE uid = ?",
       args: [uid],
     });
     return Number(result.rows[0]?.c ?? 0);
   } catch {
     return 0;
   }
+}
+
+export async function isDeviceBlacklisted(
+  deviceId: string,
+  uid: number,
+): Promise<boolean> {
+  try {
+    const result = await getTurso().execute({
+      sql: "SELECT device_id FROM session_blacklist WHERE device_id = ? AND uid = ? LIMIT 1",
+      args: [deviceId, uid],
+    });
+    return result.rows.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+export async function addDeviceToBlacklist(
+  deviceId: string,
+  uid: number,
+): Promise<void> {
+  const createdAt = new Date().toISOString();
+  try {
+    await getTurso().execute({
+      sql: "INSERT OR IGNORE INTO session_blacklist (device_id, uid, created_at) VALUES (?, ?, ?)",
+      args: [deviceId, uid, createdAt],
+    });
+  } catch (err) {
+    console.error("addDeviceToBlacklist error:", err);
+  }
+}
+
+export async function removeDeviceFromBlacklist(
+  deviceId: string,
+  uid: number,
+): Promise<void> {
+  try {
+    await getTurso().execute({
+      sql: "DELETE FROM session_blacklist WHERE device_id = ? AND uid = ?",
+      args: [deviceId, uid],
+    });
+  } catch {}
 }
