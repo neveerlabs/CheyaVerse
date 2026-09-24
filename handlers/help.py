@@ -1,3 +1,5 @@
+from typing import Optional
+
 from aiogram import F, Router
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramBadRequest
@@ -40,7 +42,22 @@ def _web_text(uid: int) -> str:
         "Webapp CheyaVerse kamu\n"
         "──────────────────────────\n"
         f"```\n{_web_url(uid)}\n```\n"
-        "_Buka link di atas untuk melihat dashboard personal kamu\\._"
+        "_Buka link di atas untuk melihat dashboard personalmu\\._"
+    )
+
+
+def _web_keyboard(uid: int) -> Optional[InlineKeyboardMarkup]:
+    if not PUBLIC_URL:
+        return None
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Visit site",
+                    url=f"{PUBLIC_URL}/{uid}",
+                ),
+            ],
+        ]
     )
 
 
@@ -207,6 +224,7 @@ async def cb_menu_web(callback: CallbackQuery) -> None:
         await callback.message.answer(
             _web_text(uid),
             parse_mode=ParseMode.MARKDOWN_V2,
+            reply_markup=_web_keyboard(uid),
             reply_parameters=ReplyParameters(
                 message_id=callback.message.message_id
             ),
