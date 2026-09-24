@@ -1,19 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  upsertUserSession,
   ensureWelcomeNotification,
-  isFingerprintBlacklisted,
-  isKnownDevice,
-  addKnownDevice,
-  countKnownDevices,
+  getDeviceIdRow,
+  insertDeviceId,
+  touchDeviceId,
+  countDeviceIdsForUid,
+  isDeviceBlacklisted,
 } from "@/lib/storage";
 import { parseDeviceInfo } from "@/lib/device";
 import { getTelegramChatInfo, sendTelegramMessage } from "@/lib/telegram";
 import { computeFingerprint } from "@/lib/session-fingerprint";
+import { generateDeviceId } from "@/lib/device-id";
 import { config } from "@/lib/config";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const DEVICE_ID_RE = /^\d{10}$/;
 
 function buildDeviceLine(info: ReturnType<typeof parseDeviceInfo>): string | null {
   const typeLabel =
@@ -69,6 +72,8 @@ function nowWaktu(): string {
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const uid = Number(body?.uid);
+  const rawDeviceId =
+    typeof body?.deviceId === "string" ? body.deviceId.trim() : "";
   const ua = String(body?.ua ?? "");
   const cpuCores =
     typeof body?.cpuCores === "number" && body.cpuCores > 0
@@ -97,15 +102,36 @@ export async function POST(req: NextRequest) {
     ram_gb: ramGb,
   });
 
-  const blocked = await isFingerprintBlacklisted(uid, fingerprint);
-  if (blocked) {
-    return NextResponse.json({ ok: false, error: "blocked" }, { status: 403 });
+  let deviceId = rawDeviceId;
+
+  if (DEVICE_ID_RE.test(deviceId)) {
+    const blocked = await isDeviceBlacklisted(deviceId, uid);
+    if (blocked) {
+      return NextResponse.json({ ok: false, error: "blocked" }, { status: 403 });
+    }
+
+    const existing = await getDeviceIdRow(deviceId, uid);
+    if (existing) {
+      await touchDeviceId(deviceId, uid);
+      return NextResponse.json({ ok: true, state: "known", deviceId });
+    }
   }
 
-  const knownCount = await countKnownDevices(uid);
-  const known = await isKnownDevice(uid, fingerprint);
+  deviceId = generateDeviceId();
+  for (let i = 0; i < 12; i++) {
+    const clash = await getDeviceIdRow(deviceId, uid);
+    if (!clash) break;
+    deviceId = generateDeviceId();
+  }
 
-  await upsertUserSession(uid, {
+  const beforeCount = await countDeviceIdsForUid(uid);
+
+  const now = new Date().toISOString();
+
+  await insertDeviceId({
+    device_id: deviceId,
+    uid,
+    fingerprint,
     device_type: info.type === "unknown" ? null : info.type,
     os: info.os,
     brand: info.brand,
@@ -114,13 +140,9 @@ export async function POST(req: NextRequest) {
     cpu_cores: cpuCores,
     ram_gb: ramGb,
     user_agent: ua || null,
+    first_seen: now,
+    last_seen: now,
   });
-
-  if (known) {
-    return NextResponse.json({ ok: true, state: "known" });
-  }
-
-  await addKnownDevice(uid, fingerprint);
 
   const tgInfo = await getTelegramChatInfo(uid).catch(() => null);
   const username =
@@ -128,7 +150,7 @@ export async function POST(req: NextRequest) {
     [tgInfo?.first_name, tgInfo?.last_name].filter(Boolean).join(" ") ||
     null;
 
-  if (knownCount === 0) {
+  if (beforeCount === 0) {
     await ensureWelcomeNotification(
       uid,
       username,
@@ -137,7 +159,7 @@ export async function POST(req: NextRequest) {
       cpuCores,
       ramGb,
     );
-    return NextResponse.json({ ok: true, state: "welcome" });
+    return NextResponse.json({ ok: true, state: "welcome", deviceId });
   }
 
   const deviceBaru = deviceLine || "Tidak terdeteksi";
@@ -145,7 +167,7 @@ export async function POST(req: NextRequest) {
   const waktuBaru = nowWaktu();
 
   const blockUrl = config.publicUrl
-    ? `${config.publicUrl}/security/block?uid=${uid}&fp=${encodeURIComponent(fingerprint)}`
+    ? `${config.publicUrl}/security/block?uid=${uid}&did=${encodeURIComponent(deviceId)}`
     : "";
 
   const dmText = [
@@ -174,5 +196,5 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  return NextResponse.json({ ok: true, state: "new-device" });
+  return NextResponse.json({ ok: true, state: "new-device", deviceId });
 }
