@@ -186,3 +186,43 @@ export async function uploadPhotoToStorage(
     return null;
   }
 }
+
+export async function sendTelegramMessage(
+  chatId: number | string,
+  text: string,
+  options?: {
+    parseMode?: "HTML" | "MarkdownV2" | "Markdown";
+    replyMarkup?: unknown;
+    disableWebPagePreview?: boolean;
+  },
+): Promise<boolean> {
+  if (!config.telegram.botToken) {
+    console.error("TELEGRAM_BOT_TOKEN not configured");
+    return false;
+  }
+  try {
+    const payload: Record<string, unknown> = {
+      chat_id: chatId,
+      text,
+      disable_web_page_preview: options?.disableWebPagePreview ?? true,
+    };
+    if (options?.parseMode) payload.parse_mode = options.parseMode;
+    if (options?.replyMarkup) payload.reply_markup = options.replyMarkup;
+
+    const res = await fetchWithRetry(
+      `https://api.telegram.org/bot${config.telegram.botToken}/sendMessage`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        cache: "no-store",
+      },
+    );
+    if (!res || !res.ok) return false;
+    const data = await res.json();
+    return data?.ok === true;
+  } catch (err) {
+    console.error("Telegram sendMessage error:", err);
+    return false;
+  }
+}
