@@ -1,9 +1,7 @@
-import { headers } from "next/headers";
 import { TabBar } from "@/components/TabBar";
 import { RealtimeSync } from "@/components/RealtimeSync";
-import { ensureWelcomeNotification } from "@/lib/storage";
-import { getTelegramChatInfo } from "@/lib/telegram";
-import { parseDevice } from "@/lib/device";
+import { SessionInit } from "@/components/SessionInit";
+import { DeviceNotifications } from "@/components/DeviceNotifications";
 
 export const dynamic = "force-dynamic";
 
@@ -15,26 +13,12 @@ export default async function UserLayout({
   params: { uid: string };
 }) {
   const uid = Number(params.uid);
-  if (Number.isInteger(uid) && uid > 0) {
-    try {
-      const h = headers();
-      const ua = h.get("user-agent") ?? "";
-      const device = parseDevice(ua) || null;
-
-      const info = await getTelegramChatInfo(uid).catch(() => null);
-      const username =
-        info?.username ||
-        [info?.first_name, info?.last_name].filter(Boolean).join(" ") ||
-        null;
-
-      await ensureWelcomeNotification(uid, username, device);
-    } catch (err) {
-      console.error("[layout] welcome flow error:", err);
-    }
-  }
+  const valid = Number.isInteger(uid) && uid > 0;
 
   return (
     <>
+      {valid && <SessionInit uid={params.uid} />}
+      {valid && <DeviceNotifications uid={params.uid} />}
       <RealtimeSync uid={params.uid} />
       <main className="mx-auto max-w-[600px] px-5 pb-[calc(74px+env(safe-area-inset-bottom))]">
         {children}
