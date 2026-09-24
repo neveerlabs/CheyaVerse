@@ -315,21 +315,122 @@ export async function createNotification(data: {
   }
 }
 
+export type UserSession = {
+  uid: number;
+  device_type: string | null;
+  os: string | null;
+  brand: string | null;
+  model: string | null;
+  browser: string | null;
+  cpu_cores: number | null;
+  ram_gb: number | null;
+  user_agent: string | null;
+  first_seen: string;
+  last_seen: string;
+};
+
+export async function getUserSession(uid: number): Promise<UserSession | null> {
+  try {
+    const result = await getTurso().execute({
+      sql: "SELECT * FROM user_sessions WHERE uid = ? LIMIT 1",
+      args: [uid],
+    });
+    if (result.rows.length === 0) return null;
+    const r = result.rows[0] as unknown as Record<string, unknown>;
+    return {
+      uid: Number(r.uid),
+      device_type: r.device_type == null ? null : String(r.device_type),
+      os: r.os == null ? null : String(r.os),
+      brand: r.brand == null ? null : String(r.brand),
+      model: r.model == null ? null : String(r.model),
+      browser: r.browser == null ? null : String(r.browser),
+      cpu_cores: r.cpu_cores == null ? null : Number(r.cpu_cores),
+      ram_gb: r.ram_gb == null ? null : Number(r.ram_gb),
+      user_agent: r.user_agent == null ? null : String(r.user_agent),
+      first_seen: String(r.first_seen ?? ""),
+      last_seen: String(r.last_seen ?? ""),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function upsertUserSession(
+  uid: number,
+  data: {
+    device_type: string | null;
+    os: string | null;
+    brand: string | null;
+    model: string | null;
+    browser: string | null;
+    cpu_cores: number | null;
+    ram_gb: number | null;
+    user_agent: string | null;
+  },
+): Promise<void> {
+  const now = new Date().toISOString();
+  try {
+    await getTurso().execute({
+      sql: `INSERT INTO user_sessions
+              (uid, device_type, os, brand, model, browser, cpu_cores, ram_gb, user_agent, first_seen, last_seen)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(uid) DO UPDATE SET
+              device_type = excluded.device_type,
+              os = excluded.os,
+              brand = excluded.brand,
+              model = excluded.model,
+              browser = excluded.browser,
+              cpu_cores = COALESCE(excluded.cpu_cores, user_sessions.cpu_cores),
+              ram_gb = COALESCE(excluded.ram_gb, user_sessions.ram_gb),
+              user_agent = excluded.user_agent,
+              last_seen = excluded.last_seen`,
+      args: [
+        uid,
+        data.device_type,
+        data.os,
+        data.brand,
+        data.model,
+        data.browser,
+        data.cpu_cores,
+        data.ram_gb,
+        data.user_agent,
+        now,
+        now,
+      ],
+    });
+  } catch (err) {
+    console.error("upsertUserSession error:", err);
+  }
+}
+
 export async function ensureWelcomeNotification(
   uid: number,
   username: string | null,
   device: string | null,
-): Promise<void> {
+  browser: string | null,
+  cpuCores: number | null,
+  ramGb: number | null,
+): Promise<boolean> {
   const id = `welcome-${uid}`;
   try {
     const existing = await getTurso().execute({
       sql: "SELECT id FROM notifications WHERE id = ? LIMIT 1",
       args: [id],
     });
-    if (existing.rows.length > 0) return;
+    if (existing.rows.length > 0) return false;
 
     const userMention = username ? `@${username}` : "Anda";
     const deviceLine = device || "Tidak terdeteksi";
+    const browserLine = browser || "Tidak terdeteksi";
+
+    const hwParts: string[] = [];
+    if (typeof cpuCores === "number" && cpuCores > 0) {
+      hwParts.push(`${cpuCores} core`);
+    }
+    if (typeof ramGb === "number" && ramGb > 0) {
+      hwParts.push(`${ramGb} GB RAM`);
+    }
+    const hardwareLine = hwParts.length ? hwParts.join(" · ") : "Tidak terdeteksi";
 
     let waktu: string;
     try {
@@ -347,6 +448,8 @@ export async function ensureWelcomeNotification(
       "",
       "<b>Session active:</b>",
       `• <b>Perangkat:</b> ${deviceLine}`,
+      `• <b>Hardware:</b> ${hardwareLine}`,
+      `• <b>Browser:</b> ${browserLine}`,
       `• <b>Waktu:</b> ${waktu}`,
       "",
       "⚠️ <b>PERINGATAN KEAMANAN:</b> Tautan masuk ini bersifat privat dan mengandung kredensial enkripsi unik akun Anda. Menyebarkan URL ini sama dengan menyerahkan hak akses akun kepada orang lain.",
@@ -356,7 +459,7 @@ export async function ensureWelcomeNotification(
 
     const createdAt = new Date().toISOString();
 
-    await getTurso().execute({
+    const result = await getTurso().execute({
       sql: `INSERT OR IGNORE INTO notifications
               (id, uid, title, message, ip, location, device, read, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)`,
@@ -371,8 +474,11 @@ export async function ensureWelcomeNotification(
         createdAt,
       ],
     });
+
+    return result.rowsAffected > 0;
   } catch (err) {
     console.error("[welcome] FAILED:", err);
+    return false;
   }
 }
 
