@@ -44,7 +44,7 @@ export default function AboutPage() {
               CheyaVerse
             </h2>
             <p className="text-[13px] text-ink-mute mt-0.5">
-              v1.4.8-release
+              v1.7.3-release
             </p>
           </div>
         </div>
@@ -65,7 +65,7 @@ export default function AboutPage() {
       </GroupSection>
 
       <GroupSection title="Aplikasi">
-        <ListRow icon={<Code2 size={22} />} title="Versi" value="v1.4.8-release" disabled />
+        <ListRow icon={<Code2 size={22} />} title="Versi" value="v1.7.3-release" disabled />
         <ListRow
           icon={<ShieldCheck size={22} />}
           title="Status"
@@ -119,7 +119,7 @@ export default function AboutPage() {
       </GroupSection>
 
       <p className="text-center text-[11px] text-ink-mute py-4 font-medium">
-        Made with ♥ CheyaVerse · v1.4.8
+        CheyaVerse · v1.7.3-release
       </p>
     </>
   );
