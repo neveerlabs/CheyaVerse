@@ -22,7 +22,7 @@ export default function LandingPage() {
         CheyaVerse
       </h1>
       <p className="text-[14px] text-ink-soft text-center mb-8 max-w-[340px] leading-relaxed">
-        Personal bot webapp. Buka bot di Telegram untuk mengakses dashboard personal kamu.
+        Personal webapp bot. Buka bot di Telegram untuk mengakses dashboard personalmu.
       </p>
       <Link
         href={botUrl}
@@ -37,7 +37,7 @@ export default function LandingPage() {
         <code className="font-mono bg-[#fafafa] border border-line px-1.5 py-0.5 rounded text-ink">
           /web
         </code>{" "}
-        ke bot untuk mendapatkan URL dashboard personal kamu.
+        ke bot untuk mendapatkan URL dashboard personalmu.
       </p>
     </main>
   );
