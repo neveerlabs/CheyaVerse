@@ -93,7 +93,7 @@ export function SettingsClient({ mediaTtlDays }: { mediaTtlDays: number }) {
           <Row
             icon={<Layers size={17} strokeWidth={1.7} />}
             title="Versi"
-            value="v1.4.8"
+            value="v1.7.3-release"
           />
           <Row
             icon={<Cpu size={17} strokeWidth={1.7} />}
@@ -108,10 +108,6 @@ export function SettingsClient({ mediaTtlDays }: { mediaTtlDays: number }) {
           />
         </div>
       </section>
-
-      <p className="text-center text-[11px] text-ink-mute py-3 font-normal">
-        CheyaVerse · v1.4.8
-      </p>
     </>
   );
 }
