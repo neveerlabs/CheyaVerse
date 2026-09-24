@@ -29,6 +29,14 @@ export async function POST(req: NextRequest) {
   if (!notif) {
     return NextResponse.json({ ok: false, error: "db_error" }, { status: 500 });
   }
-  broadcastToUid(uid, { type: "notification:new" });
+
+  const plain = message.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
+
+  broadcastToUid(uid, {
+    type: "notification:new",
+    title,
+    body: plain.slice(0, 200),
+  });
+
   return NextResponse.json({ ok: true, notification: notif });
 }
