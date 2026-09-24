@@ -77,19 +77,20 @@ export async function GET(
           headers: { "Content-Range": `bytes */${totalLength}` },
         });
       }
-      const chunk = cached.buffer.subarray(start, end + 1);
+      const chunk = new Uint8Array(cached.buffer.subarray(start, end + 1));
       return new NextResponse(chunk, {
         status: 206,
         headers: {
           ...baseHeaders,
           "Content-Range": `bytes ${start}-${end}/${totalLength}`,
-          "Content-Length": String(chunk.length),
+          "Content-Length": String(chunk.byteLength),
         },
       });
     }
   }
 
-  return new NextResponse(cached.buffer, {
+  const full = new Uint8Array(cached.buffer);
+  return new NextResponse(full, {
     status: 200,
     headers: {
       ...baseHeaders,
