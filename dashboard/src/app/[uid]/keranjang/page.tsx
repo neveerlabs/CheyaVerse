@@ -27,10 +27,6 @@ export default function KeranjangPage({
           Belum ada item di keranjang kamu
         </p>
       </div>
-
-      <p className="text-center text-[11px] text-ink-mute py-4 font-normal">
-        CheyaVerse · v1.4.8
-      </p>
     </>
   );
 }
