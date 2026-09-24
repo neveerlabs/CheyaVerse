@@ -44,7 +44,13 @@ export async function DELETE(
       location: null,
       device,
     });
-    if (notif) broadcastToUid(uid, { type: "notification:new" });
+    if (notif) {
+      broadcastToUid(uid, {
+        type: "notification:new",
+        title: "Media dihapus",
+        body: `${meta?.filename ?? params.id} telah dihapus.`,
+      });
+    }
   } catch {}
 
   broadcastToUid(uid, { type: "media:changed" });
