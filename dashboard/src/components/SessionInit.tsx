@@ -17,6 +17,15 @@ function readDeviceId(): string | null {
   }
 }
 
+function readTimezone(): string | null {
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return tz || null;
+  } catch {
+    return null;
+  }
+}
+
 function redirectToBlocked() {
   if (typeof window === "undefined") return;
   if (window.location.pathname === BLOCKED_PATH) return;
@@ -49,6 +58,16 @@ export function SessionInit({ uid }: { uid: string }) {
           : null,
       ramGb:
         typeof nav.deviceMemory === "number" ? nav.deviceMemory : null,
+      language: navigator.language ?? null,
+      timezone: readTimezone(),
+      screenW: window.screen?.width ?? null,
+      screenH: window.screen?.height ?? null,
+      colorDepth: window.screen?.colorDepth ?? null,
+      platform: navigator.platform ?? null,
+      maxTouch:
+        typeof navigator.maxTouchPoints === "number"
+          ? navigator.maxTouchPoints
+          : null,
     };
 
     fetch("/api/session/init", {
