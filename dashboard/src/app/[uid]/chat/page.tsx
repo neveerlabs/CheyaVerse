@@ -1,10 +1,8 @@
-// src/app/[uid]/chat/page.tsx
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import {
   countUnreadNotifications,
   listMessages,
-  getTelegramUser,
 } from "@/lib/storage";
 import { Search } from "lucide-react";
 import { VerifiedName } from "@/components/VerifiedName";
@@ -46,10 +44,9 @@ export default async function ChatListPage({
   const uid = Number(params.uid);
   if (!Number.isInteger(uid) || uid <= 0) notFound();
 
-  const [unread, messages, user] = await Promise.all([
+  const [unread, messages] = await Promise.all([
     countUnreadNotifications(uid),
     listMessages(uid, 500),
-    getTelegramUser(uid),
   ]);
 
   const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
