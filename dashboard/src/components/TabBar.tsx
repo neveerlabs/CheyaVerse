@@ -1,20 +1,25 @@
-// src/components/TabBar.tsx
 "use client";
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Home, Image as ImageIcon, User, Send, ShoppingCart,
 } from "lucide-react";
 import { useRealtime } from "@/lib/use-realtime";
 
+const MIN_LOAD_INTERVAL_MS = 1500;
+
 export function TabBar({ uid }: { uid: string }) {
   const pathname = usePathname();
   const [unread, setUnread] = useState(0);
+  const lastLoadAtRef = useRef(0);
+  const inflightRef = useRef(false);
 
   const load = useCallback(async () => {
     if (!uid || uid === "undefined") return;
+    if (inflightRef.current) return;
+    inflightRef.current = true;
     try {
       const res = await fetch(`/api/notifications/${encodeURIComponent(uid)}`, {
         cache: "no-store",
@@ -22,8 +27,18 @@ export function TabBar({ uid }: { uid: string }) {
       if (!res.ok) return;
       const j = await res.json();
       setUnread(Number(j?.unread ?? 0));
-    } catch {}
+    } catch {
+    } finally {
+      inflightRef.current = false;
+    }
   }, [uid]);
+
+  const throttledLoad = useCallback(() => {
+    const now = Date.now();
+    if (now - lastLoadAtRef.current < MIN_LOAD_INTERVAL_MS) return;
+    lastLoadAtRef.current = now;
+    void load();
+  }, [load]);
 
   useEffect(() => {
     void load();
@@ -39,10 +54,10 @@ export function TabBar({ uid }: { uid: string }) {
 
   useRealtime(uid, (event) => {
     if (event.type === "notification:new") {
-      void load();
+      throttledLoad();
     }
     if (event.type === "notification:read") {
-      setUnread(0);
+      throttledLoad();
     }
   });
 
