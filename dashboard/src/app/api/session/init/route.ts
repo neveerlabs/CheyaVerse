@@ -1,14 +1,13 @@
-// src/app/api/session/init/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import {
   ensureWelcomeNotification,
   getDeviceIdRow,
+  findDeviceIdByFingerprint,
   insertDeviceId,
   touchDeviceId,
   countDeviceIdsForUid,
   isDeviceBlacklisted,
   upsertTelegramUser,
-  createNotification,
 } from "@/lib/storage";
 import { parseDeviceInfo } from "@/lib/device";
 import {
@@ -77,6 +76,18 @@ function nowWaktu(): string {
   }
 }
 
+function num(v: unknown): number | null {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function str(v: unknown): string | null {
+  if (typeof v !== "string") return null;
+  const s = v.trim();
+  return s ? s : null;
+}
+
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const uid = Number(body?.uid);
@@ -91,6 +102,13 @@ export async function POST(req: NextRequest) {
     typeof body?.ramGb === "number" && body.ramGb > 0
       ? Number(body.ramGb)
       : null;
+  const language = str(body?.language);
+  const timezone = str(body?.timezone);
+  const screenW = num(body?.screenW);
+  const screenH = num(body?.screenH);
+  const colorDepth = num(body?.colorDepth);
+  const platform = str(body?.platform);
+  const maxTouch = num(body?.maxTouch);
 
   if (!Number.isInteger(uid) || uid <= 0) {
     return NextResponse.json({ ok: false, error: "invalid_uid" }, { status: 400 });
@@ -108,6 +126,13 @@ export async function POST(req: NextRequest) {
     browser: info.browser,
     cpu_cores: cpuCores,
     ram_gb: ramGb,
+    language,
+    timezone,
+    screen_w: screenW,
+    screen_h: screenH,
+    color_depth: colorDepth,
+    platform,
+    max_touch: maxTouch,
   });
 
   let deviceId = rawDeviceId;
@@ -123,6 +148,20 @@ export async function POST(req: NextRequest) {
       await touchDeviceId(deviceId, uid);
       return NextResponse.json({ ok: true, state: "known", deviceId });
     }
+  }
+
+  const matchByFingerprint = await findDeviceIdByFingerprint(uid, fingerprint);
+  if (matchByFingerprint && DEVICE_ID_RE.test(matchByFingerprint.device_id)) {
+    const blocked = await isDeviceBlacklisted(matchByFingerprint.device_id, uid);
+    if (blocked) {
+      return NextResponse.json({ ok: false, error: "blocked" }, { status: 403 });
+    }
+    await touchDeviceId(matchByFingerprint.device_id, uid);
+    return NextResponse.json({
+      ok: true,
+      state: "known",
+      deviceId: matchByFingerprint.device_id,
+    });
   }
 
   deviceId = generateDeviceId();
@@ -195,6 +234,7 @@ export async function POST(req: NextRequest) {
     "Sistem mendeteksi adanya aktivitas masuk dari perangkat baru menggunakan otorisasi akun Telegram Anda.",
     "",
     "<b>Detail device:</b>",
+    `• <b>Device ID:</b> <code>${deviceId}</code>`,
     `• <b>Perangkat:</b> ${deviceBaru}`,
     `• <b>Hardware:</b> ${hardwareLine}`,
     `• <b>Browser:</b> ${browserBaru}`,
@@ -214,20 +254,6 @@ export async function POST(req: NextRequest) {
       disableWebPagePreview: true,
     });
   }
-
-  await createNotification({
-    uid,
-    title: "CheyaVerse Service Notifications",
-    message: dmText,
-    device: deviceBaru,
-  }).catch(() => {});
-
-  const plain = dmText.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
-  broadcastToUid(uid, {
-    type: "notification:new",
-    title: "CheyaVerse Service Notifications",
-    body: plain.slice(0, 200),
-  });
 
   return NextResponse.json({ ok: true, state: "new-device", deviceId });
 }
