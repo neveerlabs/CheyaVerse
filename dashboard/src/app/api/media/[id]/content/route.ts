@@ -6,6 +6,7 @@ import { getCachedMedia, setCachedMedia } from "@/lib/media-cache";
 export const runtime = "nodejs";
 
 const MEDIA_ID_RE = /^\d{7}$/;
+const MAX_CHUNK = 4 * 1024 * 1024;
 
 async function ensureCached(
   id: string,
@@ -76,6 +77,9 @@ export async function GET(
           status: 416,
           headers: { "Content-Range": `bytes */${totalLength}` },
         });
+      }
+      if (end - start + 1 > MAX_CHUNK) {
+        end = start + MAX_CHUNK - 1;
       }
       const chunk = new Uint8Array(cached.buffer.subarray(start, end + 1));
       return new NextResponse(chunk, {
