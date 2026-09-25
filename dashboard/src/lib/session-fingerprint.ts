@@ -10,14 +10,44 @@ export type SessionIdent = {
   ram_gb: number | null;
   language?: string | null;
   timezone?: string | null;
-  screen_w?: number | null;
-  screen_h?: number | null;
-  color_depth?: number | null;
   platform?: string | null;
   max_touch?: number | null;
+  color_depth?: number | null;
+  webgl_vendor?: string | null;
+  webgl_renderer?: string | null;
+  screen_w?: number | null;
+  screen_h?: number | null;
 };
 
+function joinParts(parts: (string | number | null | undefined)[]): string {
+  return parts.map((p) => (p == null ? "" : String(p))).join("|");
+}
+
 export function computeFingerprint(ident: SessionIdent): string {
+  const parts = [
+    ident.device_type ?? "",
+    ident.os ?? "",
+    ident.brand ?? "",
+    ident.model ?? "",
+    ident.browser ?? "",
+    ident.cpu_cores == null ? "" : String(ident.cpu_cores),
+    ident.ram_gb == null ? "" : String(ident.ram_gb),
+    ident.language ?? "",
+    ident.timezone ?? "",
+    ident.platform ?? "",
+    ident.max_touch == null ? "" : String(ident.max_touch),
+    ident.color_depth == null ? "" : String(ident.color_depth),
+    ident.webgl_vendor ?? "",
+    ident.webgl_renderer ?? "",
+  ];
+  return crypto
+    .createHash("sha256")
+    .update(joinParts(parts))
+    .digest("hex")
+    .slice(0, 32);
+}
+
+export function computeLegacyFingerprint(ident: SessionIdent): string {
   const parts = [
     ident.device_type ?? "",
     ident.os ?? "",
@@ -36,7 +66,7 @@ export function computeFingerprint(ident: SessionIdent): string {
   ];
   return crypto
     .createHash("sha256")
-    .update(parts.join("|"))
+    .update(joinParts(parts))
     .digest("hex")
     .slice(0, 32);
 }
