@@ -565,6 +565,20 @@ export async function touchDeviceId(
   } catch {}
 }
 
+export async function updateDeviceFingerprint(
+  deviceId: string,
+  uid: number,
+  fingerprint: string,
+): Promise<void> {
+  const now = new Date().toISOString();
+  try {
+    await getTurso().execute({
+      sql: "UPDATE device_ids SET fingerprint = ?, last_seen = ? WHERE device_id = ? AND uid = ?",
+      args: [fingerprint, now, deviceId, uid],
+    });
+  } catch {}
+}
+
 export async function countDeviceIdsForUid(uid: number): Promise<number> {
   try {
     const result = await getTurso().execute({
