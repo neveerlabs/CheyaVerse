@@ -509,6 +509,22 @@ export async function getDeviceIdRow(
   }
 }
 
+export async function findDeviceIdByFingerprint(
+  uid: number,
+  fingerprint: string,
+): Promise<DeviceIdRow | null> {
+  try {
+    const result = await getTurso().execute({
+      sql: "SELECT * FROM device_ids WHERE uid = ? AND fingerprint = ? LIMIT 1",
+      args: [uid, fingerprint],
+    });
+    if (result.rows.length === 0) return null;
+    return rowToDeviceId(result.rows[0] as unknown as Record<string, unknown>);
+  } catch {
+    return null;
+  }
+}
+
 export async function insertDeviceId(row: DeviceIdRow): Promise<void> {
   try {
     await getTurso().execute({
