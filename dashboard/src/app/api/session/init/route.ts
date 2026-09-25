@@ -5,6 +5,7 @@ import {
   findDeviceIdByFingerprint,
   insertDeviceId,
   touchDeviceId,
+  updateDeviceFingerprint,
   countDeviceIdsForUid,
   isDeviceBlacklisted,
   upsertTelegramUser,
@@ -15,7 +16,10 @@ import {
   getTelegramAvatarFileId,
   sendTelegramMessage,
 } from "@/lib/telegram";
-import { computeFingerprint } from "@/lib/session-fingerprint";
+import {
+  computeFingerprint,
+  computeLegacyFingerprint,
+} from "@/lib/session-fingerprint";
 import { generateDeviceId } from "@/lib/device-id";
 import { config } from "@/lib/config";
 import { broadcastToUid } from "@/lib/realtime";
@@ -109,6 +113,8 @@ export async function POST(req: NextRequest) {
   const colorDepth = num(body?.colorDepth);
   const platform = str(body?.platform);
   const maxTouch = num(body?.maxTouch);
+  const webglVendor = str(body?.webglVendor);
+  const webglRenderer = str(body?.webglRenderer);
 
   if (!Number.isInteger(uid) || uid <= 0) {
     return NextResponse.json({ ok: false, error: "invalid_uid" }, { status: 400 });
@@ -118,7 +124,7 @@ export async function POST(req: NextRequest) {
   const deviceLine = buildDeviceLine(info);
   const hardwareLine = buildHardwareLine(cpuCores, ramGb);
 
-  const fingerprint = computeFingerprint({
+  const ident = {
     device_type: info.type === "unknown" ? null : info.type,
     os: info.os,
     brand: info.brand,
@@ -128,12 +134,17 @@ export async function POST(req: NextRequest) {
     ram_gb: ramGb,
     language,
     timezone,
-    screen_w: screenW,
-    screen_h: screenH,
-    color_depth: colorDepth,
     platform,
     max_touch: maxTouch,
-  });
+    color_depth: colorDepth,
+    webgl_vendor: webglVendor,
+    webgl_renderer: webglRenderer,
+    screen_w: screenW,
+    screen_h: screenH,
+  };
+
+  const fingerprint = computeFingerprint(ident);
+  const legacyFingerprint = computeLegacyFingerprint(ident);
 
   let deviceId = rawDeviceId;
 
@@ -146,6 +157,9 @@ export async function POST(req: NextRequest) {
     const existing = await getDeviceIdRow(deviceId, uid);
     if (existing) {
       await touchDeviceId(deviceId, uid);
+      if (existing.fingerprint !== fingerprint) {
+        await updateDeviceFingerprint(deviceId, uid, fingerprint);
+      }
       return NextResponse.json({ ok: true, state: "known", deviceId });
     }
   }
@@ -161,6 +175,20 @@ export async function POST(req: NextRequest) {
       ok: true,
       state: "known",
       deviceId: matchByFingerprint.device_id,
+    });
+  }
+
+  const matchByLegacy = await findDeviceIdByFingerprint(uid, legacyFingerprint);
+  if (matchByLegacy && DEVICE_ID_RE.test(matchByLegacy.device_id)) {
+    const blocked = await isDeviceBlacklisted(matchByLegacy.device_id, uid);
+    if (blocked) {
+      return NextResponse.json({ ok: false, error: "blocked" }, { status: 403 });
+    }
+    await updateDeviceFingerprint(matchByLegacy.device_id, uid, fingerprint);
+    return NextResponse.json({
+      ok: true,
+      state: "known",
+      deviceId: matchByLegacy.device_id,
     });
   }
 
