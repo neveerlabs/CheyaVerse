@@ -50,6 +50,7 @@ type MenuEntry = {
 
 const LONG_PRESS_MS = 480;
 const EAGER_LIMIT = 6;
+const DEVICE_ID_KEY = "cheya_device_id";
 
 function isImage(type: string): boolean {
   return type.startsWith("image/");
@@ -79,6 +80,7 @@ export function ProfileClient({
   const [avatarFailed, setAvatarFailed] = useState(false);
   const [avatarOpen, setAvatarOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [deviceId, setDeviceId] = useState<string | null>(null);
 
   const [localMedia, setLocalMedia] = useState<MediaItem[]>(media);
   const [menuItem, setMenuItem] = useState<MediaItem | null>(null);
@@ -102,6 +104,36 @@ export function ProfileClient({
   useEffect(() => {
     setLocalMedia(media);
   }, [media]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    let cancelled = false;
+
+    const read = (): boolean => {
+      try {
+        const v = window.localStorage.getItem(DEVICE_ID_KEY);
+        if (v && !cancelled) {
+          setDeviceId(v);
+          return true;
+        }
+      } catch {}
+      return false;
+    };
+
+    if (read()) return () => { cancelled = true; };
+
+    const iv = window.setInterval(() => {
+      if (read()) window.clearInterval(iv);
+    }, 500);
+
+    const stop = window.setTimeout(() => window.clearInterval(iv), 10000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(iv);
+      window.clearTimeout(stop);
+    };
+  }, []);
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 639px)");
@@ -365,20 +397,24 @@ export function ProfileClient({
   }
 
   async function copyId() {
+    if (!deviceId) {
+      showToast("DeviceID belum tersedia");
+      return;
+    }
     try {
       if (navigator.clipboard?.writeText && window.isSecureContext) {
-        await navigator.clipboard.writeText(uid);
-        showToast("ID tersalin");
+        await navigator.clipboard.writeText(deviceId);
+        showToast("DeviceID copied");
       } else {
         const ta = document.createElement("textarea");
-        ta.value = uid;
+        ta.value = deviceId;
         ta.style.position = "fixed";
         ta.style.top = "-9999px";
         document.body.appendChild(ta);
         ta.select();
         document.execCommand("copy");
         document.body.removeChild(ta);
-        showToast("ID tersalin");
+        showToast("DeviceID copied");
       }
     } catch {
       showToast("Gagal menyalin");
@@ -669,12 +705,13 @@ export function ProfileClient({
         <button
           type="button"
           onClick={copyId}
-          className="w-full rounded-2xl bg-[#f5f5f5] sm:hover:bg-[#ededed] active:scale-[.99] px-4 py-3.5 text-center transition-all"
+          disabled={!deviceId}
+          className="w-full rounded-2xl bg-[#f5f5f5] sm:hover:bg-[#ededed] active:scale-[.99] px-4 py-3.5 text-center transition-all disabled:opacity-60"
         >
           <p className="text-[13.5px] text-ink-soft leading-none">
-            <span className="font-medium">Telegram ID: </span>
+            <span className="font-medium">DeviceID: </span>
             <span className="font-semibold text-ink tabular-nums tracking-[-.005em]">
-              {uid}
+              {deviceId ?? "Memuat…"}
             </span>
           </p>
           <p className="text-[10.5px] text-ink-mute mt-1.5 leading-none">
