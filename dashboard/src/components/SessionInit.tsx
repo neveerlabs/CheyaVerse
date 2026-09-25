@@ -26,6 +26,46 @@ function readTimezone(): string | null {
   }
 }
 
+function getWebGLInfo(): { vendor: string | null; renderer: string | null } {
+  try {
+    if (typeof document === "undefined") {
+      return { vendor: null, renderer: null };
+    }
+    const canvas = document.createElement("canvas");
+    const gl =
+      (canvas.getContext("webgl") as WebGLRenderingContext | null) ||
+      (canvas.getContext("experimental-webgl") as WebGLRenderingContext | null);
+    if (!gl) return { vendor: null, renderer: null };
+
+    type DebugInfoExt = {
+      UNMASKED_VENDOR_WEBGL: number;
+      UNMASKED_RENDERER_WEBGL: number;
+    };
+
+    const dbg = gl.getExtension("WEBGL_debug_renderer_info") as
+      | DebugInfoExt
+      | null;
+
+    if (dbg) {
+      const v = gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL);
+      const r = gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL);
+      return {
+        vendor: v ? String(v).slice(0, 128) : null,
+        renderer: r ? String(r).slice(0, 128) : null,
+      };
+    }
+
+    const v = gl.getParameter(gl.VENDOR);
+    const r = gl.getParameter(gl.RENDERER);
+    return {
+      vendor: v ? String(v).slice(0, 128) : null,
+      renderer: r ? String(r).slice(0, 128) : null,
+    };
+  } catch {
+    return { vendor: null, renderer: null };
+  }
+}
+
 function redirectToBlocked() {
   if (typeof window === "undefined") return;
   if (window.location.pathname === BLOCKED_PATH) return;
@@ -48,6 +88,8 @@ export function SessionInit({ uid }: { uid: string }) {
       deviceMemory?: number;
     };
 
+    const webgl = getWebGLInfo();
+
     const payload = {
       uid: Number(uid),
       deviceId: readDeviceId(),
@@ -68,6 +110,8 @@ export function SessionInit({ uid }: { uid: string }) {
         typeof navigator.maxTouchPoints === "number"
           ? navigator.maxTouchPoints
           : null,
+      webglVendor: webgl.vendor,
+      webglRenderer: webgl.renderer,
     };
 
     fetch("/api/session/init", {
