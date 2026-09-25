@@ -1,4 +1,3 @@
-// src/lib/storage.ts
 import { getTurso } from "./turso";
 import { config } from "./config";
 import { deleteTelegramMessage } from "./telegram";
@@ -366,7 +365,7 @@ export async function ensureWelcomeNotification(
     }
 
     const message = [
-      `Otorisasi akun berhasil. Sistem mendeteksi aktivitas masuk pada akun ${userMention} melalui tautan instan Telegram.`,
+      `Otorisasi akun berhasil. Sistem mendeteksi aktivitas masuk pada akun ${userMention} melalui tautan instan dari Telegram.`,
       "",
       "<b>Session active:</b>",
       `• <b>Perangkat:</b> ${deviceLine}`,
