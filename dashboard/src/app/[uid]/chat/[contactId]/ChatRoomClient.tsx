@@ -1,4 +1,3 @@
-// src/app/[uid]/chat/[contactId]/ChatRoomClient.tsx
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -136,8 +135,9 @@ export function ChatRoomClient({
   const [sending, setSending] = useState(false);
 
   useEffect(() => {
+    if (sending) return;
     setMessages(initialMessages);
-  }, [initialMessages]);
+  }, [initialMessages, sending]);
 
   useEffect(() => {
     setMounted(true);
@@ -165,22 +165,23 @@ export function ChatRoomClient({
   useRealtime(uid, (event) => {
     if (event.type === "message:new") {
       const incoming = event.message as ChatMessage | undefined;
-      if (!incoming) return;
-      setMessages((prev) => {
-        const idx = prev.findIndex((x) => x.id === incoming.id);
-        if (idx >= 0) {
-          const copy = prev.slice();
-          copy[idx] = { ...copy[idx], ...incoming };
-          return copy;
-        }
-        return [...prev, incoming];
-      });
-      setPending((prev) => {
-        if (!prev.has(incoming.id)) return prev;
-        const next = new Set(prev);
-        next.delete(incoming.id);
-        return next;
-      });
+      if (incoming) {
+        setMessages((prev) => {
+          const idx = prev.findIndex((x) => x.id === incoming.id);
+          if (idx >= 0) {
+            const copy = prev.slice();
+            copy[idx] = { ...copy[idx], ...incoming };
+            return copy;
+          }
+          return [...prev, incoming];
+        });
+        setPending((prev) => {
+          if (!prev.has(incoming.id)) return prev;
+          const next = new Set(prev);
+          next.delete(incoming.id);
+          return next;
+        });
+      }
       return;
     }
     if (event.type === "message:delivered") {
@@ -208,7 +209,6 @@ export function ChatRoomClient({
     }
     if (event.type === "notification:new") {
       router.refresh();
-      window.dispatchEvent(new Event("cheya:invalidate"));
     }
   });
 
@@ -370,6 +370,19 @@ export function ChatRoomClient({
           next.delete(tempId);
           return next;
         });
+
+        if (saved) {
+          const savedId = saved.id;
+          window.setTimeout(() => {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === savedId && !m.read_at
+                  ? { ...m, read_at: new Date().toISOString() }
+                  : m,
+              ),
+            );
+          }, 1500);
+        }
       } else {
         setPending((prev) => {
           const next = new Set(prev);
