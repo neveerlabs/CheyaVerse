@@ -63,6 +63,8 @@ type ChatItem = {
   _pending: boolean;
 };
 
+const MARK_READ_THROTTLE_MS = 400;
+
 function formatTime(iso: string): string {
   try {
     const d = new Date(iso);
@@ -134,6 +136,10 @@ export function ChatRoomClient({
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
 
+  const markReadRef = useRef<(() => void) | null>(null);
+  const lastMarkReadAtRef = useRef(0);
+  const markReadInflightRef = useRef(false);
+
   useEffect(() => {
     if (sending) return;
     setMessages(initialMessages);
@@ -146,19 +152,39 @@ export function ChatRoomClient({
   }, []);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
     let cancelled = false;
-    const markRead = async () => {
+
+    const doMarkRead = async () => {
+      if (cancelled) return;
+      if (markReadInflightRef.current) return;
+      markReadInflightRef.current = true;
       try {
-        const res = await fetch(`/api/notifications/${encodeURIComponent(uid)}`, {
-          method: "POST",
-        });
+        const res = await fetch(
+          `/api/notifications/${encodeURIComponent(uid)}`,
+          { method: "POST", cache: "no-store" },
+        );
         if (!res.ok) return;
         if (!cancelled) router.refresh();
-      } catch {}
+      } catch {
+      } finally {
+        markReadInflightRef.current = false;
+      }
     };
-    void markRead();
+
+    const throttled = () => {
+      const now = Date.now();
+      if (now - lastMarkReadAtRef.current < MARK_READ_THROTTLE_MS) return;
+      lastMarkReadAtRef.current = now;
+      void doMarkRead();
+    };
+
+    markReadRef.current = throttled;
+    void doMarkRead();
+
     return () => {
       cancelled = true;
+      markReadRef.current = null;
     };
   }, [uid, router]);
 
@@ -208,7 +234,13 @@ export function ChatRoomClient({
       return;
     }
     if (event.type === "notification:new") {
+      markReadRef.current?.();
       router.refresh();
+      return;
+    }
+    if (event.type === "notification:read") {
+      markReadRef.current?.();
+      return;
     }
   });
 
