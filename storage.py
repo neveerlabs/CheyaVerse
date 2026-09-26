@@ -1,8 +1,10 @@
 import asyncio
 import base64
+import hashlib
 import html
 import json
 import random
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
@@ -19,6 +21,153 @@ from config import (
 )
 from logger import logger
 from pywebpush import WebPushException, webpush
+
+
+def _telegram_login_challenge_hash(challenge: str) -> str | None:
+    if not re.fullmatch(r"[A-Za-z0-9_-]{43}", challenge):
+        return None
+    return hashlib.sha256(challenge.encode("ascii")).hexdigest()
+
+
+async def _ensure_telegram_login_challenges_table() -> None:
+    await _execute(
+        """
+        CREATE TABLE IF NOT EXISTS telegram_login_challenges (
+            challenge_hash TEXT PRIMARY KEY,
+            requester_hash TEXT,
+            uid INTEGER,
+            status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'consumed')),
+            created_at INTEGER NOT NULL,
+            expires_at INTEGER NOT NULL,
+            approved_at INTEGER,
+            consumed_at INTEGER
+        )
+        """,
+        [],
+    )
+    _cols, columns = await _execute(
+        "PRAGMA table_info(telegram_login_challenges)",
+        [],
+    )
+    if not any(str(row[1]) == "requester_hash" for row in columns):
+        await _execute(
+            "ALTER TABLE telegram_login_challenges ADD COLUMN requester_hash TEXT",
+            [],
+        )
+
+
+async def is_telegram_login_challenge_pending(challenge: str) -> bool:
+    challenge_hash = _telegram_login_challenge_hash(challenge)
+    if not challenge_hash:
+        return False
+    now = int(datetime.now(timezone.utc).timestamp())
+    await _ensure_telegram_login_challenges_table()
+    _cols, pending = await _execute(
+        """
+        SELECT challenge_hash FROM telegram_login_challenges
+        WHERE challenge_hash = ? AND status = 'pending' AND expires_at > ?
+        LIMIT 1
+        """,
+        [challenge_hash, now],
+    )
+    return bool(pending)
+
+
+async def respond_to_telegram_login_challenge(
+    challenge: str,
+    user,
+    approve: bool,
+) -> bool:
+    challenge_hash = _telegram_login_challenge_hash(challenge)
+    if not challenge_hash:
+        return False
+    now = int(datetime.now(timezone.utc).timestamp())
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await _ensure_telegram_login_challenges_table()
+    _cols, pending = await _execute(
+        """
+        SELECT challenge_hash FROM telegram_login_challenges
+        WHERE challenge_hash = ? AND status = 'pending' AND expires_at > ?
+        LIMIT 1
+        """,
+        [challenge_hash, now],
+    )
+    if not pending:
+        return False
+
+    status = "approved" if approve else "consumed"
+    if approve:
+        await _execute(
+            """
+            CREATE TABLE IF NOT EXISTS "akun-telegram" (
+                uid INTEGER PRIMARY KEY,
+                username TEXT,
+                first_name TEXT,
+                last_name TEXT,
+                photo_url TEXT,
+                photo_file_id TEXT,
+                auth_date INTEGER,
+                allows_write_to_pm INTEGER,
+                role TEXT NOT NULL DEFAULT 'user',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """,
+            [],
+        )
+        await _execute(
+            """
+            INSERT INTO "akun-telegram"
+                (uid, username, first_name, last_name, photo_url, photo_file_id,
+                 auth_date, allows_write_to_pm, role, created_at, updated_at)
+            VALUES (?, ?, ?, ?, NULL, NULL, ?, 1, 'user', ?, ?)
+            ON CONFLICT(uid) DO UPDATE SET
+                username = excluded.username,
+                first_name = excluded.first_name,
+                last_name = excluded.last_name,
+                auth_date = excluded.auth_date,
+                allows_write_to_pm = 1,
+                updated_at = excluded.updated_at
+            """,
+            [
+                user.id,
+                user.username,
+                user.first_name,
+                user.last_name,
+                now,
+                now_iso,
+                now_iso,
+            ],
+        )
+
+    await _execute(
+        """
+        UPDATE telegram_login_challenges
+        SET uid = ?, status = ?, approved_at = ?, consumed_at = ?
+        WHERE challenge_hash = ? AND status = 'pending' AND expires_at > ?
+        """,
+        [
+            user.id if approve else None,
+            status,
+            now if approve else None,
+            None if approve else now,
+            challenge_hash,
+            now,
+        ],
+    )
+    _cols, approved = await _execute(
+        """
+        SELECT uid FROM telegram_login_challenges
+        WHERE challenge_hash = ? AND status = ? AND expires_at > ?
+        LIMIT 1
+        """,
+        [challenge_hash, status, now],
+    )
+    return bool(
+        approved
+        and (not approve or int(approved[0][0]) == user.id)
+        and (approve or approved[0][0] is None)
+    )
 
 
 def _http_url() -> str:
