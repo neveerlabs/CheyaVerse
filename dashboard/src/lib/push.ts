@@ -30,6 +30,12 @@ function truncateBody(input: string): string {
   return flat.slice(0, MAX_BODY_LENGTH).trimEnd() + TRUNCATE_SUFFIX;
 }
 
+function uniqueTag(contactId: string): string {
+  const ts = Date.now().toString(36);
+  const rand = Math.random().toString(36).slice(2, 8);
+  return `cheya-${contactId}-${ts}-${rand}`;
+}
+
 export type PushAction = {
   action: string;
   type?: "text";
@@ -77,11 +83,12 @@ export function circularAvatarUrl(contactId: string): string {
 export function buildPushNotification(opts: BuildPushOptions): PushPayload {
   const icon = opts.contact.avatarUrl ?? circularAvatarUrl(opts.contact.id);
   const targetUrl = opts.url ?? `/${opts.uid}/chat/${opts.contact.id}`;
+  const tag = opts.tag ?? uniqueTag(opts.contact.id);
   return {
     title: opts.contact.name,
     body: truncateBody(opts.body),
     icon,
-    tag: opts.tag ?? `cheyaverse-${opts.contact.id}`,
+    tag,
     renotify: true,
     data: {
       uid: opts.uid,
