@@ -111,12 +111,45 @@ export function DirectChatRoomClient({
   const pendingIdsRef = useRef(new Set<string>());
   const toastTimerRef = useRef<number | null>(null);
   const previousTitleRef = useRef("");
+  const longPressTimerRef = useRef<number | null>(null);
+  const longPressTriggeredAtRef = useRef(0);
 
   const showToast = useCallback((message: string) => {
     setToast(message);
     if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
     toastTimerRef.current = window.setTimeout(() => setToast(""), 2600);
   }, []);
+
+  function startMessagePress(event: React.PointerEvent, message: DirectMessage) {
+    if (event.pointerType !== "touch") return;
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current);
+    }
+    longPressTimerRef.current = window.setTimeout(() => {
+      longPressTriggeredAtRef.current = Date.now();
+      setSelectedMessage(message);
+      longPressTimerRef.current = null;
+    }, 450);
+  }
+
+  function stopMessagePress() {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }
+
+  function selectMessageFromClick(
+    event: React.MouseEvent<HTMLButtonElement>,
+    message: DirectMessage,
+  ) {
+    if (Date.now() - longPressTriggeredAtRef.current < 900) {
+      longPressTriggeredAtRef.current = 0;
+      event.preventDefault();
+      return;
+    }
+    setSelectedMessage(message);
+  }
 
   const refreshMessages = useCallback(async () => {
     if (refreshBusyRef.current) return;
@@ -188,8 +221,15 @@ export function DirectChatRoomClient({
 
   useEffect(
     () => () => {
-      if (recognitionRef.current) recognitionRef.current.stop();
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch (error) {
+          console.error("[direct-chat] failed to stop speech recognition:", error);
+        }
+      }
       if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
+      if (longPressTimerRef.current !== null) window.clearTimeout(longPressTimerRef.current);
     },
     [],
   );
@@ -489,7 +529,12 @@ export function DirectChatRoomClient({
 
   function toggleVoiceInput() {
     if (recognitionRef.current) {
-      recognitionRef.current.stop();
+      try {
+        recognitionRef.current.stop();
+      } catch (error) {
+        console.error("[direct-chat] failed to stop speech recognition:", error);
+        showToast("Dikte suara tidak dapat dihentikan.");
+      }
       recognitionRef.current = null;
       setRecognizing(false);
       return;
@@ -527,7 +572,14 @@ export function DirectChatRoomClient({
     };
     recognitionRef.current = recognition;
     setRecognizing(true);
-    recognition.start();
+    try {
+      recognition.start();
+    } catch (error) {
+      console.error("[direct-chat] speech recognition could not start:", error);
+      recognitionRef.current = null;
+      setRecognizing(false);
+      showToast("Dikte suara tidak dapat dimulai. Periksa izin mikrofon.");
+    }
   }
 
   const visibleMessages = messages.filter((message) =>
@@ -541,7 +593,7 @@ export function DirectChatRoomClient({
       className="fixed left-0 right-0 z-50 mx-auto flex max-w-[600px] flex-col overflow-hidden"
       style={{ top: viewport.top, height: viewport.height || "100dvh" }}
     >
-      <header className="relative z-20 flex h-[62px] flex-shrink-0 items-center gap-2 border-b border-line bg-transparent px-3">
+      <header className="relative z-20 flex h-[62px] flex-shrink-0 items-center gap-2 bg-transparent px-3">
         <Link
           href={`/${uid}/chat`}
           aria-label="Kembali ke chat"
@@ -674,12 +726,17 @@ export function DirectChatRoomClient({
                 <button
                   type="button"
                   disabled={isPending}
-                  onClick={() => setSelectedMessage(message)}
+                  onPointerDown={(event) => startMessagePress(event, message)}
+                  onPointerUp={stopMessagePress}
+                  onPointerLeave={stopMessagePress}
+                  onPointerCancel={stopMessagePress}
+                  onClick={(event) => selectMessageFromClick(event, message)}
                   onContextMenu={(event) => {
                     event.preventDefault();
+                    longPressTriggeredAtRef.current = Date.now();
                     setSelectedMessage(message);
                   }}
-                  className={`max-w-[86%] rounded-2xl px-3 py-2 text-left disabled:cursor-wait ${
+                  className={`max-w-[86%] touch-pan-y rounded-2xl px-3 py-2 text-left disabled:cursor-wait ${
                     mine
                       ? "rounded-tr-md bg-ink text-white"
                       : "rounded-tl-md bg-[#f2f2f2] text-ink"
@@ -719,7 +776,7 @@ export function DirectChatRoomClient({
           event.preventDefault();
           void sendMessage();
         }}
-        className={`flex flex-shrink-0 items-end gap-2 border-t border-line bg-transparent px-3 pt-2 ${
+        className={`flex flex-shrink-0 items-end gap-2 bg-transparent px-3 pt-2 ${
           viewport.keyboard
             ? "pb-2"
             : "pb-[calc(8px+env(safe-area-inset-bottom))]"

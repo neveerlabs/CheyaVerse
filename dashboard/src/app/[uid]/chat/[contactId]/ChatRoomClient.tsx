@@ -15,6 +15,7 @@ import {
   Check,
   CheckCheck,
   Clock,
+  Copy,
 } from "lucide-react";
 import { useRealtime } from "@/lib/use-realtime";
 import { VerifiedName } from "@/components/VerifiedName";
@@ -159,12 +160,60 @@ export function ChatRoomClient({
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchText, setSearchText] = useState("");
   const [recording, setRecording] = useState(false);
+  const [selectedChatItem, setSelectedChatItem] = useState<ChatItem | null>(null);
   const recognitionRef = useRef<Recognition | null>(null);
   const voiceBaseTextRef = useRef("");
+  const longPressTimerRef = useRef<number | null>(null);
+  const longPressTriggeredAtRef = useRef(0);
 
   const markReadRef = useRef<(() => void) | null>(null);
   const lastMarkReadAtRef = useRef(0);
   const markReadInflightRef = useRef(false);
+
+  function startChatItemPress(event: React.PointerEvent, item: ChatItem) {
+    if (event.pointerType !== "touch") return;
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current);
+    }
+    longPressTimerRef.current = window.setTimeout(() => {
+      longPressTriggeredAtRef.current = Date.now();
+      setSelectedChatItem(item);
+      longPressTimerRef.current = null;
+    }, 450);
+  }
+
+  function stopChatItemPress() {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }
+
+  function selectChatItemFromClick(
+    event: React.MouseEvent<HTMLElement>,
+    item: ChatItem,
+  ) {
+    if (Date.now() - longPressTriggeredAtRef.current < 900) {
+      longPressTriggeredAtRef.current = 0;
+      event.preventDefault();
+      return;
+    }
+    setSelectedChatItem(item);
+  }
+
+  async function copyChatItem(item: ChatItem) {
+    try {
+      const plainText = new DOMParser()
+        .parseFromString(item.content, "text/html")
+        .body.textContent?.trim();
+      if (!plainText) throw new Error("Pesan tidak berisi teks yang dapat disalin.");
+      await navigator.clipboard.writeText(plainText);
+      setSelectedChatItem(null);
+    } catch (error) {
+      console.error("[chat-room] clipboard write failed:", error);
+      window.alert("Pesan tidak dapat disalin. Periksa izin clipboard browser.");
+    }
+  }
 
   useEffect(() => {
     if (initialMessagesRef.current === initialMessages) return;
@@ -188,7 +237,14 @@ export function ChatRoomClient({
 
   useEffect(
     () => () => {
-      if (recognitionRef.current) recognitionRef.current.stop();
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch (error) {
+          console.error("[chat-room] failed to stop speech recognition:", error);
+        }
+      }
+      if (longPressTimerRef.current !== null) window.clearTimeout(longPressTimerRef.current);
     },
     [],
   );
@@ -358,7 +414,12 @@ export function ChatRoomClient({
 
   function toggleVoiceInput() {
     if (recognitionRef.current) {
-      recognitionRef.current.stop();
+      try {
+        recognitionRef.current.stop();
+      } catch (error) {
+        console.error("[chat-room] failed to stop speech recognition:", error);
+        window.alert("Dikte suara tidak dapat dihentikan.");
+      }
       recognitionRef.current = null;
       setRecording(false);
       return;
@@ -396,7 +457,14 @@ export function ChatRoomClient({
     };
     recognitionRef.current = recognition;
     setRecording(true);
-    recognition.start();
+    try {
+      recognition.start();
+    } catch (error) {
+      console.error("[chat-room] speech recognition could not start:", error);
+      recognitionRef.current = null;
+      setRecording(false);
+      window.alert("Dikte suara tidak dapat dimulai. Periksa izin mikrofon.");
+    }
   }
 
   useEffect(() => {
@@ -497,19 +565,19 @@ export function ChatRoomClient({
 
   const header = (
     <header
-      className={`fixed left-0 right-0 top-[var(--chat-vv-top,0px)] z-40 border-b border-line bg-transparent pt-[calc(12px+env(safe-area-inset-top))] pb-3 ${fadeCls}`}
+      className={`fixed left-0 right-0 top-[var(--chat-vv-top,0px)] z-40 bg-transparent pt-[calc(12px+env(safe-area-inset-top))] pb-3 ${fadeCls}`}
     >
       <div className="relative mx-auto max-w-[600px] px-5">
         <div className="flex items-center gap-2 -mx-3">
           <Link
             href={`/${uid}/chat`}
             aria-label="Kembali"
-            className="w-10 h-10 rounded-full border border-line bg-white flex items-center justify-center text-ink-soft active:scale-90 transition-transform flex-shrink-0 shadow-[0_1px_2px_rgba(0,0,0,.03)]"
+            className="w-10 h-10 rounded-full flex items-center justify-center text-ink-soft active:scale-90 transition-transform flex-shrink-0"
           >
             <ChevronLeft size={20} strokeWidth={2.2} />
           </Link>
 
-          <div className="flex-1 min-w-0 flex items-center gap-2.5 h-10 pl-1.5 pr-3 rounded-full border border-line bg-white shadow-[0_1px_2px_rgba(0,0,0,.03)]">
+          <div className="flex-1 min-w-0 flex items-center gap-2.5 h-10 pl-1.5 pr-3 rounded-full">
             <div className="w-8 h-8 rounded-full overflow-hidden bg-[#f0f0f0] border border-line flex-shrink-0">
               <img
                 src="/icon.png"
@@ -531,7 +599,7 @@ export function ChatRoomClient({
             aria-label="Menu"
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen((value) => !value)}
-            className="w-10 h-10 rounded-full border border-line bg-white flex items-center justify-center text-ink-soft active:scale-90 transition-transform flex-shrink-0 shadow-[0_1px_2px_rgba(0,0,0,.03)]"
+            className="w-10 h-10 rounded-full flex items-center justify-center text-ink-soft active:scale-90 transition-transform flex-shrink-0"
           >
             <MoreVertical size={18} strokeWidth={2.2} />
           </button>
@@ -573,7 +641,7 @@ export function ChatRoomClient({
 
   const footer = (
     <footer
-      className={`chat-footer fixed left-0 right-0 z-30 border-t border-line bg-transparent pointer-events-none ${fadeCls}`}
+      className={`chat-footer fixed left-0 right-0 z-30 bg-transparent pointer-events-none ${fadeCls}`}
       style={{
         bottom: "var(--chat-kb, 0px)",
         willChange: "opacity",
@@ -647,7 +715,19 @@ export function ChatRoomClient({
                 return (
                   <div key={item.id} className="flex flex-row-reverse gap-2.5 -mr-3 pl-1">
                     <div className="flex-1 min-w-0 flex flex-col items-end">
-                      <div className="inline-flex items-end gap-x-2 max-w-full bg-ink text-white rounded-2xl rounded-tr-md px-2.5 py-[5px]">
+                      <div
+                        onPointerDown={(event) => startChatItemPress(event, item)}
+                        onPointerUp={stopChatItemPress}
+                        onPointerLeave={stopChatItemPress}
+                        onPointerCancel={stopChatItemPress}
+                        onClick={(event) => selectChatItemFromClick(event, item)}
+                        onContextMenu={(event) => {
+                          event.preventDefault();
+                          longPressTriggeredAtRef.current = Date.now();
+                          setSelectedChatItem(item);
+                        }}
+                        className="inline-flex max-w-full touch-pan-y items-end gap-x-2 rounded-2xl rounded-tr-md bg-ink px-2.5 py-[5px] text-white"
+                      >
                         <span
                           className="text-[13.5px] leading-[1.35] whitespace-pre-wrap break-words min-w-0 [&_b]:font-semibold [&_i]:italic [&_a]:underline"
                           dangerouslySetInnerHTML={{ __html: item.content }}
@@ -678,7 +758,19 @@ export function ChatRoomClient({
                     />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="inline-block max-w-full bg-[#f5f5f5] rounded-2xl rounded-tl-md px-3 py-2">
+                    <div
+                      onPointerDown={(event) => startChatItemPress(event, item)}
+                      onPointerUp={stopChatItemPress}
+                      onPointerLeave={stopChatItemPress}
+                      onPointerCancel={stopChatItemPress}
+                      onClick={(event) => selectChatItemFromClick(event, item)}
+                      onContextMenu={(event) => {
+                        event.preventDefault();
+                        longPressTriggeredAtRef.current = Date.now();
+                        setSelectedChatItem(item);
+                      }}
+                      className="inline-block max-w-full touch-pan-y rounded-2xl rounded-tl-md bg-[#f5f5f5] px-3 py-2"
+                    >
                       <div
                         className="text-[13px] text-ink-soft leading-[1.5] whitespace-pre-wrap break-words [&_b]:font-semibold [&_b]:text-ink [&_i]:italic [&_a]:text-ink [&_a]:underline"
                         dangerouslySetInnerHTML={{ __html: item.content }}
@@ -700,6 +792,42 @@ export function ChatRoomClient({
 
       {mounted && createPortal(header, document.body)}
       {mounted && createPortal(footer, document.body)}
+      {selectedChatItem && mounted && createPortal(
+        <div
+          role="presentation"
+          onClick={() => setSelectedChatItem(null)}
+          className="fixed inset-0 z-[70] flex items-end justify-center bg-black/25 px-4 pb-[calc(16px+env(safe-area-inset-bottom))]"
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-label="Aksi pesan"
+            onClick={(event) => event.stopPropagation()}
+            className="w-full max-w-[560px] overflow-hidden rounded-2xl bg-white pb-1 shadow-2xl"
+          >
+            <div className="border-b border-line px-4 py-3">
+              <p className="line-clamp-2 whitespace-pre-wrap break-words text-[12.5px] text-ink-soft">
+                {new DOMParser().parseFromString(selectedChatItem.content, "text/html").body.textContent}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void copyChatItem(selectedChatItem)}
+              className="flex w-full items-center gap-3 px-4 py-3 text-[13px] text-ink"
+            >
+              <Copy size={17} /> Salin
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedChatItem(null)}
+              className="flex w-full items-center justify-center border-t border-line px-4 py-3 text-[13px] font-semibold text-ink-soft"
+            >
+              Tutup
+            </button>
+          </section>
+        </div>,
+        document.body,
+      )}
       {searchOpen && mounted && createPortal(
         <div className="fixed left-0 right-0 top-[var(--chat-vv-top,0px)] z-[60] border-b border-line bg-white px-4 py-2">
           <div className="mx-auto flex max-w-[560px] items-center gap-2">
