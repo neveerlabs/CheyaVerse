@@ -114,6 +114,26 @@ export async function renameMediaById(
   }
 }
 
+export async function updateMediaExpiresAt(
+  mediaId: string,
+  ownerId: number,
+  expiresAt: string,
+): Promise<{ ok: boolean; reason?: string }> {
+  const meta = await fetchMedia(mediaId);
+  if (!meta) return { ok: false, reason: "not_found" };
+  if (meta.owner_id !== ownerId) return { ok: false, reason: "forbidden" };
+
+  try {
+    await getTurso().execute({
+      sql: "UPDATE media SET expires_at = ? WHERE id = ?",
+      args: [expiresAt, mediaId],
+    });
+    return { ok: true };
+  } catch {
+    return { ok: false, reason: "db_error" };
+  }
+}
+
 export type CoverType = "color" | "upload" | "telegram";
 
 export type CoverConfig = {
