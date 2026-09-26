@@ -8,7 +8,6 @@ import {
 } from "@/lib/storage";
 import { ChatRoomClient } from "./ChatRoomClient";
 import { DirectChatRoomClient } from "./DirectChatRoomClient";
-import { config } from "@/lib/config";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +29,10 @@ export default async function ChatRoomPage({
     }
     const contact = await getTelegramUser(contactUid);
     if (!contact) notFound();
-    const messages = await listDirectMessages(uid, contactUid);
+    const [messages, currentUser] = await Promise.all([
+      listDirectMessages(uid, contactUid),
+      getTelegramUser(uid),
+    ]);
     return (
       <DirectChatRoomClient
         uid={params.uid}
@@ -41,6 +43,7 @@ export default async function ChatRoomPage({
           last_name: contact.last_name,
           photo_url: contact.photo_url,
         }}
+        ownPhotoUrl={currentUser?.photo_url ?? null}
         initialMessages={messages}
       />
     );
@@ -66,7 +69,6 @@ export default async function ChatRoomPage({
       notifications={notifications}
       initialMessages={messages}
       user={user}
-      botUsername={config.botUsername}
     />
   );
 }

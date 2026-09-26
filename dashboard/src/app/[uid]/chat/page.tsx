@@ -6,6 +6,7 @@ import {
   listMessages,
 } from "@/lib/storage";
 import { VerifiedName } from "@/components/VerifiedName";
+import { TelegramAvatar } from "@/components/TelegramAvatar";
 import { ChatSearch } from "./ChatSearch";
 
 export const dynamic = "force-dynamic";
@@ -98,7 +99,7 @@ export default async function ChatListPage({
               >
                 <div className="relative h-12 w-12 flex-shrink-0">
                   <div className="h-12 w-12 overflow-hidden rounded-full border border-line bg-[#f0f0f0]">
-                    <img src="/icon.png" alt="" draggable={false} className="h-full w-full object-cover" />
+                    <TelegramAvatar src="/icon.png" />
                   </div>
                   {hasUnread && (
                     <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-danger px-1 text-[10.5px] font-bold tabular-nums text-white shadow-[0_0_0_2px_#fff]">
@@ -141,12 +142,7 @@ export default async function ChatListPage({
               className="flex items-center gap-3 -ml-2 pr-1 py-3 transition-opacity active:opacity-60"
             >
               <div className="h-12 w-12 flex-shrink-0 overflow-hidden rounded-full border border-line bg-[#f0f0f0]">
-                <img
-                  src={contact.photo_url || `/api/avatar/${contact.uid}`}
-                  alt=""
-                  draggable={false}
-                  className="h-full w-full object-cover"
-                />
+                <TelegramAvatar src={contact.photo_url} />
               </div>
               <div className="flex min-w-0 flex-1 flex-col gap-1">
                 <span className={`truncate text-[14px] text-ink ${conversation.unread ? "font-bold" : "font-semibold"}`}>

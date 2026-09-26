@@ -21,6 +21,7 @@ import {
   Bell,
   BellOff,
 } from "lucide-react";
+import { TelegramAvatar } from "@/components/TelegramAvatar";
 import type { DirectMessage, TelegramUser } from "@/lib/storage";
 import { useRealtime } from "@/lib/use-realtime";
 
@@ -74,15 +75,17 @@ function StatusIcon({
 export function DirectChatRoomClient({
   uid,
   contact,
+  ownPhotoUrl,
   initialMessages,
 }: {
   uid: string;
   contact: ChatContact;
+  ownPhotoUrl: string | null;
   initialMessages: DirectMessage[];
 }) {
   const myUid = Number(uid);
   const name = userName(contact);
-  const headerName = contact.username ? `@${contact.username}` : name;
+  const headerName = contact.username || name;
   const [messages, setMessages] = useState(initialMessages);
   const messagesRef = useRef(initialMessages);
   const initialMessagesRef = useRef(initialMessages);
@@ -694,10 +697,8 @@ export function DirectChatRoomClient({
           aria-label={`Lihat profil ${name}`}
         >
           <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-[#f5f5f5]">
-            <img
+            <TelegramAvatar
               src={contact.photo_url || `/api/avatar/${contact.uid}`}
-              alt=""
-              className="h-full w-full object-cover"
             />
           </span>
           <span className="min-w-0">
@@ -813,7 +814,7 @@ export function DirectChatRoomClient({
       <div
         ref={messageBoxRef}
         onContextMenu={(event) => event.preventDefault()}
-        className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain px-3 py-3"
+        className="flex min-h-0 flex-1 flex-col gap-2 overflow-x-hidden overflow-y-auto overscroll-contain px-3 py-3"
       >
         {visibleMessages.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center py-16 text-center">
@@ -832,69 +833,74 @@ export function DirectChatRoomClient({
               <div
                 key={message.id}
                 id={`direct-message-${message.id}`}
-                className={`flex min-w-0 ${MESSAGE_ROW_GUTTER} ${mine ? "justify-end" : "justify-start gap-2.5"}`}
+                className={`flex min-w-0 items-end gap-2 ${MESSAGE_ROW_GUTTER} ${mine ? "justify-end" : "justify-start"}`}
               >
                 {!mine && (
                   <span className="mt-0.5 h-8 w-8 flex-shrink-0 overflow-hidden rounded-full border border-line bg-[#f0f0f0]">
-                    <img
+                    <TelegramAvatar
                       src={contact.photo_url || `/api/avatar/${contact.uid}`}
-                      alt=""
-                      className="h-full w-full object-cover"
                     />
                   </span>
                 )}
-                <div
-                  role="group"
-                  aria-label={`Pesan dari ${mine ? "Anda" : name}`}
-                  onPointerDown={(event) => startMessagePress(event, message)}
-                  onPointerMove={moveMessagePress}
-                  onPointerUp={stopMessagePress}
-                  onPointerLeave={stopMessagePress}
-                  onPointerCancel={stopMessagePress}
-                  onContextMenu={(event) => {
-                    event.preventDefault();
-                    if (isPending) return;
-                    longPressTriggeredAtRef.current = Date.now();
-                    setSelectedMessage(message);
-                  }}
-                  className={`max-w-[88%] touch-pan-y rounded-2xl px-2.5 py-[5px] text-left shadow-[0_1px_2px_rgba(0,0,0,.06)] transition-transform duration-150 active:scale-[.99] ${
-                    mine
-                      ? "rounded-tr-md bg-ink text-white"
-                      : "rounded-tl-md bg-[#f2f2f2] text-ink"
-                  } ${isPending ? "opacity-70" : ""}`}
-                >
-                  {message.forwarded_from_uid && (
-                    <span className={`mb-1 block text-[10px] italic ${mine ? "text-white/60" : "text-ink-mute"}`}>
-                      Diteruskan
-                    </span>
-                  )}
-                  {message.reply_to_id && (
-                    <span className={`mb-1 block max-w-full truncate border-l-2 pl-2 text-[10px] ${
-                      mine ? "border-white/50 text-white/70" : "border-ink/30 text-ink-mute"
+                <div className={`min-w-0 ${mine ? "max-w-[calc(100%-40px)]" : "flex-1"}`}>
+                  <div
+                    role="group"
+                    aria-label={`Pesan dari ${mine ? "Anda" : name}`}
+                    onPointerDown={(event) => startMessagePress(event, message)}
+                    onPointerMove={moveMessagePress}
+                    onPointerUp={stopMessagePress}
+                    onPointerLeave={stopMessagePress}
+                    onPointerCancel={stopMessagePress}
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      if (isPending) return;
+                      longPressTriggeredAtRef.current = Date.now();
+                      setSelectedMessage(message);
+                    }}
+                    className={`inline-block max-w-full touch-pan-y rounded-2xl px-2.5 py-[5px] text-left shadow-[0_1px_2px_rgba(0,0,0,.06)] transition-transform duration-150 active:scale-[.99] ${
+                      mine
+                        ? "rounded-tr-md bg-ink text-white"
+                        : "rounded-tl-md bg-[#f2f2f2] text-ink"
+                    } ${isPending ? "opacity-70" : ""}`}
+                  >
+                    {message.forwarded_from_uid && (
+                      <span className={`mb-1 block text-[10px] italic ${mine ? "text-white/60" : "text-ink-mute"}`}>
+                        Diteruskan
+                      </span>
+                    )}
+                    {message.reply_to_id && (
+                      <span className={`mb-1 block max-w-full truncate border-l-2 pl-2 text-[10px] ${
+                        mine ? "border-white/50 text-white/70" : "border-ink/30 text-ink-mute"
+                      }`}>
+                        {messages.find((item) => item.id === message.reply_to_id)?.media_file_id
+                          ? "Pesan suara tidak didukung"
+                          : messages.find((item) => item.id === message.reply_to_id)?.content ?? "Balasan"}
+                      </span>
+                    )}
+                    <span className={`inline whitespace-pre-wrap break-words text-[13.5px] leading-[1.45] ${
+                      message.deleted_at ? "italic opacity-65" : ""
                     }`}>
-                      {messages.find((item) => item.id === message.reply_to_id)?.media_file_id
-                        ? "Pesan suara tidak didukung"
-                        : messages.find((item) => item.id === message.reply_to_id)?.content ?? "Balasan"}
+                      {message.deleted_at
+                        ? "Pesan dihapus"
+                        : message.media_file_id
+                          ? "Pesan suara tidak didukung"
+                          : message.content}
                     </span>
-                  )}
-                  <span className={`block whitespace-pre-wrap break-words text-[13.5px] leading-[1.45] ${
-                    message.deleted_at ? "italic opacity-65" : ""
-                  }`}>
-                    {message.deleted_at
-                      ? "Pesan dihapus"
-                      : message.media_file_id
-                        ? "Pesan suara tidak didukung"
-                        : message.content}
-                  </span>
-                  <span className={`mt-1 flex items-center justify-end gap-1 text-[10px] ${
-                    mine ? "text-white/65" : "text-ink-mute"
-                  }`}>
-                    {message.edited_at && !message.deleted_at && <span>diedit</span>}
-                    {message.is_pinned && <Pin size={10} />}
-                    {messageTime(message.created_at)}
-                    {mine && <StatusIcon message={message} pending={isPending} />}
-                  </span>
+                    <span className={`ml-1 inline-flex items-center gap-1 whitespace-nowrap align-bottom text-[10px] ${
+                      mine ? "text-white/65" : "text-ink-mute"
+                    }`}>
+                      {message.edited_at && !message.deleted_at && <span>diedit</span>}
+                      {message.is_pinned && <Pin size={10} />}
+                      {messageTime(message.created_at)}
+                      {mine && <StatusIcon message={message} pending={isPending} />}
+                    </span>
+                  </div>
                 </div>
+                {mine && (
+                  <span className="mb-0.5 h-8 w-8 flex-shrink-0 overflow-hidden rounded-full border border-line bg-[#f0f0f0]">
+                    <TelegramAvatar src={ownPhotoUrl || `/api/avatar/${myUid}`} />
+                  </span>
+                )}
               </div>
             );
           })
@@ -956,7 +962,7 @@ export function DirectChatRoomClient({
           type="submit"
           disabled={sending || !text.trim()}
           aria-label={editingId ? "Simpan edit" : "Kirim pesan"}
-          className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full border border-line bg-white text-ink transition-colors active:bg-[#f2f3f5] disabled:opacity-50"
+          className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full border border-ink bg-ink text-white transition-transform active:scale-90 disabled:opacity-50"
         >
           <Send size={17} />
         </button>
@@ -1074,7 +1080,7 @@ export function DirectChatRoomClient({
                     key={user.uid}
                     type="button"
                     onClick={() => void forwardMessage(user.uid)}
-                    className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left hover:bg-[#f7f7f7]"
+                    className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left [@media(hover:hover)]:hover:bg-[#f7f7f7]"
                   >
                     <span className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-[#f5f5f5]">
                       {user.photo_url ? (

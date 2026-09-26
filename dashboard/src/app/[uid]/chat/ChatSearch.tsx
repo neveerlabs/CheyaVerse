@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Search, UserRound, UserPlus } from "lucide-react";
+import { Search, UserPlus } from "lucide-react";
+import { TelegramAvatar } from "@/components/TelegramAvatar";
 
 type SearchUser = {
   uid: number;
@@ -100,15 +101,10 @@ export function ChatSearch({ uid }: { uid: string }) {
                 key={user.uid}
                 href={`/${uid}/chat/${user.uid}`}
                 onClick={() => setQuery("")}
-                className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-[#fafafa] active:bg-[#f5f5f5]"
+                className="flex items-center gap-3 px-4 py-3 transition-colors [@media(hover:hover)]:hover:bg-[#fafafa]"
               >
                 <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-[#f5f5f5]">
-                  {user.photo_url ? (
-                    // Telegram profile photos may be remote URLs.
-                    <img src={user.photo_url} alt="" className="h-full w-full object-cover" />
-                  ) : (
-                    <UserRound size={18} className="text-ink-mute" />
-                  )}
+                  <TelegramAvatar src={user.photo_url} />
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[13.5px] font-semibold text-ink">

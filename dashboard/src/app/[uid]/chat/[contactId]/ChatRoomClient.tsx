@@ -18,6 +18,7 @@ import {
   Copy,
 } from "lucide-react";
 import { useRealtime } from "@/lib/use-realtime";
+import { TelegramAvatar } from "@/components/TelegramAvatar";
 
 type Notification = {
   id: string;
@@ -139,13 +140,11 @@ export function ChatRoomClient({
   notifications,
   initialMessages,
   user,
-  botUsername,
 }: {
   uid: string;
   notifications: Notification[];
   initialMessages: ChatMessage[];
   user: TelegramUser | null;
-  botUsername: string;
 }) {
   const taRef = useRef<HTMLTextAreaElement | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
@@ -166,6 +165,7 @@ export function ChatRoomClient({
   const voiceBaseTextRef = useRef("");
   const longPressTimerRef = useRef<number | null>(null);
   const longPressTriggeredAtRef = useRef(0);
+  const pressOriginRef = useRef({ x: 0, y: 0 });
 
   const markReadRef = useRef<(() => void) | null>(null);
   const lastMarkReadAtRef = useRef(0);
@@ -173,6 +173,7 @@ export function ChatRoomClient({
 
   function startChatItemPress(event: React.PointerEvent, item: ChatItem) {
     if (event.pointerType !== "touch") return;
+    pressOriginRef.current = { x: event.clientX, y: event.clientY };
     if (longPressTimerRef.current !== null) {
       window.clearTimeout(longPressTimerRef.current);
     }
@@ -181,6 +182,17 @@ export function ChatRoomClient({
       setSelectedChatItem(item);
       longPressTimerRef.current = null;
     }, 450);
+  }
+
+  function moveChatItemPress(event: React.PointerEvent) {
+    if (
+      Math.hypot(
+        event.clientX - pressOriginRef.current.x,
+        event.clientY - pressOriginRef.current.y,
+      ) > 10
+    ) {
+      stopChatItemPress();
+    }
   }
 
   function stopChatItemPress() {
@@ -577,10 +589,10 @@ export function ChatRoomClient({
             </div>
             <div className="flex min-w-0 flex-1 flex-col justify-center">
               <span className="truncate text-[14px] font-semibold text-ink">
-                {botUsername ? `@${botUsername}` : "CheyaVerse"}
+                CheyaVerse
               </span>
-              <span className="mt-0.5 truncate text-[11px] leading-tight text-emerald-600">
-                online
+              <span className="mt-0.5 truncate text-[11px] leading-tight text-ink-mute">
+                service notifications
               </span>
             </div>
           </div>
@@ -665,7 +677,7 @@ export function ChatRoomClient({
           aria-label="Kirim"
           onClick={sendMessage}
           disabled={sending || !hasText}
-          className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full border border-line bg-white text-ink active:scale-90 transition-transform disabled:opacity-50"
+          className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full border border-ink bg-ink text-white active:scale-90 transition-transform disabled:opacity-50"
         >
           <Send size={18} strokeWidth={2.2} />
         </button>
@@ -676,7 +688,7 @@ export function ChatRoomClient({
   return (
     <>
       <section
-        className={`fixed left-0 right-0 top-[var(--chat-vv-top,0px)] mx-auto max-w-[600px] overflow-y-auto overscroll-contain pt-[calc(80px+env(safe-area-inset-top))] pb-[calc(96px+env(safe-area-inset-bottom))] ${fadeCls}`}
+        className={`fixed left-0 right-0 top-[var(--chat-vv-top,0px)] mx-auto max-w-[600px] overflow-x-hidden overflow-y-auto overscroll-contain pt-[calc(80px+env(safe-area-inset-top))] pb-[calc(96px+env(safe-area-inset-bottom))] ${fadeCls}`}
         style={{ height: "var(--chat-vv-height, 100dvh)" }}
       >
         {visibleChatItems.length === 0 ? (
@@ -692,15 +704,16 @@ export function ChatRoomClient({
             </p>
           </div>
         ) : (
-          <div className="flex flex-col gap-2 px-3">
+          <div className="flex min-w-0 flex-col gap-2 px-3">
             {visibleChatItems.map((item) => {
               const isUser = item.sender === "user";
               if (isUser) {
                 return (
-                  <div key={item.id} className="flex min-w-0 justify-end">
-                    <div className="flex w-full min-w-0 flex-col items-end">
+                  <div key={item.id} className="flex min-w-0 items-end justify-end gap-2">
+                    <div className="min-w-0 max-w-[calc(100%-40px)]">
                       <div
                         onPointerDown={(event) => startChatItemPress(event, item)}
+                        onPointerMove={moveChatItemPress}
                         onPointerUp={stopChatItemPress}
                         onPointerLeave={stopChatItemPress}
                         onPointerCancel={stopChatItemPress}
@@ -709,13 +722,13 @@ export function ChatRoomClient({
                           longPressTriggeredAtRef.current = Date.now();
                           setSelectedChatItem(item);
                         }}
-                        className="inline-flex max-w-[88%] touch-pan-y flex-col items-stretch rounded-2xl rounded-tr-md bg-ink px-2.5 py-[5px] text-white shadow-[0_1px_2px_rgba(0,0,0,.06)] transition-transform active:scale-[.99]"
+                        className="inline-block max-w-full touch-pan-y rounded-2xl rounded-tr-md bg-ink px-2.5 py-[5px] text-white shadow-[0_1px_2px_rgba(0,0,0,.06)] transition-transform active:scale-[.99]"
                       >
                         <span
-                          className="text-[13.5px] leading-[1.35] whitespace-pre-wrap break-words min-w-0 [&_b]:font-semibold [&_i]:italic [&_a]:underline"
+                          className="inline text-[13.5px] leading-[1.35] whitespace-pre-wrap break-words [&_b]:font-semibold [&_i]:italic [&_a]:underline"
                           dangerouslySetInnerHTML={{ __html: item.content }}
                         />
-                        <span className="mt-1 inline-flex items-center justify-end gap-1 flex-shrink-0 leading-none">
+                        <span className="ml-1 inline-flex items-center gap-1 whitespace-nowrap align-bottom leading-none">
                           <span className="text-[10px] text-white/70 tabular-nums leading-none">
                             {formatTime(item.created_at)}
                           </span>
@@ -727,22 +740,21 @@ export function ChatRoomClient({
                         </span>
                       </div>
                     </div>
+                    <span className="mb-0.5 h-8 w-8 flex-shrink-0 overflow-hidden rounded-full border border-line bg-[#f0f0f0]">
+                      <TelegramAvatar src={`/api/avatar/${uid}`} />
+                    </span>
                   </div>
                 );
               }
               return (
                 <div key={item.id} className="flex min-w-0 gap-2.5">
-                  <div className="w-8 h-8 rounded-full overflow-hidden bg-[#f0f0f0] border border-line flex-shrink-0 mt-0.5">
-                    <img
-                      src="/icon.png"
-                      alt=""
-                      draggable={false}
-                      className="w-full h-full object-cover"
-                    />
+                  <div className="mt-0.5 h-8 w-8 flex-shrink-0 overflow-hidden rounded-full border border-line bg-[#f0f0f0]">
+                    <TelegramAvatar src="/icon.png" />
                   </div>
-                  <div className="flex-1 min-w-0">
+                  <div className="min-w-0 flex-1">
                     <div
                       onPointerDown={(event) => startChatItemPress(event, item)}
+                      onPointerMove={moveChatItemPress}
                       onPointerUp={stopChatItemPress}
                       onPointerLeave={stopChatItemPress}
                       onPointerCancel={stopChatItemPress}
@@ -751,17 +763,15 @@ export function ChatRoomClient({
                         longPressTriggeredAtRef.current = Date.now();
                         setSelectedChatItem(item);
                       }}
-                      className="inline-block max-w-[88%] touch-pan-y rounded-2xl rounded-tl-md bg-[#f2f2f2] px-2.5 py-[5px] shadow-[0_1px_2px_rgba(0,0,0,.05)] transition-transform active:scale-[.99]"
+                    className="inline-block max-w-full touch-pan-y rounded-2xl rounded-tl-md bg-[#f2f2f2] px-2.5 py-[5px] shadow-[0_1px_2px_rgba(0,0,0,.05)] transition-transform active:scale-[.99]"
                     >
-                      <div
-                        className="text-[13px] text-ink-soft leading-[1.5] whitespace-pre-wrap break-words [&_b]:font-semibold [&_b]:text-ink [&_i]:italic [&_a]:text-ink [&_a]:underline"
-                        dangerouslySetInnerHTML={{ __html: item.content }}
-                      />
-                      <div className="flex justify-end mt-1">
-                        <span className="text-[10px] text-ink-mute tabular-nums leading-none">
-                          {formatTime(item.created_at)}
-                        </span>
-                      </div>
+                    <span
+                      className="inline text-[13.5px] text-ink-soft leading-[1.4] whitespace-pre-wrap break-words [&_b]:font-semibold [&_b]:text-ink [&_i]:italic [&_a]:text-ink [&_a]:underline"
+                      dangerouslySetInnerHTML={{ __html: item.content }}
+                    />
+                    <span className="ml-1 inline-flex items-center whitespace-nowrap align-bottom text-[10px] text-ink-mute tabular-nums leading-none">
+                      {formatTime(item.created_at)}
+                    </span>
                     </div>
                   </div>
                 </div>
