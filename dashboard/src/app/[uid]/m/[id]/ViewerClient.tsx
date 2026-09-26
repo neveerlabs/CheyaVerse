@@ -377,49 +377,48 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoProps>(
 );
 
 function MetaRow({
-  label, value, onCopy, mono, action, last, copied,
+  label, value, onCopy, mono, action, copied,
 }: {
   label: string;
   value: string;
   onCopy?: () => void;
   mono?: boolean;
   action?: ReactNode;
-  last?: boolean;
   copied?: boolean;
 }) {
   return (
-    <div
-      className={`flex items-center gap-3 py-3 relative ${
-        !last
-          ? "before:absolute before:bottom-0 before:left-0 before:right-0 before:h-px before:bg-divider"
-          : ""
-      }`}
-    >
-      <span className="text-[12.5px] text-ink-mute w-[92px] flex-shrink-0">{label}</span>
-      <span
-        className={`flex-1 min-w-0 text-[13px] text-ink truncate ${
-          mono ? "font-mono tracking-[-.005em]" : ""
-        }`}
-      >
-        {value}
-      </span>
-      {onCopy && (
-        <button
-          type="button"
-          onClick={onCopy}
-          aria-label={`Copy ${label}`}
-          className="w-7 h-7 flex-shrink-0 flex items-center justify-center rounded-lg text-ink-soft sm:hover:text-ink sm:hover:bg-[#f5f5f5] active:opacity-60 transition-colors"
+    <div className="grid grid-cols-[112px_1fr] border-b border-divider last:border-b-0">
+      <div className="flex items-center py-3 pr-3 border-r border-divider">
+        <span className="text-[11px] font-medium uppercase tracking-[.09em] text-ink-mute truncate">
+          {label}
+        </span>
+      </div>
+      <div className="flex items-center gap-2 min-w-0 py-3 pl-4">
+        <span
+          className={`flex-1 min-w-0 text-[13px] text-ink truncate ${
+            mono ? "font-mono tracking-[-.005em]" : ""
+          }`}
         >
-          {copied ? (
-            <span className="animate-copy-pop inline-flex text-ink">
-              <Check size={13} strokeWidth={2.6} />
-            </span>
-          ) : (
-            <Copy size={13} strokeWidth={2.2} />
-          )}
-        </button>
-      )}
-      {action}
+          {value}
+        </span>
+        {onCopy && (
+          <button
+            type="button"
+            onClick={onCopy}
+            aria-label={`Copy ${label}`}
+            className="w-7 h-7 flex-shrink-0 flex items-center justify-center rounded-lg text-ink-soft sm:hover:text-ink sm:hover:bg-[#f5f5f5] active:opacity-60 transition-colors"
+          >
+            {copied ? (
+              <span className="animate-copy-pop inline-flex text-ink">
+                <Check size={13} strokeWidth={2.6} />
+              </span>
+            ) : (
+              <Copy size={13} strokeWidth={2.2} />
+            )}
+          </button>
+        )}
+        {action}
+      </div>
     </div>
   );
 }
@@ -769,11 +768,24 @@ export default function ViewerClient({
     };
     if (isFs) {
       const doc = document as FsDoc;
-      (document.exitFullscreen || doc.webkitExitFullscreen)?.call(document);
-    } else {
-      const anyEl = el as FsEl;
-      (el.requestFullscreen || anyEl.webkitRequestFullscreen)?.call(el);
+      try {
+        (document.exitFullscreen || doc.webkitExitFullscreen)?.call(document);
+      } catch {}
+      return;
     }
+    try {
+      if (typeof el.requestFullscreen === "function") {
+        el.requestFullscreen({ navigationUI: "hide" }).catch(() => {
+          try {
+            const anyEl = el as FsEl;
+            anyEl.webkitRequestFullscreen?.();
+          } catch {}
+        });
+      } else {
+        const anyEl = el as FsEl;
+        anyEl.webkitRequestFullscreen?.();
+      }
+    } catch {}
   }
 
   useEffect(() => {
@@ -1198,7 +1210,7 @@ export default function ViewerClient({
       )}
 
       {uid && bodyReady && (
-        <div className="rounded-2xl border border-line bg-white px-4 mb-4 animate-fade-up">
+        <div className="mt-5 mb-4 animate-fade-up border-t border-b border-divider">
           <MetaRow
             label="ID"
             value={mediaId}
@@ -1206,24 +1218,23 @@ export default function ViewerClient({
             copied={copiedKey === "id"}
             onCopy={() => copyText(mediaId, "ID", "id")}
           />
-          <MetaRow label="Owner ID" value={ownerDisplay} mono />
+          <MetaRow label="Owner" value={ownerDisplay} mono />
           <MetaRow
             label="Filename"
             value={filename}
             copied={copiedKey === "filename"}
             onCopy={() => copyText(filename, "Filename", "filename")}
           />
-          <MetaRow label="Content type" value={contentDisplay} />
-          <MetaRow label="File size" value={sizeDisplay} />
+          <MetaRow label="Content" value={contentDisplay} />
+          <MetaRow label="Size" value={sizeDisplay} />
           <MetaRow
-            label="Max expired"
+            label="Expires"
             value={expiresDisplay}
-            last
             action={
               <button
                 type="button"
                 onClick={() => setEditExpiresOpen(true)}
-                className="flex-shrink-0 text-[12px] font-semibold text-ink-soft sm:hover:text-ink active:opacity-60 px-2.5 py-1.5 rounded-lg border border-line bg-[#fafafa] transition-colors"
+                className="flex-shrink-0 text-[11px] font-semibold uppercase tracking-[.06em] text-ink-soft sm:hover:text-ink active:opacity-60 px-2 py-1 rounded-md sm:hover:bg-[#f5f5f5] transition-colors"
               >
                 Edit
               </button>
