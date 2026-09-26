@@ -351,14 +351,14 @@ export async function ensureWelcomeNotification(
   browser: string | null,
   cpuCores: number | null,
   ramGb: number | null,
-): Promise<boolean> {
+): Promise<{ created: boolean; message: string | null }> {
   const id = `welcome-${uid}`;
   try {
     const existing = await getTurso().execute({
       sql: "SELECT id FROM notifications WHERE id = ? LIMIT 1",
       args: [id],
     });
-    if (existing.rows.length > 0) return false;
+    if (existing.rows.length > 0) return { created: false, message: null };
 
     const userMention = username ? `<b>@${username}</b>` : "Anda";
     const deviceLine = device || "Tidak terdeteksi";
@@ -426,10 +426,13 @@ export async function ensureWelcomeNotification(
       }).catch(() => {});
     }
 
-    return result.rowsAffected > 0;
+    return {
+      created: result.rowsAffected > 0,
+      message: result.rowsAffected > 0 ? message : null,
+    };
   } catch (err) {
     console.error("[welcome] FAILED:", err);
-    return false;
+    return { created: false, message: null };
   }
 }
 
@@ -876,5 +879,86 @@ export async function markMessageRead(
     return now;
   } catch {
     return null;
+  }
+}
+
+export type PushSubscriptionRow = {
+  endpoint: string;
+  uid: number;
+  device_id: string | null;
+  p256dh: string;
+  auth: string;
+  created_at: string;
+  updated_at: string;
+};
+
+function rowToPushSubscription(row: Record<string, unknown>): PushSubscriptionRow {
+  return {
+    endpoint: String(row.endpoint ?? ""),
+    uid: Number(row.uid ?? 0),
+    device_id: row.device_id == null ? null : String(row.device_id),
+    p256dh: String(row.p256dh ?? ""),
+    auth: String(row.auth ?? ""),
+    created_at: String(row.created_at ?? ""),
+    updated_at: String(row.updated_at ?? ""),
+  };
+}
+
+export async function upsertPushSubscription(data: {
+  endpoint: string;
+  uid: number;
+  deviceId: string | null;
+  p256dh: string;
+  auth: string;
+}): Promise<void> {
+  const now = new Date().toISOString();
+  try {
+    await getTurso().execute({
+      sql: `INSERT INTO push_subscriptions
+              (endpoint, uid, device_id, p256dh, auth, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(endpoint) DO UPDATE SET
+              uid = excluded.uid,
+              device_id = excluded.device_id,
+              p256dh = excluded.p256dh,
+              auth = excluded.auth,
+              updated_at = excluded.updated_at`,
+      args: [
+        data.endpoint,
+        data.uid,
+        data.deviceId,
+        data.p256dh,
+        data.auth,
+        now,
+        now,
+      ],
+    });
+  } catch (err) {
+    console.error("upsertPushSubscription error:", err);
+  }
+}
+
+export async function deletePushSubscription(endpoint: string): Promise<void> {
+  try {
+    await getTurso().execute({
+      sql: "DELETE FROM push_subscriptions WHERE endpoint = ?",
+      args: [endpoint],
+    });
+  } catch {}
+}
+
+export async function listPushSubscriptions(
+  uid: number,
+): Promise<PushSubscriptionRow[]> {
+  try {
+    const result = await getTurso().execute({
+      sql: "SELECT * FROM push_subscriptions WHERE uid = ?",
+      args: [uid],
+    });
+    return result.rows.map((r) =>
+      rowToPushSubscription(r as unknown as Record<string, unknown>),
+    );
+  } catch {
+    return [];
   }
 }
