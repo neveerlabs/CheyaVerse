@@ -1,12 +1,12 @@
-// src/app/[uid]/m/[id]/ViewerClient.tsx
 "use client";
 
 import { useCallback, useEffect, useRef, useState, forwardRef } from "react";
+import type { ReactNode } from "react";
 import Link from "next/link";
 import ReCAPTCHA from "react-google-recaptcha";
 import {
   Image as ImageIcon, Download, Maximize2, Minimize2, Copy,
-  Play, Pause, Home, AlertCircle, Trash2, Rewind, FastForward,
+  Play, Pause, Home, AlertCircle, Trash2, Rewind, FastForward, Check,
 } from "lucide-react";
 import { config } from "@/lib/config";
 
@@ -16,10 +16,63 @@ type Props = {
   signedUrl: string;
   filename: string;
   contentType: string;
+  ownerId?: number;
+  fileSize?: number;
+  expiresAt?: string;
 };
 
 const VID_EXT = ["mp4", "webm", "mov", "mkv", "avi", "m4v"];
 const IMG_EXT = ["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg"];
+const DEVICE_ID_KEY = "cheya_device_id";
+const COPY_FLASH_MS = 1000;
+
+const EXPIRY_OPTIONS: { value: string; label: string }[] = [
+  { value: "12h", label: "12 hours" },
+  { value: "24h", label: "24 hours" },
+  { value: "1w", label: "1 week" },
+  { value: "1m", label: "1 month" },
+  { value: "1y", label: "1 year" },
+  { value: "never", label: "Never" },
+];
+
+function readDeviceId(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    return window.localStorage.getItem(DEVICE_ID_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let i = 0;
+  let n = bytes;
+  while (n >= 1024 && i < units.length - 1) {
+    n /= 1024;
+    i++;
+  }
+  const rounded = i === 0 ? Math.round(n) : Math.round(n * 10) / 10;
+  return `${rounded} ${units[i]}`;
+}
+
+function formatExpires(iso: string): string {
+  if (!iso) return "—";
+  try {
+    const d = new Date(iso);
+    if (!Number.isFinite(d.getTime())) return iso;
+    if (d.getUTCFullYear() >= 9000) return "Never";
+    const s = d.toLocaleString("en-GB", {
+      dateStyle: "medium",
+      timeStyle: "short",
+      timeZone: "Asia/Jakarta",
+    });
+    return `${s} WIB`;
+  } catch {
+    return iso;
+  }
+}
 
 function detectKind(filename: string, contentType: string): "video" | "image" | "other" {
   const ext = filename.split(".").pop()?.toLowerCase() ?? "";
@@ -323,8 +376,57 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoProps>(
   },
 );
 
+function MetaRow({
+  label, value, onCopy, mono, action, last, copied,
+}: {
+  label: string;
+  value: string;
+  onCopy?: () => void;
+  mono?: boolean;
+  action?: ReactNode;
+  last?: boolean;
+  copied?: boolean;
+}) {
+  return (
+    <div
+      className={`flex items-center gap-3 py-3 relative ${
+        !last
+          ? "before:absolute before:bottom-0 before:left-0 before:right-0 before:h-px before:bg-divider"
+          : ""
+      }`}
+    >
+      <span className="text-[12.5px] text-ink-mute w-[92px] flex-shrink-0">{label}</span>
+      <span
+        className={`flex-1 min-w-0 text-[13px] text-ink truncate ${
+          mono ? "font-mono tracking-[-.005em]" : ""
+        }`}
+      >
+        {value}
+      </span>
+      {onCopy && (
+        <button
+          type="button"
+          onClick={onCopy}
+          aria-label={`Copy ${label}`}
+          className="w-7 h-7 flex-shrink-0 flex items-center justify-center rounded-lg text-ink-soft sm:hover:text-ink sm:hover:bg-[#f5f5f5] active:opacity-60 transition-colors"
+        >
+          {copied ? (
+            <span className="animate-copy-pop inline-flex text-ink">
+              <Check size={13} strokeWidth={2.6} />
+            </span>
+          ) : (
+            <Copy size={13} strokeWidth={2.2} />
+          )}
+        </button>
+      )}
+      {action}
+    </div>
+  );
+}
+
 export default function ViewerClient({
   uid, mediaId, signedUrl, filename, contentType,
+  ownerId, fileSize, expiresAt,
 }: Props) {
   const kind = detectKind(filename, contentType);
   const siteKey = config.recaptchaSiteKey;
@@ -341,6 +443,11 @@ export default function ViewerClient({
   const [controlsHidden, setControlsHidden] = useState(false);
   const [zoomPop, setZoomPop] = useState(false);
   const [seekFx, setSeekFx] = useState<{ side: "left" | "right"; key: number } | null>(null);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  const [currentExpiresAt, setCurrentExpiresAt] = useState<string>(expiresAt ?? "");
+  const [editExpiresOpen, setEditExpiresOpen] = useState(false);
+  const [savingExpires, setSavingExpires] = useState(false);
 
   const mediaRef = useRef<HTMLDivElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
@@ -348,6 +455,7 @@ export default function ViewerClient({
   const recaptchaRef = useRef<ReCAPTCHA>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSeekAtRef = useRef(0);
   const scaleRef = useRef(1);
   const txRef = useRef(0);
@@ -364,10 +472,20 @@ export default function ViewerClient({
     isFsRef.current = isFs;
   }, [isFs]);
 
+  useEffect(() => {
+    setCurrentExpiresAt(expiresAt ?? "");
+  }, [expiresAt]);
+
   const showToast = useCallback((msg: string) => {
     setToast(msg);
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), 1800);
+  }, []);
+
+  const flashCopied = useCallback((key: string) => {
+    setCopiedKey(key);
+    if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    copyTimerRef.current = setTimeout(() => setCopiedKey(null), COPY_FLASH_MS);
   }, []);
 
   useEffect(() => {
@@ -414,6 +532,7 @@ export default function ViewerClient({
   useEffect(() => {
     return () => {
       if (controlsTimerRef.current) clearTimeout(controlsTimerRef.current);
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
     };
   }, []);
 
@@ -663,6 +782,11 @@ export default function ViewerClient({
       if (tag === "input" || tag === "textarea" || tag === "select") return;
 
       if (e.key === "Escape") {
+        if (editExpiresOpen) {
+          setEditExpiresOpen(false);
+          e.preventDefault();
+          return;
+        }
         if (confirmDelete) {
           setConfirmDelete(false);
           e.preventDefault();
@@ -724,7 +848,7 @@ export default function ViewerClient({
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [modalOpen, isFs, confirmDelete]);
+  }, [modalOpen, isFs, confirmDelete, editExpiresOpen]);
 
   function triggerDownload(recaptchaToken: string) {
     window.location.href = `/download/${encodeURIComponent(mediaId)}?token=${encodeURIComponent(recaptchaToken)}`;
@@ -745,23 +869,46 @@ export default function ViewerClient({
     showToast("Verifikasi expired, coba lagi");
   }
 
-  function copyLink() {
+  async function copyText(text: string, label: string, key: string) {
+    try {
+      if (navigator.clipboard?.writeText && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.top = "-9999px";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      }
+      flashCopied(key);
+      showToast(`${label} disalin`);
+    } catch {
+      showToast("Gagal menyalin");
+    }
+  }
+
+  async function copyLink() {
     const url = `${window.location.origin}/m/${encodeURIComponent(mediaId)}`;
-    if (navigator.clipboard?.writeText && window.isSecureContext) {
-      navigator.clipboard.writeText(url).then(
-        () => showToast("Link disalin"),
-        () => showToast("Gagal menyalin"),
-      );
-    } else {
-      const ta = document.createElement("textarea");
-      ta.value = url;
-      ta.style.position = "fixed";
-      ta.style.top = "-9999px";
-      document.body.appendChild(ta);
-      ta.select();
-      try { document.execCommand("copy"); showToast("Link disalin"); }
-      catch { showToast("Gagal menyalin"); }
-      document.body.removeChild(ta);
+    try {
+      if (navigator.clipboard?.writeText && window.isSecureContext) {
+        await navigator.clipboard.writeText(url);
+      } else {
+        const ta = document.createElement("textarea");
+        ta.value = url;
+        ta.style.position = "fixed";
+        ta.style.top = "-9999px";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      }
+      flashCopied("url");
+      showToast("URL copied");
+    } catch {
+      showToast("Gagal menyalin URL");
     }
   }
 
@@ -787,13 +934,61 @@ export default function ViewerClient({
     }
   }
 
+  async function saveExpires(duration: string) {
+    if (!uid || savingExpires) return;
+    const deviceId = readDeviceId();
+    if (!deviceId) {
+      showToast("DeviceID tidak ditemukan");
+      return;
+    }
+    setSavingExpires(true);
+    try {
+      const res = await fetch(`/api/media/${encodeURIComponent(mediaId)}/expires`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ uid: Number(uid), deviceId, duration }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (res.ok && j?.ok && typeof j.expiresAt === "string") {
+        setCurrentExpiresAt(j.expiresAt);
+        setEditExpiresOpen(false);
+        showToast("Expiry updated");
+      } else {
+        showToast("Gagal update expiry");
+      }
+    } catch {
+      showToast("Gagal update expiry");
+    } finally {
+      setSavingExpires(false);
+    }
+  }
+
+  function renderHeaderIcon(fallback: ReactNode) {
+    return (
+      <div className="relative w-11 h-11 rounded-xl bg-ink flex items-center justify-center flex-shrink-0 overflow-hidden">
+        <span className="absolute inset-0 flex items-center justify-center text-white">
+          {fallback}
+        </span>
+        {ownerId != null && (
+          <img
+            src={`/api/user/${ownerId}/avatar`}
+            alt=""
+            draggable={false}
+            className="absolute inset-0 w-full h-full object-cover"
+            onError={(e) => {
+              (e.currentTarget as HTMLImageElement).style.display = "none";
+            }}
+          />
+        )}
+      </div>
+    );
+  }
+
   if (failed) {
     return (
       <>
         <div className="flex items-center gap-3 px-1 pt-8 pb-5">
-          <div className="w-11 h-11 rounded-xl bg-ink flex items-center justify-center flex-shrink-0">
-            <AlertCircle size={22} className="text-white" />
-          </div>
+          {renderHeaderIcon(<AlertCircle size={22} />)}
           <div className="min-w-0 flex-1">
             <h1 className="text-[15px] font-semibold truncate text-ink">CheyaVerse Media</h1>
             <p className="text-[12px] text-ink-soft truncate">Not available</p>
@@ -806,7 +1001,7 @@ export default function ViewerClient({
           </div>
           <h2 className="text-[15px] font-semibold mb-1.5 text-ink">File tidak ditemukan</h2>
           <p className="text-[12.5px] text-ink-soft mb-5">
-            Kemungkinan link salah, file sudah expired, atau telah dihapus.
+            Kemungkinan URL invalid, file sudah expired, atau telah dihapus.
           </p>
           <Link href={homeHref}
                 className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-ink text-white text-[13px] font-semibold">
@@ -817,15 +1012,21 @@ export default function ViewerClient({
     );
   }
 
+  const ownerDisplay = ownerId != null ? String(ownerId) : "—";
+  const contentDisplay = contentType || "—";
+  const sizeDisplay = formatBytes(fileSize ?? 0);
+  const expiresDisplay = formatExpires(currentExpiresAt);
+  const bodyReady = ready || kind === "other";
+
   return (
     <>
       <div className="flex items-center gap-3 px-1 pt-8 pb-5">
-        <div className="w-11 h-11 rounded-xl bg-ink flex items-center justify-center flex-shrink-0">
-          <ImageIcon size={22} className="text-white" />
-        </div>
+        {renderHeaderIcon(<ImageIcon size={22} />)}
         <div className="min-w-0 flex-1">
           <h1 className="text-[15px] font-semibold truncate text-ink">{filename}</h1>
-          <p className="text-[12px] text-ink-soft truncate">{mediaId} · available for 30 days</p>
+          <p className="text-[12px] text-ink-soft truncate">
+            {mediaId} · {contentDisplay}
+          </p>
         </div>
       </div>
 
@@ -952,19 +1153,19 @@ export default function ViewerClient({
         )}
       </div>
 
-      {(ready || kind === "other") && (
+      {bodyReady && (
         <div className="flex gap-2 mb-3 animate-fade-up">
           <button
             type="button"
             onClick={startDownload}
-            className="flex-1 inline-flex items-center justify-center gap-2 px-3 py-3.5 rounded-xl bg-ink hover:bg-accent-hover text-white text-[13px] font-semibold transition-all active:scale-[.97]"
+            className="flex-1 inline-flex items-center justify-center gap-2 px-3 py-3.5 rounded-xl bg-ink sm:hover:bg-accent-hover text-white text-[13px] font-semibold transition-all active:scale-[.97]"
           >
             <Download size={15} strokeWidth={2.4} /> Download
           </button>
           <button
             type="button"
             onClick={toggleFs}
-            className="flex-1 inline-flex items-center justify-center gap-2 px-3 py-3.5 rounded-xl bg-[#fafafa] hover:bg-[#f0f0f0] border border-line text-ink text-[13px] font-semibold transition-all active:scale-[.97]"
+            className="flex-1 inline-flex items-center justify-center gap-2 px-3 py-3.5 rounded-xl bg-[#fafafa] sm:hover:bg-[#f0f0f0] border border-line text-ink text-[13px] font-semibold transition-all active:scale-[.97]"
           >
             {isFs ? <Minimize2 size={15} strokeWidth={2.4} /> : <Maximize2 size={15} strokeWidth={2.4} />}
             {isFs ? "Exit" : "Raw"}
@@ -973,20 +1174,61 @@ export default function ViewerClient({
             type="button"
             onClick={copyLink}
             aria-label="Copy Link"
-            className="w-11 inline-flex items-center justify-center rounded-xl bg-[#fafafa] hover:bg-[#f0f0f0] border border-line text-ink transition-all active:scale-[.97] flex-shrink-0"
+            className="w-11 inline-flex items-center justify-center rounded-xl bg-[#fafafa] sm:hover:bg-[#f0f0f0] border border-line text-ink transition-all active:scale-[.97] flex-shrink-0"
           >
-            <Copy size={17} strokeWidth={2.2} />
+            {copiedKey === "url" ? (
+              <span className="animate-copy-pop inline-flex">
+                <Check size={17} strokeWidth={2.6} />
+              </span>
+            ) : (
+              <Copy size={17} strokeWidth={2.2} />
+            )}
           </button>
           {canDelete && (
             <button
               type="button"
               onClick={() => setConfirmDelete(true)}
               aria-label="Hapus"
-              className="w-11 inline-flex items-center justify-center rounded-xl bg-[#fafafa] hover:bg-[#fff0f0] border border-line text-danger transition-all active:scale-[.97] flex-shrink-0"
+              className="w-11 inline-flex items-center justify-center rounded-xl bg-[#fafafa] sm:hover:bg-[#fff0f0] border border-line text-danger transition-all active:scale-[.97] flex-shrink-0"
             >
               <Trash2 size={17} strokeWidth={2.2} />
             </button>
           )}
+        </div>
+      )}
+
+      {uid && bodyReady && (
+        <div className="rounded-2xl border border-line bg-white px-4 mb-4 animate-fade-up">
+          <MetaRow
+            label="ID"
+            value={mediaId}
+            mono
+            copied={copiedKey === "id"}
+            onCopy={() => copyText(mediaId, "ID", "id")}
+          />
+          <MetaRow label="Owner ID" value={ownerDisplay} mono />
+          <MetaRow
+            label="Filename"
+            value={filename}
+            copied={copiedKey === "filename"}
+            onCopy={() => copyText(filename, "Filename", "filename")}
+          />
+          <MetaRow label="Content type" value={contentDisplay} />
+          <MetaRow label="File size" value={sizeDisplay} />
+          <MetaRow
+            label="Max expired"
+            value={expiresDisplay}
+            last
+            action={
+              <button
+                type="button"
+                onClick={() => setEditExpiresOpen(true)}
+                className="flex-shrink-0 text-[12px] font-semibold text-ink-soft sm:hover:text-ink active:opacity-60 px-2.5 py-1.5 rounded-lg border border-line bg-[#fafafa] transition-colors"
+              >
+                Edit
+              </button>
+            }
+          />
         </div>
       )}
 
@@ -1020,7 +1262,7 @@ export default function ViewerClient({
                   Verifikasi Tidak Tersedia
                 </h2>
                 <p className="text-[12.5px] text-ink-soft text-center mb-5 leading-relaxed">
-                  Fitur verifikasi sedang tidak tersedia. Silakan hubungi admin.
+                  Fitur verifikasi sedang dalam masalah, silakan hubungi admin!
                 </p>
               </>
             )}
@@ -1030,6 +1272,45 @@ export default function ViewerClient({
               className="w-full px-4 py-3 rounded-xl bg-[#fafafa] border border-line text-ink text-[13px] font-semibold active:scale-[.97] transition-transform"
             >
               Batal
+            </button>
+          </div>
+        </div>
+      )}
+
+      {editExpiresOpen && (
+        <div
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !savingExpires) setEditExpiresOpen(false);
+          }}
+          className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-md flex items-center justify-center p-5"
+        >
+          <div className="w-full max-w-[380px] rounded-2xl bg-white border border-line p-5 animate-fade-up">
+            <h2 className="text-[16px] font-semibold text-center mb-1 text-ink">
+              Set expiry
+            </h2>
+            <p className="text-[12.5px] text-ink-soft text-center mb-4">
+              Pilih masa aktif media ini
+            </p>
+            <div className="flex flex-col gap-1.5 mb-4">
+              {EXPIRY_OPTIONS.map((o) => (
+                <button
+                  key={o.value}
+                  type="button"
+                  onClick={() => saveExpires(o.value)}
+                  disabled={savingExpires}
+                  className="w-full px-4 py-3 rounded-xl bg-[#fafafa] border border-line text-ink text-[13px] font-semibold active:scale-[.98] transition-transform disabled:opacity-60 text-left"
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => setEditExpiresOpen(false)}
+              disabled={savingExpires}
+              className="w-full px-4 py-3 rounded-xl bg-white border border-line text-ink text-[13px] font-semibold active:scale-[.97] transition-transform disabled:opacity-60"
+            >
+              Cancel
             </button>
           </div>
         </div>
@@ -1063,7 +1344,7 @@ export default function ViewerClient({
                 type="button"
                 onClick={performDelete}
                 disabled={deleting}
-                className="flex-1 px-4 py-3 rounded-xl bg-danger hover:bg-[#b91c1c] text-white text-[13px] font-semibold active:scale-[.97] transition-all disabled:opacity-60"
+                className="flex-1 px-4 py-3 rounded-xl bg-danger sm:hover:bg-[#b91c1c] text-white text-[13px] font-semibold active:scale-[.97] transition-all disabled:opacity-60"
               >
                 {deleting ? "Menghapus…" : "Hapus"}
               </button>
