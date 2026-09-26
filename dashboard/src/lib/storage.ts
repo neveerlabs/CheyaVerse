@@ -750,6 +750,12 @@ export type TelegramUser = {
   updated_at: string | null;
 };
 
+export type TelegramLoginChallenge = {
+  uid: number | null;
+  status: "pending" | "approved" | "consumed";
+  expires_at: number;
+};
+
 function rowToTelegramUser(row: Record<string, unknown>): TelegramUser {
   return {
     uid: Number(row.uid ?? 0),
@@ -770,6 +776,7 @@ function rowToTelegramUser(row: Record<string, unknown>): TelegramUser {
 }
 
 let telegramAccountsReady: Promise<void> | null = null;
+let telegramLoginChallengesReady: Promise<void> | null = null;
 
 async function ensureTelegramAccountsTable(): Promise<void> {
   if (!telegramAccountsReady) {
@@ -823,6 +830,118 @@ async function ensureTelegramAccountsTable(): Promise<void> {
     });
   }
   await telegramAccountsReady;
+}
+
+async function ensureTelegramLoginChallengesTable(): Promise<void> {
+  if (!telegramLoginChallengesReady) {
+    telegramLoginChallengesReady = getTurso()
+      .execute(`CREATE TABLE IF NOT EXISTS telegram_login_challenges (
+        challenge_hash TEXT PRIMARY KEY,
+        requester_hash TEXT,
+        uid INTEGER,
+        status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'consumed')),
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        approved_at INTEGER,
+        consumed_at INTEGER
+      )`)
+      .then(async () => {
+        const columns = await getTurso().execute(
+          "PRAGMA table_info(telegram_login_challenges)",
+        );
+        const knownColumns = new Set(
+          columns.rows.map((row) =>
+            String((row as unknown as Record<string, unknown>).name ?? ""),
+          ),
+        );
+        if (!knownColumns.has("requester_hash")) {
+          await getTurso().execute(
+            "ALTER TABLE telegram_login_challenges ADD COLUMN requester_hash TEXT",
+          );
+        }
+      })
+      .catch((error) => {
+        telegramLoginChallengesReady = null;
+        throw error;
+      });
+  }
+  await telegramLoginChallengesReady;
+  await getTurso().execute(
+    `CREATE INDEX IF NOT EXISTS idx_login_challenges_requester_created
+     ON telegram_login_challenges(requester_hash, created_at)`,
+  );
+}
+
+export async function createTelegramLoginChallenge(
+  challengeHash: string,
+  expiresAt: number,
+  requesterHash: string | null,
+): Promise<boolean> {
+  await ensureTelegramAccountsTable();
+  await ensureTelegramLoginChallengesTable();
+  const now = Math.floor(Date.now() / 1000);
+  await getTurso().execute({
+    sql: "DELETE FROM telegram_login_challenges WHERE expires_at <= ?",
+    args: [now],
+  });
+  if (requesterHash) {
+    const recent = await getTurso().execute({
+      sql: `SELECT COUNT(*) AS count FROM telegram_login_challenges
+            WHERE requester_hash = ? AND created_at > ?`,
+      args: [requesterHash, now - 60],
+    });
+    if (Number(recent.rows[0]?.count ?? 0) >= 10) return false;
+  }
+  await getTurso().execute({
+    sql: `INSERT INTO telegram_login_challenges
+          (challenge_hash, requester_hash, uid, status, created_at, expires_at)
+          VALUES (?, ?, NULL, 'pending', ?, ?)`,
+    args: [challengeHash, requesterHash, now, expiresAt],
+  });
+  return true;
+}
+
+export async function getTelegramLoginChallenge(
+  challengeHash: string,
+): Promise<TelegramLoginChallenge | null> {
+  await ensureTelegramLoginChallengesTable();
+  const result = await getTurso().execute({
+    sql: `SELECT uid, status, expires_at FROM telegram_login_challenges
+          WHERE challenge_hash = ? LIMIT 1`,
+    args: [challengeHash],
+  });
+  if (result.rows.length === 0) return null;
+  const row = result.rows[0] as unknown as Record<string, unknown>;
+  const status = String(row.status);
+  if (
+    status !== "pending" &&
+    status !== "approved" &&
+    status !== "consumed"
+  ) {
+    return null;
+  }
+  return {
+    uid: row.uid == null ? null : Number(row.uid),
+    status,
+    expires_at: Number(row.expires_at),
+  };
+}
+
+export async function consumeTelegramLoginChallenge(
+  challengeHash: string,
+): Promise<number | null> {
+  await ensureTelegramLoginChallengesTable();
+  const now = Math.floor(Date.now() / 1000);
+  const challenge = await getTelegramLoginChallenge(challengeHash);
+  if (!challenge || challenge.status !== "approved" || !challenge.uid) return null;
+  const result = await getTurso().execute({
+    sql: `UPDATE telegram_login_challenges
+          SET status = 'consumed', consumed_at = ?
+          WHERE challenge_hash = ? AND status = 'approved' AND expires_at > ?`,
+    args: [now, challengeHash, now],
+  });
+  if (result.rowsAffected !== 1) return null;
+  return challenge.uid;
 }
 
 export async function getTelegramUser(uid: number): Promise<TelegramUser | null> {
