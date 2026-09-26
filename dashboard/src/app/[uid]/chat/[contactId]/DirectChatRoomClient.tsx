@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
   Check,
@@ -17,13 +17,9 @@ import {
   UserRound,
   X,
   Pencil,
-  Mic,
-  AudioLines,
-  Play,
   Reply,
   Bell,
   BellOff,
-  StopCircle,
 } from "lucide-react";
 import type { DirectMessage, TelegramUser } from "@/lib/storage";
 import { useRealtime } from "@/lib/use-realtime";
@@ -33,44 +29,7 @@ type ChatContact = Pick<
   "uid" | "username" | "first_name" | "last_name" | "photo_url"
 >;
 type SearchUser = ChatContact;
-const MAX_VOICE_DURATION_MS = 120_000;
 const MESSAGE_ROW_GUTTER = "px-1";
-
-const AudioWaveform = memo(function AudioWaveform({
-  analyser,
-}: {
-  analyser: AnalyserNode | null;
-}) {
-  const [levels, setLevels] = useState<number[]>(() => Array(32).fill(0.12));
-
-  useEffect(() => {
-    if (!analyser) return;
-    const samples = new Uint8Array(analyser.frequencyBinCount);
-    const interval = window.setInterval(() => {
-      analyser.getByteFrequencyData(samples);
-      const step = Math.max(1, Math.floor(samples.length / 32));
-      setLevels(
-        Array.from({ length: 32 }, (_, index) => {
-          const value = samples[Math.min(samples.length - 1, index * step)] ?? 0;
-          return Math.max(0.12, Math.min(1, value / 110));
-        }),
-      );
-    }, 100);
-    return () => window.clearInterval(interval);
-  }, [analyser]);
-
-  return (
-    <div className="flex h-7 min-w-0 flex-1 items-center justify-center gap-[3px]" aria-label="Gelombang rekaman">
-      {levels.map((level, index) => (
-        <span
-          key={index}
-          className="w-[3px] rounded-full bg-rose-500 transition-[height] duration-100"
-          style={{ height: `${Math.max(4, level * 25)}px` }}
-        />
-      ))}
-    </div>
-  );
-});
 
 function userName(user: ChatContact): string {
   const fullName = [user.first_name, user.last_name].filter(Boolean).join(" ").trim();
@@ -81,11 +40,6 @@ function messageTime(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "";
   return date.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
-}
-
-function formatDuration(milliseconds: number): string {
-  const seconds = Math.max(0, Math.floor(milliseconds / 1000));
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
 function StatusIcon({
@@ -130,25 +84,9 @@ export function DirectChatRoomClient({
   const [toast, setToast] = useState("");
   const [replyingTo, setReplyingTo] = useState<DirectMessage | null>(null);
   const [muted, setMuted] = useState(false);
-  const [voiceState, setVoiceState] = useState<
-    "idle" | "recording" | "preview" | "uploading"
-  >("idle");
-  const [voiceBlob, setVoiceBlob] = useState<Blob | null>(null);
-  const [voicePreviewUrl, setVoicePreviewUrl] = useState("");
-  const [voiceDurationMs, setVoiceDurationMs] = useState(0);
   const [viewport, setViewport] = useState({ top: 0, height: 0, keyboard: false });
   const messageBoxRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const recorderStreamRef = useRef<MediaStream | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const recordingStartedAtRef = useRef(0);
-  const recordingCancelledRef = useRef(false);
-  const recordingRequestIdRef = useRef(0);
-  const mountedRef = useRef(true);
-  const waveformIntervalRef = useRef<number | null>(null);
-  const recordingLimitRef = useRef<number | null>(null);
   const refreshBusyRef = useRef(false);
   const pendingIdsRef = useRef(new Set<string>());
   const toastTimerRef = useRef<number | null>(null);
@@ -192,14 +130,6 @@ export function DirectChatRoomClient({
       event.clientY - pressOriginRef.current.y,
     );
     if (distance > 10) stopMessagePress();
-  }
-
-  function cancelVoicePreview() {
-    if (voicePreviewUrl) URL.revokeObjectURL(voicePreviewUrl);
-    setVoicePreviewUrl("");
-    setVoiceBlob(null);
-    setVoiceDurationMs(0);
-    setVoiceState("idle");
   }
 
   function toggleMuted() {
@@ -299,41 +229,11 @@ export function DirectChatRoomClient({
   }, [initialMessages]);
 
   useEffect(() => {
-    mountedRef.current = true;
     return () => {
-      mountedRef.current = false;
-      recordingRequestIdRef.current += 1;
-      if (recorderRef.current?.state === "recording") {
-        try {
-          recordingCancelledRef.current = true;
-          recorderRef.current.stop();
-        } catch (error) {
-          console.error("[direct-chat] failed to stop audio recorder:", error);
-        }
-      }
-      recorderStreamRef.current?.getTracks().forEach((track) => track.stop());
-      if (waveformIntervalRef.current !== null) {
-        window.clearInterval(waveformIntervalRef.current);
-      }
-      if (recordingLimitRef.current !== null) {
-        window.clearTimeout(recordingLimitRef.current);
-      }
-      if (audioContextRef.current?.state !== "closed") {
-        void audioContextRef.current?.close().catch((error) => {
-          console.error("[direct-chat] failed to close audio context:", error);
-        });
-      }
       if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
       if (longPressTimerRef.current !== null) window.clearTimeout(longPressTimerRef.current);
     };
   }, []);
-
-  useEffect(
-    () => () => {
-      if (voicePreviewUrl) URL.revokeObjectURL(voicePreviewUrl);
-    },
-    [voicePreviewUrl],
-  );
 
   useEffect(() => {
     const intervalMs = () =>
@@ -410,7 +310,7 @@ export function DirectChatRoomClient({
           if (!muted && typeof Notification !== "undefined" && Notification.permission === "granted") {
             try {
               new Notification(name, {
-                body: incoming.media_file_id ? "🎙 Pesan suara" : incoming.content,
+                body: incoming.media_file_id ? "Pesan suara tidak didukung" : incoming.content,
                 icon: contact.photo_url || "/icon.png",
                 tag: `cheyaverse-chat-${contact.uid}`,
               });
@@ -626,7 +526,7 @@ export function DirectChatRoomClient({
   async function copyMessage(message: DirectMessage) {
     try {
       await navigator.clipboard.writeText(
-        message.media_file_id ? "Pesan suara" : message.content,
+        message.media_file_id ? "Pesan suara tidak didukung" : message.content,
       );
       showToast("Pesan disalin.");
     } catch (error) {
@@ -636,225 +536,9 @@ export function DirectChatRoomClient({
     setSelectedMessage(null);
   }
 
-  function releaseAudioCapture() {
-    if (waveformIntervalRef.current !== null) {
-      window.clearInterval(waveformIntervalRef.current);
-      waveformIntervalRef.current = null;
-    }
-    if (recordingLimitRef.current !== null) {
-      window.clearTimeout(recordingLimitRef.current);
-      recordingLimitRef.current = null;
-    }
-    recorderStreamRef.current?.getTracks().forEach((track) => track.stop());
-    recorderStreamRef.current = null;
-    analyserRef.current = null;
-    const context = audioContextRef.current;
-    audioContextRef.current = null;
-    if (context && context.state !== "closed") {
-      void context.close().catch((error) => {
-        console.error("[direct-chat] failed to close audio context:", error);
-      });
-    }
-  }
-
-  function stopAudioRecording(cancelled = false) {
-    const recorder = recorderRef.current;
-    if (!recorder || recorder.state !== "recording") return;
-    recordingCancelledRef.current = cancelled;
-    try {
-      recorder.stop();
-    } catch (error) {
-      console.error("[direct-chat] failed to stop audio recording:", error);
-      releaseAudioCapture();
-      recorderRef.current = null;
-      setVoiceState("idle");
-      showToast("Rekaman tidak dapat dihentikan.");
-    }
-  }
-
-  async function startAudioRecording() {
-    if (typeof MediaRecorder === "undefined" || !navigator.mediaDevices?.getUserMedia) {
-      showToast("Perekaman audio tidak didukung browser ini.");
-      return;
-    }
-    if (voicePreviewUrl) URL.revokeObjectURL(voicePreviewUrl);
-    setVoicePreviewUrl("");
-    setVoiceBlob(null);
-    setVoiceDurationMs(0);
-    recordingCancelledRef.current = false;
-    const requestId = ++recordingRequestIdRef.current;
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      if (!mountedRef.current || requestId !== recordingRequestIdRef.current) {
-        stream.getTracks().forEach((track) => track.stop());
-        return;
-      }
-      recorderStreamRef.current = stream;
-      const mimeType = [
-        "audio/webm;codecs=opus",
-        "audio/mp4",
-        "audio/webm",
-        "audio/ogg;codecs=opus",
-      ].find((type) => MediaRecorder.isTypeSupported(type));
-      const recorder = mimeType
-        ? new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 64_000 })
-        : new MediaRecorder(stream);
-      const chunks: BlobPart[] = [];
-      recorderRef.current = recorder;
-      recordingStartedAtRef.current = Date.now();
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) chunks.push(event.data);
-      };
-      recorder.onerror = (event) => {
-        console.error("[direct-chat] audio recorder error:", event);
-        recordingCancelledRef.current = true;
-        releaseAudioCapture();
-        recorderRef.current = null;
-        if (mountedRef.current) {
-          setVoiceState("idle");
-          showToast("Terjadi masalah saat merekam audio.");
-        }
-      };
-      recorder.onstop = () => {
-        const elapsed = Math.min(
-          MAX_VOICE_DURATION_MS,
-          Date.now() - recordingStartedAtRef.current,
-        );
-        releaseAudioCapture();
-        recorderRef.current = null;
-        if (!mountedRef.current) return;
-        if (recordingCancelledRef.current) {
-          setVoiceState("idle");
-          setVoiceDurationMs(0);
-          return;
-        }
-        if (elapsed < 500) {
-          setVoiceState("idle");
-          setVoiceDurationMs(0);
-          showToast("Rekaman terlalu singkat. Tahan sedikit lebih lama.");
-          return;
-        }
-        const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
-        if (blob.size === 0) {
-          setVoiceState("idle");
-          showToast("Rekaman kosong. Coba rekam lagi.");
-          return;
-        }
-        setVoiceBlob(blob);
-        setVoiceDurationMs(elapsed);
-        setVoicePreviewUrl(URL.createObjectURL(blob));
-        setVoiceState("preview");
-      };
-      recorder.start(100);
-      setVoiceState("recording");
-
-      try {
-        const context = new AudioContext();
-        const source = context.createMediaStreamSource(stream);
-        const analyser = context.createAnalyser();
-        analyser.fftSize = 128;
-        source.connect(analyser);
-        audioContextRef.current = context;
-        analyserRef.current = analyser;
-      } catch (error) {
-        console.error("[direct-chat] audio waveform unavailable:", error);
-      }
-      waveformIntervalRef.current = window.setInterval(() => {
-        setVoiceDurationMs(Date.now() - recordingStartedAtRef.current);
-      }, 1000);
-
-      recordingLimitRef.current = window.setTimeout(() => {
-        if (recorder.state === "recording") {
-          stopAudioRecording();
-          showToast("Rekaman berhenti setelah 2 menit.");
-        }
-      }, MAX_VOICE_DURATION_MS);
-    } catch (error) {
-      console.error("[direct-chat] microphone access failed:", error);
-      releaseAudioCapture();
-      setVoiceState("idle");
-      showToast("Mikrofon tidak dapat diakses. Periksa izin browser.");
-    }
-  }
-
-  async function sendVoiceMessage() {
-    if (!voiceBlob || voiceState !== "preview" || sending) return;
-    const duration = voiceDurationMs;
-    const previewUrl = voicePreviewUrl;
-    const tempId = `pending-${crypto.randomUUID()}`;
-    const contentType = voiceBlob.type || "audio/webm";
-    const optimistic: DirectMessage = {
-      id: tempId,
-      sender_uid: myUid,
-      recipient_uid: contact.uid,
-      content: "",
-      created_at: new Date().toISOString(),
-      delivered_at: null,
-      read_at: null,
-      edited_at: null,
-      deleted_at: null,
-      forwarded_from_uid: null,
-      is_pinned: false,
-      media_file_id: null,
-      media_message_id: null,
-      media_content_type: contentType,
-      media_duration_ms: duration,
-      reply_to_id: replyingTo?.id ?? null,
-    };
-    pendingIdsRef.current.add(tempId);
-    setMessages((current) => [...current, optimistic]);
-    setSending(true);
-    setVoiceState("uploading");
-    const form = new FormData();
-    const extension = voiceBlob.type.startsWith("audio/mp4")
-      ? "m4a"
-      : voiceBlob.type.startsWith("audio/ogg")
-        ? "ogg"
-        : "webm";
-    form.append("audio", voiceBlob, `voice-${Date.now()}.${extension}`);
-    form.append("durationMs", String(duration));
-    if (replyingTo) form.append("replyToId", replyingTo.id);
-    try {
-      const response = await fetch(`/api/chats/${contact.uid}/voice`, {
-        method: "POST",
-        body: form,
-      });
-      const result = await response.json();
-      if (!response.ok || result.ok !== true || !result.message) {
-        throw new Error(
-          result.error === "audio_storage_failed"
-            ? "Audio gagal disimpan. Pastikan penyimpanan bot tersedia."
-            : "Pesan suara gagal dikirim. Coba lagi.",
-        );
-      }
-      pendingIdsRef.current.delete(tempId);
-      const saved = result.message as DirectMessage;
-      setMessages((current) =>
-        current
-          .filter((message) => message.id !== tempId && message.id !== saved.id)
-          .concat(saved)
-          .sort((left, right) => left.created_at.localeCompare(right.created_at)),
-      );
-      setReplyingTo(null);
-      setVoiceBlob(null);
-      setVoicePreviewUrl("");
-      setVoiceDurationMs(0);
-      setVoiceState("idle");
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-      showToast("Pesan suara terkirim.");
-    } catch (error) {
-      pendingIdsRef.current.delete(tempId);
-      setMessages((current) => current.filter((message) => message.id !== tempId));
-      setVoiceState("preview");
-      showToast(error instanceof Error ? error.message : "Pesan suara gagal dikirim.");
-    } finally {
-      setSending(false);
-    }
-  }
-
   const visibleMessages = messages.filter((message) =>
     searchText.trim()
-      ? (message.media_file_id ? "pesan suara" : message.content)
+      ? (message.media_file_id ? "pesan suara tidak didukung" : message.content)
           .toLowerCase()
           .includes(searchText.trim().toLowerCase())
       : true,
@@ -869,13 +553,13 @@ export function DirectChatRoomClient({
         <Link
           href={`/${uid}/chat`}
           aria-label="Kembali ke chat"
-          className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-[#f2f3f5] text-ink-soft transition-colors active:bg-[#e8e9ec]"
+          className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-[#dfe3e8] bg-white text-ink-soft transition-colors active:bg-[#f2f3f5]"
         >
           <ArrowLeft size={21} />
         </Link>
         <Link
           href={`/${uid}/profile/contact/${contact.uid}`}
-          className="flex min-w-0 flex-1 items-center gap-2.5 rounded-xl px-1 py-1 transition-colors active:bg-black/[.035]"
+          className="flex min-w-0 flex-1 items-center gap-2.5 rounded-xl border border-[#dfe3e8] bg-white px-2 py-1 transition-colors active:bg-[#f2f3f5]"
           aria-label={`Lihat profil ${name}`}
         >
           <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-[#f5f5f5]">
@@ -900,7 +584,7 @@ export function DirectChatRoomClient({
           aria-label="Opsi percakapan"
           aria-expanded={menuOpen}
           onClick={() => setMenuOpen((value) => !value)}
-          className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-[#f2f3f5] text-ink-soft transition-colors active:bg-[#e8e9ec]"
+          className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-[#dfe3e8] bg-white text-ink-soft transition-colors active:bg-[#f2f3f5]"
         >
           <MoreVertical size={19} />
         </button>
@@ -992,7 +676,7 @@ export function DirectChatRoomClient({
             {pinned.deleted_at
               ? "Pesan dihapus"
               : pinned.media_file_id
-                ? "🎙 Pesan suara"
+                ? "Pesan suara tidak didukung"
                 : pinned.content}
           </span>
         </button>
@@ -1052,40 +736,19 @@ export function DirectChatRoomClient({
                       mine ? "border-white/50 text-white/70" : "border-ink/30 text-ink-mute"
                     }`}>
                       {messages.find((item) => item.id === message.reply_to_id)?.media_file_id
-                        ? "🎙 Pesan suara"
+                        ? "Pesan suara tidak didukung"
                         : messages.find((item) => item.id === message.reply_to_id)?.content ?? "Balasan"}
                     </span>
                   )}
-                  {!message.deleted_at &&
-                  (message.media_file_id || (isPending && message.media_content_type)) ? (
-                    <span className="block min-w-[190px] max-w-[min(68vw,290px)]">
-                      <span className="mb-1.5 flex items-center gap-2 text-[12px] font-medium">
-                        <AudioLines size={16} /> Pesan suara
-                        <span className="ml-auto text-[10px] opacity-70">
-                          {formatDuration(message.media_duration_ms ?? 0)}
-                        </span>
-                      </span>
-                      <audio
-                        controls
-                        preload="none"
-                        controlsList="nodownload"
-                        src={
-                          isPending
-                            ? voicePreviewUrl
-                            : `/api/chats/${contact.uid}/messages/${encodeURIComponent(message.id)}/voice`
-                        }
-                        onPointerDown={(event) => event.stopPropagation()}
-                        onClick={(event) => event.stopPropagation()}
-                        className="h-9 w-full max-w-full"
-                      />
-                    </span>
-                  ) : (
-                    <span className={`block whitespace-pre-wrap break-words text-[13.5px] leading-[1.45] ${
-                      message.deleted_at ? "italic opacity-65" : ""
-                    }`}>
-                      {message.deleted_at ? "Pesan dihapus" : message.content}
-                    </span>
-                  )}
+                  <span className={`block whitespace-pre-wrap break-words text-[13.5px] leading-[1.45] ${
+                    message.deleted_at ? "italic opacity-65" : ""
+                  }`}>
+                    {message.deleted_at
+                      ? "Pesan dihapus"
+                      : message.media_file_id
+                        ? "Pesan suara tidak didukung"
+                        : message.content}
+                  </span>
                   <span
                     className={`mt-1 flex items-center justify-end gap-1 text-[10px] ${
                       mine ? "text-white/65" : "text-ink-mute"
@@ -1114,12 +777,12 @@ export function DirectChatRoomClient({
             : "pb-[calc(8px+env(safe-area-inset-bottom))]"
         }`}
       >
-        <div className={voiceState === "idle" ? "min-w-0 flex-1" : "hidden"}>
+        <div className="min-w-0 flex-1">
           {replyingTo && (
             <div className="mb-1 flex items-center gap-2 rounded-xl border border-line bg-white/90 px-3 py-2 text-[11px] text-ink-soft">
               <Reply size={14} className="shrink-0 text-ink-mute" />
               <span className="min-w-0 flex-1 truncate">
-                Membalas: {replyingTo.media_file_id ? "🎙 Pesan suara" : replyingTo.content}
+                Membalas: {replyingTo.media_file_id ? "Pesan suara tidak didukung" : replyingTo.content}
               </span>
               <button type="button" aria-label="Batal membalas" onClick={() => setReplyingTo(null)}>
                 <X size={14} />
@@ -1154,63 +817,7 @@ export function DirectChatRoomClient({
             className="max-h-[120px] min-h-10 w-full resize-none rounded-2xl border border-line bg-white px-3 py-2 text-[14px] leading-5 outline-none"
           />
         </div>
-        {voiceState === "recording" ? (
-          <div className="flex min-h-11 min-w-0 flex-1 items-center gap-3 rounded-2xl border border-red-200 bg-white px-3 py-2 shadow-sm animate-fade-up">
-            <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-red-500" />
-            <AudioWaveform analyser={analyserRef.current} />
-            <span className="tabular-nums text-[11px] text-ink-soft">
-              {formatDuration(voiceDurationMs)}
-            </span>
-            <button
-              type="button"
-              aria-label="Batalkan rekaman"
-              onClick={() => stopAudioRecording(true)}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-ink-mute"
-            >
-              <Trash2 size={17} />
-            </button>
-            <button
-              type="button"
-              aria-label="Selesai merekam"
-              onClick={() => stopAudioRecording()}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-ink text-white"
-            >
-              <StopCircle size={18} />
-            </button>
-          </div>
-        ) : voiceState === "preview" || voiceState === "uploading" ? (
-          <div className="flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-2xl border border-line bg-white px-2 py-1.5 shadow-sm">
-            <AudioLines size={17} className="shrink-0 text-ink-soft" />
-            <audio
-              controls
-              preload="metadata"
-              src={voicePreviewUrl}
-              className="h-9 min-w-0 flex-1"
-            />
-            <button
-              type="button"
-              aria-label="Hapus rekaman"
-              disabled={voiceState === "uploading"}
-              onClick={cancelVoicePreview}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-ink-mute disabled:opacity-40"
-            >
-              <Trash2 size={17} />
-            </button>
-            <button
-              type="button"
-              aria-label="Kirim pesan suara"
-              disabled={voiceState === "uploading"}
-              onClick={() => void sendVoiceMessage()}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-ink text-white disabled:opacity-50"
-            >
-              {voiceState === "uploading" ? (
-                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/50 border-t-white" />
-              ) : (
-                <Send size={16} />
-              )}
-            </button>
-          </div>
-        ) : text.trim() ? (
+        {text.trim() && (
           <button
             type="submit"
             disabled={sending}
@@ -1218,18 +825,6 @@ export function DirectChatRoomClient({
             className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-ink text-white disabled:opacity-50"
           >
             <Send size={17} />
-          </button>
-        ) : (
-          <button
-            type="button"
-            aria-label="Rekam pesan suara"
-            onClick={() => void startAudioRecording()}
-            disabled={Boolean(editingId) || sending}
-            className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full ${
-              "bg-ink text-white shadow-[0_5px_14px_-7px_rgba(0,0,0,.45)] transition-transform active:scale-95 disabled:cursor-not-allowed disabled:opacity-45"
-            }`}
-          >
-            <Mic size={17} />
           </button>
         )}
       </form>
@@ -1252,7 +847,7 @@ export function DirectChatRoomClient({
                 {selectedMessage.deleted_at
                   ? "Pesan dihapus"
                   : selectedMessage.media_file_id
-                    ? "🎙 Pesan suara"
+                    ? "Pesan suara tidak didukung"
                     : selectedMessage.content}
               </p>
             </div>

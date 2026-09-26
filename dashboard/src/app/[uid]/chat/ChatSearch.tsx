@@ -69,8 +69,8 @@ export function ChatSearch({ uid }: { uid: string }) {
   )}&text=${encodeURIComponent(inviteText)}`;
 
   return (
-    <div className="relative">
-      <div className="flex items-center gap-3 rounded-full bg-[#f5f5f5] px-4 h-12 transition-colors focus-within:bg-[#efefef]">
+    <div className="relative z-40 isolate">
+      <div className="flex h-12 items-center gap-3 rounded-full border border-line bg-white px-4 shadow-sm transition-colors focus-within:border-line-strong">
         <Search size={18} className="flex-shrink-0 text-ink-mute" strokeWidth={2} />
         <input
           type="search"
@@ -79,11 +79,17 @@ export function ChatSearch({ uid }: { uid: string }) {
           placeholder="Cari nama atau username Telegram"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
+          aria-label="Cari kontak Telegram"
+          aria-expanded={Boolean(query.trim())}
+          aria-controls="chat-search-results"
           className="min-w-0 flex-1 bg-transparent text-[14px] text-ink outline-none placeholder:text-ink-mute"
         />
       </div>
       {query.trim() && (
-        <div className="absolute left-0 right-0 top-14 z-20 overflow-hidden rounded-2xl border border-line bg-white shadow-[0_12px_35px_-18px_rgba(0,0,0,.3)]">
+        <div
+          id="chat-search-results"
+          className="absolute left-0 right-0 top-[calc(100%+8px)] z-50 max-h-[min(60dvh,420px)] overflow-y-auto overscroll-contain rounded-2xl border border-line bg-white shadow-[0_12px_35px_-18px_rgba(0,0,0,.3)]"
+        >
           {loading && (
             <p className="px-4 py-3 text-[13px] text-ink-mute">Mencari akun…</p>
           )}
