@@ -23,11 +23,19 @@ import {
 import { generateDeviceId } from "@/lib/device-id";
 import { config } from "@/lib/config";
 import { broadcastToUid } from "@/lib/realtime";
+import { sendPushToUid, buildSystemPush } from "@/lib/push";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const DEVICE_ID_RE = /^\d{10}$/;
+
+function stripHtml(input: string): string {
+  return input
+    .replace(/<[^>]*>/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 function buildDeviceLine(info: ReturnType<typeof parseDeviceInfo>): string | null {
   const typeLabel =
@@ -236,7 +244,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (beforeCount === 0) {
-    await ensureWelcomeNotification(
+    const welcome = await ensureWelcomeNotification(
       uid,
       tgInfo?.username ?? null,
       deviceLine,
@@ -245,6 +253,12 @@ export async function POST(req: NextRequest) {
       ramGb,
     );
     broadcastToUid(uid, { type: "notification:new" });
+
+    const pushBody = welcome.message
+      ? stripHtml(welcome.message)
+      : "Otorisasi akun berhasil. Akun Anda telah terhubung dengan aman.";
+    sendPushToUid(uid, buildSystemPush(uid, pushBody)).catch(() => {});
+
     return NextResponse.json({ ok: true, state: "welcome", deviceId });
   }
 
