@@ -12,4 +12,9 @@ export const config = {
   mediaTtlDays: Number(process.env.MEDIA_TTL_DAYS ?? 30),
   recaptchaSiteKey: process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY ?? "",
   recaptchaSecretKey: process.env.RECAPTCHA_SECRET_KEY ?? "",
+  vapid: {
+    publicKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? "",
+    privateKey: process.env.VAPID_PRIVATE_KEY ?? "",
+    subject: process.env.VAPID_SUBJECT ?? "mailto:userlinuxorg@gmail.com",
+  },
 } as const;
