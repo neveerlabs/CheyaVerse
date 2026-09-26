@@ -32,6 +32,7 @@ export default async function PublicViewerPage({
       signedUrl={`/api/media/${params.id}/content`}
       filename={meta.filename || params.id}
       contentType={meta.content_type || ""}
+      ownerId={meta.owner_id ?? undefined}
     />
   );
 }
