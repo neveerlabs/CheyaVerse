@@ -62,11 +62,11 @@ export default async function ChatListPage({
 
   return (
     <>
-      <header className="-mx-2 pt-[calc(12px+env(safe-area-inset-top))] pb-4 animate-fade-up">
+      <header className="relative z-50 -mx-2 pt-[calc(12px+env(safe-area-inset-top))] pb-4 animate-fade-up">
         <ChatSearch uid={String(uid)} />
       </header>
 
-      <section className="animate-fade-up">
+      <section className="relative z-0 animate-fade-up">
         <Link
           href={`/${uid}/chat/system`}
           className="flex items-center gap-3 -ml-2 pr-1 py-3 transition-opacity active:opacity-60"
@@ -121,7 +121,7 @@ export default async function ChatListPage({
         </Link>
       </section>
 
-      <section className="animate-fade-up">
+      <section className="relative z-0 animate-fade-up">
         {conversations.map((conversation) => {
           const contact = conversation.user;
           const name =

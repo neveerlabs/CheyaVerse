@@ -36,10 +36,11 @@ export function ChatSearch({ uid }: { uid: string }) {
       setLoading(false);
       return;
     }
+    setUsers([]);
+    setError("");
+    setLoading(true);
     const controller = new AbortController();
     const timer = window.setTimeout(async () => {
-      setLoading(true);
-      setError("");
       try {
         const response = await fetch(
           `/api/users/search?q=${encodeURIComponent(term)}`,

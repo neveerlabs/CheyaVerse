@@ -549,20 +549,20 @@ export function DirectChatRoomClient({
       className="fixed left-0 right-0 z-50 mx-auto flex max-w-[600px] flex-col overflow-hidden"
       style={{ top: viewport.top, height: viewport.height || "100dvh" }}
     >
-      <header className="relative z-20 flex h-[62px] flex-shrink-0 items-center gap-2 border-b border-[#dfe3e8] bg-transparent px-3">
+      <header className="relative z-20 flex h-[62px] flex-shrink-0 items-center gap-2 bg-transparent px-3">
         <Link
           href={`/${uid}/chat`}
           aria-label="Kembali ke chat"
-          className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-[#dfe3e8] bg-white text-ink-soft transition-colors active:bg-[#f2f3f5]"
+          className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full border border-[#dfe3e8] bg-white text-ink-soft transition-colors active:bg-[#f2f3f5]"
         >
           <ArrowLeft size={21} />
         </Link>
         <Link
           href={`/${uid}/profile/contact/${contact.uid}`}
-          className="flex min-w-0 flex-1 items-center gap-2.5 rounded-xl border border-[#dfe3e8] bg-white px-2 py-1 transition-colors active:bg-[#f2f3f5]"
+          className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-full border border-[#dfe3e8] bg-white px-1.5 transition-colors active:bg-[#f2f3f5]"
           aria-label={`Lihat profil ${name}`}
         >
-          <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-[#f5f5f5]">
+          <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-[#f5f5f5]">
             {contact.photo_url ? (
               // Telegram profile photos may be remote URLs.
               <img src={contact.photo_url} alt="" className="h-full w-full object-cover" />
@@ -584,7 +584,7 @@ export function DirectChatRoomClient({
           aria-label="Opsi percakapan"
           aria-expanded={menuOpen}
           onClick={() => setMenuOpen((value) => !value)}
-          className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-[#dfe3e8] bg-white text-ink-soft transition-colors active:bg-[#f2f3f5]"
+          className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full border border-[#dfe3e8] bg-white text-ink-soft transition-colors active:bg-[#f2f3f5]"
         >
           <MoreVertical size={19} />
         </button>
@@ -814,7 +814,7 @@ export function DirectChatRoomClient({
               event.currentTarget.style.height = `${Math.min(event.currentTarget.scrollHeight, 120)}px`;
             }}
             placeholder="Pesan"
-            className="max-h-[120px] min-h-10 w-full resize-none rounded-2xl border border-line bg-white px-3 py-2 text-[14px] leading-5 outline-none"
+            className="max-h-[120px] min-h-11 w-full resize-none rounded-full border border-line bg-white px-4 py-2.5 text-[14px] leading-5 outline-none"
           />
         </div>
         {text.trim() && (
@@ -822,7 +822,7 @@ export function DirectChatRoomClient({
             type="submit"
             disabled={sending}
             aria-label={editingId ? "Simpan edit" : "Kirim pesan"}
-            className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-ink text-white disabled:opacity-50"
+            className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full border border-line bg-white text-ink transition-colors active:bg-[#f2f3f5] disabled:opacity-50"
           >
             <Send size={17} />
           </button>
