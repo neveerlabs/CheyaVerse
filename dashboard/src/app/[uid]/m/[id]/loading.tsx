@@ -1,8 +1,8 @@
 const SHIMMER =
-  "bg-[linear-gradient(105deg,transparent_38%,rgba(255,255,255,.7)_48%,rgba(255,255,255,.9)_50%,rgba(255,255,255,.7)_52%,transparent_62%)] bg-[length:220%_100%] animate-shimmer";
+  "bg-[linear-gradient(105deg,transparent_38%,rgba(255,255,255,.75)_48%,rgba(255,255,255,.95)_50%,rgba(255,255,255,.75)_52%,transparent_62%)] bg-[length:220%_100%] animate-shimmer";
 
 const DARK_SHIMMER =
-  "bg-[linear-gradient(105deg,transparent_38%,rgba(255,255,255,.06)_48%,rgba(255,255,255,.11)_50%,rgba(255,255,255,.06)_52%,transparent_62%)] bg-[length:220%_100%] animate-shimmer";
+  "bg-[linear-gradient(105deg,transparent_38%,rgba(255,255,255,.06)_48%,rgba(255,255,255,.13)_50%,rgba(255,255,255,.06)_52%,transparent_62%)] bg-[length:220%_100%] animate-shimmer";
 
 export default function ViewerLoading() {
   return (
@@ -49,6 +49,27 @@ export default function ViewerLoading() {
         <div className="w-11 h-12 rounded-xl bg-[#fafafa] border border-line overflow-hidden relative flex-shrink-0">
           <span className={`absolute inset-0 ${SHIMMER}`} />
         </div>
+        <div className="w-11 h-12 rounded-xl bg-[#fafafa] border border-line overflow-hidden relative flex-shrink-0">
+          <span className={`absolute inset-0 ${SHIMMER}`} />
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-line bg-white mb-4 animate-fade-up overflow-hidden">
+        {[0, 1, 2, 3, 4, 5].map((i) => (
+          <div
+            key={i}
+            className={`flex items-center gap-3 px-4 py-3 ${
+              i < 5 ? "border-b border-divider" : ""
+            }`}
+          >
+            <div className="h-3 w-16 rounded-full bg-[#ececec] overflow-hidden relative flex-shrink-0">
+              <span className={`absolute inset-0 ${SHIMMER}`} />
+            </div>
+            <div className="flex-1 h-3.5 rounded-full bg-[#e5e5e5] overflow-hidden relative">
+              <span className={`absolute inset-0 ${SHIMMER}`} />
+            </div>
+          </div>
+        ))}
       </div>
     </>
   );
