@@ -1,7 +1,7 @@
 import html
 
 from aiogram import F, Router
-from aiogram.exceptions import SkipHandler
+from aiogram.dispatcher.event.bases import SkipHandler
 from aiogram.enums import ParseMode
 from aiogram.filters import CommandStart
 from aiogram.types import (

@@ -497,7 +497,7 @@ export function ChatRoomClient({
 
   const header = (
     <header
-      className={`fixed left-0 right-0 top-[var(--chat-vv-top,0px)] z-40 border-b border-line bg-white/95 pt-[calc(12px+env(safe-area-inset-top))] pb-3 backdrop-blur ${fadeCls}`}
+      className={`fixed left-0 right-0 top-[var(--chat-vv-top,0px)] z-40 border-b border-line bg-transparent pt-[calc(12px+env(safe-area-inset-top))] pb-3 ${fadeCls}`}
     >
       <div className="relative mx-auto max-w-[600px] px-5">
         <div className="flex items-center gap-2 -mx-3">
@@ -573,7 +573,7 @@ export function ChatRoomClient({
 
   const footer = (
     <footer
-      className={`chat-footer fixed left-0 right-0 z-30 border-t border-line bg-white pointer-events-none ${fadeCls}`}
+      className={`chat-footer fixed left-0 right-0 z-30 border-t border-line bg-transparent pointer-events-none ${fadeCls}`}
       style={{
         bottom: "var(--chat-kb, 0px)",
         willChange: "opacity",

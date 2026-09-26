@@ -538,10 +538,10 @@ export function DirectChatRoomClient({
 
   return (
     <div
-      className="fixed left-0 right-0 z-50 mx-auto flex max-w-[600px] flex-col overflow-hidden bg-white"
+      className="fixed left-0 right-0 z-50 mx-auto flex max-w-[600px] flex-col overflow-hidden"
       style={{ top: viewport.top, height: viewport.height || "100dvh" }}
     >
-      <header className="relative z-20 flex h-[62px] flex-shrink-0 items-center gap-2 border-b border-line bg-white px-3">
+      <header className="relative z-20 flex h-[62px] flex-shrink-0 items-center gap-2 border-b border-line bg-transparent px-3">
         <Link
           href={`/${uid}/chat`}
           aria-label="Kembali ke chat"
@@ -719,7 +719,7 @@ export function DirectChatRoomClient({
           event.preventDefault();
           void sendMessage();
         }}
-        className={`flex flex-shrink-0 items-end gap-2 border-t border-line bg-white px-3 pt-2 ${
+        className={`flex flex-shrink-0 items-end gap-2 border-t border-line bg-transparent px-3 pt-2 ${
           viewport.keyboard
             ? "pb-2"
             : "pb-[calc(8px+env(safe-area-inset-bottom))]"
