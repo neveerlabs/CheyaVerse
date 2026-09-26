@@ -615,7 +615,7 @@ export function MediaClient({
               </>
             ) : (
               <p className="text-[12.5px] text-ink-soft mb-5 leading-relaxed">
-                Fitur verifikasi sedang tidak tersedia. Silakan hubungi admin.
+                Fitur verifikasi sedang dalam masalah, silakan hubungi admin.
               </p>
             )}
             <button
