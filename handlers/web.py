@@ -15,15 +15,15 @@ from logger import logger
 router = Router(name="web")
 
 
-def _build_web_keyboard(uid: int) -> Optional[InlineKeyboardMarkup]:
+def _build_web_keyboard() -> Optional[InlineKeyboardMarkup]:
     if not PUBLIC_URL:
         return None
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="Visit site",
-                    url=f"{PUBLIC_URL}/{uid}",
+                    text="Login / Register",
+                    url=f"{PUBLIC_URL}/login",
                 ),
             ],
         ]
@@ -36,29 +36,30 @@ async def cmd_web(message: Message) -> None:
     label = user.username or user.full_name or str(user.id)
     uid = user.id
 
-    if PUBLIC_URL:
-        url = f"{PUBLIC_URL}/{uid}"
-    else:
-        url = f"/{uid}"
-
     text = (
-        "Webapp CheyaVerse kamu\n"
+        "Login ke Webapp CheyaVerse\n"
         "──────────────────────────\n"
-        f"```\n{url}\n```\n"
-        "_Buka link di atas untuk melihat dashboard personalmu\\._"
+        "1\\. Tekan tombol *Login / Register* di bawah\\.\n"
+        "2\\. Pilih akun Telegram yang ingin digunakan\\.\n"
+        "3\\. Konfirmasi login lewat Telegram Login Widget\\.\n\n"
+        "ID Telegram terverifikasi akan menjadi akun web kamu\\. "
+        "Jangan bagikan kode atau sesi login kepada siapa pun\\."
     )
 
     try:
         await message.answer(
             text,
             parse_mode="MarkdownV2",
-            reply_markup=_build_web_keyboard(uid),
+            reply_markup=_build_web_keyboard(),
             reply_parameters=ReplyParameters(message_id=message.message_id),
         )
-        logger.info(f"/web from {label} (ID: {uid})")
+        logger.info(f"/web login link sent to {label} (ID: {uid})")
     except Exception as exc:
         logger.error(f"/web failed for {label}: {exc}")
         try:
-            await message.answer(f"Dashboard kamu: {url}", parse_mode=None)
+            await message.answer(
+                "Buka halaman web CheyaVerse untuk login dengan Telegram.",
+                parse_mode=None,
+            )
         except Exception as e:
             logger.error(f"/web fallback failed: {e}")
