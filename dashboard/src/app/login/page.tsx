@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import { Bot } from "lucide-react";
 import { config } from "@/lib/config";
-import { TelegramLogin } from "./TelegramLogin";
+import { LoginApproval } from "./LoginApproval";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +27,7 @@ export default function LoginPage() {
               </div>
             }
           >
-            <TelegramLogin botUsername={config.botUsername} />
+            <LoginApproval botUsername={config.botUsername} />
           </Suspense>
         ) : (
           <p role="alert" className="text-[13px] text-danger">
@@ -35,8 +35,8 @@ export default function LoginPage() {
           </p>
         )}
         <p className="mt-6 text-[11.5px] leading-relaxed text-ink-mute">
-          Telegram akan memverifikasi identitas akun. CheyaVerse tidak meminta
-          kata sandi Telegram Anda.
+          Persetujuan dilakukan langsung lewat bot CheyaVerse. Jangan bagikan
+          link permintaan login ini kepada siapa pun.
         </p>
       </section>
     </main>
