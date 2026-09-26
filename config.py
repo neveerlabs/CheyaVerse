@@ -13,6 +13,7 @@ def _int_env(name: str, default: int) -> int:
     except ValueError:
         return default
 
+
 BOT_TOKEN: str = os.getenv("BOT_TOKEN", "").strip()
 PUBLIC_URL: str = os.getenv("PUBLIC_URL", "").strip().rstrip("/")
 WEB_HOST: str = os.getenv("WEB_HOST", "0.0.0.0").strip() or "0.0.0.0"
@@ -21,3 +22,6 @@ TURSO_URL: str = os.getenv("TURSO_URL", "").strip()
 TURSO_AUTH_TOKEN: str = os.getenv("TURSO_AUTH_TOKEN", "").strip()
 TELEGRAM_STORAGE_CHAT_ID: int = _int_env("TELEGRAM_STORAGE_CHAT_ID", 0)
 MEDIA_TTL_DAYS: int = _int_env("MEDIA_TTL_DAYS", 30)
+VAPID_PUBLIC_KEY: str = os.getenv("VAPID_PUBLIC_KEY", "").strip()
+VAPID_PRIVATE_KEY: str = os.getenv("VAPID_PRIVATE_KEY", "").strip()
+VAPID_SUBJECT: str = os.getenv("VAPID_SUBJECT", "mailto:userlinuxorg@gmail.com").strip()
