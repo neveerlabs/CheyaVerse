@@ -24,6 +24,9 @@ export default async function ViewerPage({
       signedUrl={`/api/media/${params.id}/content`}
       filename={meta.filename || params.id}
       contentType={meta.content_type || ""}
+      ownerId={meta.owner_id ?? undefined}
+      fileSize={meta.file_size}
+      expiresAt={meta.expires_at}
     />
   );
 }
