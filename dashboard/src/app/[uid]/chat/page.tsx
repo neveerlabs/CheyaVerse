@@ -65,6 +65,12 @@ export default async function ChatListPage({
           <Search size={18} className="text-ink-mute flex-shrink-0" strokeWidth={2} />
           <input
             type="text"
+            inputMode="text"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            enterKeyHint="search"
             placeholder="Cari chat"
             className="flex-1 min-w-0 bg-transparent text-ink text-[14px] outline-none
                        placeholder:text-ink-mute font-[inherit] tracking-[-.005em]"
