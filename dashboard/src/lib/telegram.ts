@@ -187,6 +187,48 @@ export async function uploadPhotoToStorage(
   }
 }
 
+export async function uploadAudioToStorage(
+  file: Blob,
+  filename: string,
+): Promise<{ message_id: number; file_id: string } | null> {
+  if (!config.telegram.botToken || !config.telegram.storageChatId) {
+    console.error("Telegram bot token or storage chat is not configured");
+    return null;
+  }
+  try {
+    const form = new FormData();
+    form.append("chat_id", config.telegram.storageChatId);
+    form.append("document", file, filename);
+    const response = await fetchWithRetry(
+      `https://api.telegram.org/bot${config.telegram.botToken}/sendDocument`,
+      { method: "POST", body: form, cache: "no-store" },
+    );
+    if (!response) {
+      console.error("Telegram audio upload did not receive a response");
+      return null;
+    }
+    const data = await response.json();
+    if (!response.ok) {
+      console.error(
+        `Telegram audio upload failed (${response.status}): ${data?.description ?? "unknown Telegram API error"}`,
+      );
+      return null;
+    }
+    const document = data?.result?.document;
+    if (data?.ok !== true || typeof document?.file_id !== "string") {
+      console.error("Telegram audio upload response did not contain a document file_id");
+      return null;
+    }
+    return {
+      message_id: Number(data.result.message_id),
+      file_id: document.file_id,
+    };
+  } catch (error) {
+    console.error("Telegram audio upload error:", error);
+    return null;
+  }
+}
+
 export async function sendTelegramMessage(
   chatId: number | string,
   text: string,

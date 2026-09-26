@@ -235,9 +235,11 @@ CREATE TABLE IF NOT EXISTS user_covers (
 );
 ```
 > **Pemberitahuan:** *Pastikan database sudah terbuat dengan nama `cheyaverse` di turso*
-> Aplikasi membuat/memigrasikan tabel akun `"akun-telegram"`, `direct_messages`, challenge login, presence, pin, dan penghapusan pesan secara otomatis. Kolom tambahan untuk edit/hapus/forward chat juga dimigrasikan saat akses pertama. Kolom fingerprint device yang baru juga dimigrasikan otomatis. Jangan drop tabel atau reset database untuk menerapkan pembaruan ini.
+> Aplikasi membuat/memigrasikan tabel akun `"akun-telegram"`, `direct_messages`, challenge login, presence, pin, dan penghapusan pesan secara otomatis. Kolom tambahan untuk edit/hapus/forward, balasan, dan pesan suara juga dimigrasikan saat akses pertama. Kolom fingerprint device yang baru juga dimigrasikan otomatis. Jangan drop tabel atau reset database untuk menerapkan pembaruan ini.
 
 Chat langsung menyinkronkan pesan dan tanda dibaca saat room terbuka. Status online didasarkan pada heartbeat web aktif; untuk penerima offline, pesan tetap tersimpan di web dan bot mengirim notifikasi Telegram dengan tombol **Dibaca** serta **Balas**. Balasan Telegram masuk ke room web yang sama.
+
+Pesan suara direkam di browser, dapat diputar ulang sebelum dikirim, lalu disimpan ke chat penyimpanan Telegram yang dikonfigurasi oleh `TELEGRAM_STORAGE_CHAT_ID`. Room membatasi rekaman hingga dua menit dan unggahan hingga 3 MiB. Kolom media dan balasan pada `direct_messages` dimigrasikan otomatis; tidak perlu menjalankan `DROP TABLE` atau mengubah secret environment baru.
 
 ### 5. Running server
 

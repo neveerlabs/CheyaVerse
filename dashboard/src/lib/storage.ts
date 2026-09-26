@@ -1170,6 +1170,11 @@ export type DirectMessage = {
   deleted_at: string | null;
   forwarded_from_uid: number | null;
   is_pinned: boolean;
+  media_file_id: string | null;
+  media_message_id: number | null;
+  media_content_type: string | null;
+  media_duration_ms: number | null;
+  reply_to_id: string | null;
 };
 
 export type DirectConversation = {
@@ -1208,9 +1213,29 @@ async function ensureDirectMessagesTable(): Promise<void> {
         ["edited_at", "TEXT"],
         ["deleted_at", "TEXT"],
         ["forwarded_from_uid", "INTEGER"],
+        ["media_file_id", "TEXT"],
+        ["media_message_id", "INTEGER"],
+        ["media_content_type", "TEXT"],
+        ["media_duration_ms", "INTEGER"],
+        ["reply_to_id", "TEXT"],
       ]) {
         if (!knownColumns.has(name)) {
-          await db.execute(`ALTER TABLE direct_messages ADD COLUMN ${name} ${type}`);
+          try {
+            await db.execute(
+              `ALTER TABLE direct_messages ADD COLUMN ${name} ${type}`,
+            );
+          } catch (error) {
+            const columnsAfterRace = await db.execute(
+              "PRAGMA table_info(direct_messages)",
+            );
+            const exists = columnsAfterRace.rows.some(
+              (row) =>
+                String(
+                  (row as unknown as Record<string, unknown>).name ?? "",
+                ) === name,
+            );
+            if (!exists) throw error;
+          }
         }
       }
       await db.execute(`CREATE TABLE IF NOT EXISTS direct_message_hides (
@@ -1259,6 +1284,14 @@ function rowToDirectMessage(row: Record<string, unknown>): DirectMessage {
     forwarded_from_uid:
       row.forwarded_from_uid == null ? null : Number(row.forwarded_from_uid),
     is_pinned: Number(row.is_pinned ?? 0) === 1,
+    media_file_id: row.media_file_id == null ? null : String(row.media_file_id),
+    media_message_id:
+      row.media_message_id == null ? null : Number(row.media_message_id),
+    media_content_type:
+      row.media_content_type == null ? null : String(row.media_content_type),
+    media_duration_ms:
+      row.media_duration_ms == null ? null : Number(row.media_duration_ms),
+    reply_to_id: row.reply_to_id == null ? null : String(row.reply_to_id),
   };
 }
 
@@ -1321,6 +1354,11 @@ export async function createDirectMessage(
   options: {
     deliveredAt?: string | null;
     forwardedFromUid?: number | null;
+    mediaFileId?: string | null;
+    mediaMessageId?: number | null;
+    mediaContentType?: string | null;
+    mediaDurationMs?: number | null;
+    replyToId?: string | null;
   } = {},
 ): Promise<DirectMessage> {
   await ensureDirectMessagesTable();
@@ -1336,11 +1374,18 @@ export async function createDirectMessage(
     deleted_at: null,
     forwarded_from_uid: options.forwardedFromUid ?? null,
     is_pinned: false,
+    media_file_id: options.mediaFileId ?? null,
+    media_message_id: options.mediaMessageId ?? null,
+    media_content_type: options.mediaContentType ?? null,
+    media_duration_ms: options.mediaDurationMs ?? null,
+    reply_to_id: options.replyToId ?? null,
   };
   await getTurso().execute({
     sql: `INSERT INTO direct_messages
-          (id, sender_uid, recipient_uid, content, created_at, delivered_at, read_at, forwarded_from_uid)
-          VALUES (?, ?, ?, ?, ?, ?, NULL, ?)`,
+          (id, sender_uid, recipient_uid, content, created_at, delivered_at, read_at,
+           forwarded_from_uid, media_file_id, media_message_id, media_content_type,
+           media_duration_ms, reply_to_id)
+          VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)`,
     args: [
       message.id,
       message.sender_uid,
@@ -1349,6 +1394,11 @@ export async function createDirectMessage(
       message.created_at,
       message.delivered_at,
       message.forwarded_from_uid,
+      message.media_file_id,
+      message.media_message_id,
+      message.media_content_type,
+      message.media_duration_ms,
+      message.reply_to_id,
     ],
   });
   return message;

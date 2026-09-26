@@ -189,18 +189,6 @@ export function ChatRoomClient({
     }
   }
 
-  function selectChatItemFromClick(
-    event: React.MouseEvent<HTMLElement>,
-    item: ChatItem,
-  ) {
-    if (Date.now() - longPressTriggeredAtRef.current < 900) {
-      longPressTriggeredAtRef.current = 0;
-      event.preventDefault();
-      return;
-    }
-    setSelectedChatItem(item);
-  }
-
   async function copyChatItem(item: ChatItem) {
     try {
       const plainText = new DOMParser()
@@ -708,25 +696,24 @@ export function ChatRoomClient({
             </p>
           </div>
         ) : (
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-2 px-3">
             {visibleChatItems.map((item) => {
               const isUser = item.sender === "user";
               if (isUser) {
                 return (
-                  <div key={item.id} className="flex flex-row-reverse gap-2.5 -mr-3 pl-1">
-                    <div className="flex-1 min-w-0 flex flex-col items-end">
+                  <div key={item.id} className="flex justify-end">
+                    <div className="flex w-full min-w-0 flex-col items-end">
                       <div
                         onPointerDown={(event) => startChatItemPress(event, item)}
                         onPointerUp={stopChatItemPress}
                         onPointerLeave={stopChatItemPress}
                         onPointerCancel={stopChatItemPress}
-                        onClick={(event) => selectChatItemFromClick(event, item)}
                         onContextMenu={(event) => {
                           event.preventDefault();
                           longPressTriggeredAtRef.current = Date.now();
                           setSelectedChatItem(item);
                         }}
-                        className="inline-flex max-w-full touch-pan-y items-end gap-x-2 rounded-2xl rounded-tr-md bg-ink px-2.5 py-[5px] text-white"
+                        className="inline-flex max-w-[88%] touch-pan-y items-end gap-x-2 rounded-2xl rounded-tr-md bg-ink px-2.5 py-[5px] text-white shadow-[0_1px_2px_rgba(0,0,0,.06)] transition-transform active:scale-[.99]"
                       >
                         <span
                           className="text-[13.5px] leading-[1.35] whitespace-pre-wrap break-words min-w-0 [&_b]:font-semibold [&_i]:italic [&_a]:underline"
@@ -748,7 +735,7 @@ export function ChatRoomClient({
                 );
               }
               return (
-                <div key={item.id} className="flex gap-2.5 pr-1 -ml-3">
+                <div key={item.id} className="flex min-w-0 gap-2.5">
                   <div className="w-8 h-8 rounded-full overflow-hidden bg-[#f0f0f0] border border-line flex-shrink-0 mt-0.5">
                     <img
                       src="/icon.png"
@@ -763,13 +750,12 @@ export function ChatRoomClient({
                       onPointerUp={stopChatItemPress}
                       onPointerLeave={stopChatItemPress}
                       onPointerCancel={stopChatItemPress}
-                      onClick={(event) => selectChatItemFromClick(event, item)}
                       onContextMenu={(event) => {
                         event.preventDefault();
                         longPressTriggeredAtRef.current = Date.now();
                         setSelectedChatItem(item);
                       }}
-                      className="inline-block max-w-full touch-pan-y rounded-2xl rounded-tl-md bg-[#f5f5f5] px-3 py-2"
+                      className="inline-block max-w-[94%] touch-pan-y rounded-2xl rounded-tl-md bg-[#f5f5f5] px-3 py-2 shadow-[0_1px_2px_rgba(0,0,0,.05)] transition-transform active:scale-[.99]"
                     >
                       <div
                         className="text-[13px] text-ink-soft leading-[1.5] whitespace-pre-wrap break-words [&_b]:font-semibold [&_b]:text-ink [&_i]:italic [&_a]:text-ink [&_a]:underline"
@@ -803,7 +789,7 @@ export function ChatRoomClient({
             aria-modal="true"
             aria-label="Aksi pesan"
             onClick={(event) => event.stopPropagation()}
-            className="w-full max-w-[560px] overflow-hidden rounded-2xl bg-white pb-1 shadow-2xl"
+            className="w-full max-w-[560px] overflow-hidden rounded-2xl bg-white pb-1 shadow-2xl animate-fade-up"
           >
             <div className="border-b border-line px-4 py-3">
               <p className="line-clamp-2 whitespace-pre-wrap break-words text-[12.5px] text-ink-soft">

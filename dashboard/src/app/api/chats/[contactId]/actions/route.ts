@@ -88,6 +88,10 @@ export async function POST(
     const forwarded = await createDirectMessage(session.uid, targetUid, message.content, {
       deliveredAt: online ? new Date().toISOString() : null,
       forwardedFromUid: message.sender_uid,
+      mediaFileId: message.media_file_id,
+      mediaMessageId: message.media_message_id,
+      mediaContentType: message.media_content_type,
+      mediaDurationMs: message.media_duration_ms,
     });
     broadcastToUid(targetUid, { type: "direct-message:new", message: forwarded });
     broadcastToUid(session.uid, { type: "direct-message:new", message: forwarded });
@@ -101,7 +105,7 @@ export async function POST(
         recipientUid: targetUid,
         senderUid: session.uid,
         senderName,
-        content: message.content,
+        content: message.media_file_id ? "🎙 Pesan suara" : message.content,
         messageId: forwarded.id,
       });
     }

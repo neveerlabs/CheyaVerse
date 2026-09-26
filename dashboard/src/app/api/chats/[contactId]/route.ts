@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getUserSession } from "@/lib/auth-request";
 import {
   createDirectMessage,
+  getDirectMessageById,
   getPinnedDirectMessage,
   getTelegramUser,
   listDirectMessages,
@@ -94,6 +95,30 @@ export async function POST(
   if (!content) {
     return NextResponse.json({ ok: false, error: "empty_content" }, { status: 400 });
   }
+  const replyToId =
+    "replyToId" in body && typeof body.replyToId === "string"
+      ? body.replyToId
+      : null;
+  if ("replyToId" in body && body.replyToId !== null && replyToId === null) {
+    return NextResponse.json({ ok: false, error: "invalid_reply" }, { status: 400 });
+  }
+  if (replyToId) {
+    if (!/^[A-Za-z0-9_-]{1,80}$/.test(replyToId)) {
+      return NextResponse.json({ ok: false, error: "invalid_reply" }, { status: 400 });
+    }
+    const repliedMessage = await getDirectMessageById(replyToId);
+    if (
+      !repliedMessage ||
+      !(
+        (repliedMessage.sender_uid === session.uid &&
+          repliedMessage.recipient_uid === contactUid) ||
+        (repliedMessage.sender_uid === contactUid &&
+          repliedMessage.recipient_uid === session.uid)
+      )
+    ) {
+      return NextResponse.json({ ok: false, error: "reply_not_found" }, { status: 404 });
+    }
+  }
   if (!(await getTelegramUser(contactUid))) {
     return NextResponse.json({ ok: false, error: "account_not_found" }, { status: 404 });
   }
@@ -102,6 +127,7 @@ export async function POST(
     const recipientOnline = await isTelegramUserOnline(contactUid);
     const message = await createDirectMessage(session.uid, contactUid, content, {
       deliveredAt: recipientOnline ? new Date().toISOString() : null,
+      replyToId,
     });
     broadcastToUid(contactUid, { type: "direct-message:new", message });
     broadcastToUid(session.uid, { type: "direct-message:new", message });

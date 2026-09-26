@@ -130,3 +130,24 @@ a {
 .animate-copy-pop {
   animation: copy-pop 320ms cubic-bezier(.34, 1.56, .64, 1) both;
 }
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-fade-up {
+  animation: fade-up 180ms cubic-bezier(.2, .8, .2, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-up {
+    animation-duration: 1ms;
+  }
+}
