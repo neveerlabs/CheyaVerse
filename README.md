@@ -39,6 +39,9 @@ MEDIA_TTL_DAYS=30
 TURSO_URL=
 TURSO_AUTH_TOKEN=
 TELEGRAM_STORAGE_CHAT_ID=
+VAPID_PUBLIC_KEY=
+VAPID_PRIVATE_KEY=
+VAPID_SUBJECT=mailto:admin@example.com
 ```
 
 ### 4. Running bot
@@ -75,7 +78,16 @@ TURSO_URL=
 TURSO_AUTH_TOKEN=
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_STORAGE_CHAT_ID=
+NEXT_PUBLIC_VAPID_PUBLIC_KEY=
+VAPID_PRIVATE_KEY=
+VAPID_SUBJECT=mailto:admin@example.com
 ```
+
+> **Login Telegram:** Login widget memerlukan username bot pada `BOT_USERNAME` dan domain web yang sudah didaftarkan lewat menu `/setdomain` di [@BotFather](https://t.me/BotFather). Daftarkan domain saja (tanpa `https://` atau path). Saat menguji lewat Cloudflare Tunnel, domain tunnel aktif juga harus didaftarkan di BotFather dan `PUBLIC_URL` pada `.env` bot serta web harus mengarah ke URL tunnel tersebut.
+
+Pengunjung login/register memakai Telegram Login Widget. Session web ditandatangani dengan `TELEGRAM_BOT_TOKEN`; jangan membagikan token dan segera rotasi token jika pernah terekspos. Device ID dibuat setelah identitas Telegram berhasil diverifikasi.
+
+Untuk push saat bot menghapus media yang kedaluwarsa, isi `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, dan `VAPID_SUBJECT` di `.env` bot dengan pasangan yang sama seperti `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, dan `VAPID_SUBJECT` di `.env` web.
 
 ### 4. Buat tabel di Turso
 
@@ -100,6 +112,50 @@ CREATE TABLE IF NOT EXISTS telegram_users (
   role TEXT NOT NULL DEFAULT 'user',
   created_at TEXT,
   updated_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS "akun-telegram" (
+  uid INTEGER PRIMARY KEY,
+  username TEXT,
+  first_name TEXT,
+  last_name TEXT,
+  photo_url TEXT,
+  photo_file_id TEXT,
+  auth_date INTEGER,
+  allows_write_to_pm INTEGER,
+  role TEXT NOT NULL DEFAULT 'user',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_akun_telegram_name
+  ON "akun-telegram"(first_name, last_name);
+CREATE INDEX IF NOT EXISTS idx_akun_telegram_username
+  ON "akun-telegram"(username);
+
+CREATE TABLE IF NOT EXISTS direct_messages (
+  id TEXT PRIMARY KEY,
+  sender_uid INTEGER NOT NULL,
+  recipient_uid INTEGER NOT NULL,
+  content TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  delivered_at TEXT,
+  read_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_direct_messages_participants
+  ON direct_messages(sender_uid, recipient_uid, created_at);
+CREATE INDEX IF NOT EXISTS idx_direct_messages_recipient_unread
+  ON direct_messages(recipient_uid, read_at, created_at);
+
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  endpoint TEXT PRIMARY KEY,
+  uid INTEGER NOT NULL,
+  device_id TEXT,
+  p256dh TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS messages (
@@ -142,6 +198,15 @@ CREATE TABLE IF NOT EXISTS device_ids (
   cpu_cores INTEGER,
   ram_gb REAL,
   user_agent TEXT,
+  language TEXT,
+  timezone TEXT,
+  platform TEXT,
+  max_touch INTEGER,
+  color_depth INTEGER,
+  webgl_vendor TEXT,
+  webgl_renderer TEXT,
+  screen_w INTEGER,
+  screen_h INTEGER,
   first_seen TEXT NOT NULL,
   last_seen TEXT NOT NULL,
   PRIMARY KEY (device_id, uid)
@@ -170,6 +235,7 @@ CREATE TABLE IF NOT EXISTS user_covers (
 );
 ```
 > **Pemberitahuan:** *Pastikan database sudah terbuat dengan nama `cheyaverse` di turso*
+> Aplikasi menambahkan tabel akun `"akun-telegram"` dan `direct_messages` secara otomatis. Kolom fingerprint device yang baru juga dimigrasikan otomatis pada akses pertama. DDL di atas mencantumkan skema lengkap untuk instalasi baru.
 
 ### 5. Running server
 
@@ -184,6 +250,8 @@ npm run dev
 - Biasakan untuk sellau menghapus folder `.next` untuk kelancaran **running web**
 - Untuk deploy, arahkan root project pada folder `dashboard` (bukan `root`). Dan untuk file `.env` nya, bukan diclone dari repo, emlainkan isi manual / upload di **dashboard UI** web hosting
 - Pastikan `PUBLIC_URL` yg di `.env` **bot** & **web** isinya sama
+- Login Telegram pada setiap domain memerlukan domain tersebut didaftarkan di BotFather; URL `trycloudflare.com` sementara perlu didaftarkan ulang saat hostname berubah
+- Chat hanya mencari akun yang sudah login/register di CheyaVerse. Untuk akun yang belum ditemukan, tombol undangan membuka Telegram Share dengan pesan terisi; pemilik harus memilih penerima dan menekan kirim di Telegram
 - Apabila webapp sudah **dideploy** tetapi saat percobaan unduh data media gagal karena reCAPTCHA tidak dapat muncul, itu bukan bug atau error kode! Lihat data di file `.env` nya dan pastikan di web hosting seluruh data file `.env` benar benar valid dan terisi
 - Apabila file `.env` bot belum diisi, maka bot akan shutdown dengan sendirinya saat di running
 
