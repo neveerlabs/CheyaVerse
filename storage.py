@@ -1,12 +1,24 @@
+import asyncio
 import base64
+import html
+import json
 import random
+import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
 import aiohttp
 
-from config import TURSO_URL, TURSO_AUTH_TOKEN, TELEGRAM_STORAGE_CHAT_ID
+from config import (
+    TURSO_URL,
+    TURSO_AUTH_TOKEN,
+    TELEGRAM_STORAGE_CHAT_ID,
+    VAPID_PUBLIC_KEY,
+    VAPID_PRIVATE_KEY,
+    VAPID_SUBJECT,
+)
 from logger import logger
+from pywebpush import WebPushException, webpush
 
 
 def _http_url() -> str:
@@ -135,11 +147,73 @@ async def fetch_media(media_id: str) -> Optional[dict]:
     return dict(zip(cols, rows[0]))
 
 
+def _send_web_push(subscription: dict, payload: dict) -> None:
+    webpush(
+        subscription_info=subscription,
+        data=json.dumps(payload),
+        vapid_private_key=VAPID_PRIVATE_KEY,
+        vapid_claims={"sub": VAPID_SUBJECT},
+    )
+
+
+async def _notify_expired_media(
+    uid: int,
+    notification_id: str,
+    filename: str,
+) -> None:
+    if not VAPID_PRIVATE_KEY or not VAPID_PUBLIC_KEY:
+        logger.warning("VAPID keys are not configured; media expiry push was skipped.")
+        return
+    try:
+        _cols, rows = await _execute(
+            "SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE uid = ?",
+            [uid],
+        )
+    except Exception as exc:
+        logger.error(f"Failed to load push subscriptions for account {uid}: {exc}")
+        return
+
+    payload = {
+        "title": "CheyaVerse",
+        "body": f"Masa simpan media {filename[:60]} berakhir; data dihapus.",
+        "icon": "/icon.png",
+        "tag": f"cheya-system-expiry-{notification_id}",
+        "renotify": True,
+        "data": {
+            "uid": uid,
+            "url": f"/{uid}/chat/system",
+            "contactId": "system",
+            "notifId": notification_id,
+        },
+    }
+
+    async def send(row: list) -> None:
+        endpoint, p256dh, auth = row
+        subscription = {
+            "endpoint": endpoint,
+            "keys": {"p256dh": p256dh, "auth": auth},
+        }
+        try:
+            await asyncio.to_thread(_send_web_push, subscription, payload)
+        except WebPushException as exc:
+            status = getattr(getattr(exc, "response", None), "status_code", None)
+            if status in {404, 410}:
+                await _execute(
+                    "DELETE FROM push_subscriptions WHERE endpoint = ? AND uid = ?",
+                    [endpoint, uid],
+                )
+            logger.warning(f"Media expiry push failed for account {uid}: {exc}")
+        except Exception as exc:
+            logger.error(f"Media expiry push failed for account {uid}: {exc}")
+
+    await asyncio.gather(*(send(row) for row in rows))
+
+
 async def cleanup_expired(bot=None) -> int:
     now_iso = datetime.now(timezone.utc).isoformat()
     try:
         cols, rows = await _execute(
-            "SELECT id, storage_message_id FROM media WHERE expires_at < ?",
+            "SELECT id, owner_id, filename, storage_message_id FROM media WHERE expires_at < ?",
             [now_iso],
         )
     except Exception as exc:
@@ -175,5 +249,61 @@ async def cleanup_expired(bot=None) -> int:
                 )
             except Exception as exc:
                 logger.warning(f"Failed to delete storage message {msg_id}: {exc}")
+
+    for row in records:
+        uid = row.get("owner_id")
+        if not uid:
+            continue
+        media_id = str(row.get("id") or "")
+        filename = html.escape(str(row.get("filename") or media_id))
+        created_at = datetime.now(timezone.utc).isoformat()
+        message = (
+            "Berkas media hasil generate barcode telah dihapus otomatis "
+            "karena masa simpannya berakhir.\n\n"
+            f"<b>ID Barcode:</b> <code>{html.escape(media_id)}</code>\n"
+            f"<b>Nama berkas:</b> <code>{filename}</code>\n"
+            f"<b>Waktu:</b> {created_at}"
+        )
+        notification_id = f"expiry-{uuid.uuid4().hex}"
+        message_id = f"expiry-{uuid.uuid4().hex}"
+        try:
+            await _execute(
+                """
+                INSERT INTO notifications
+                    (id, uid, title, message, ip, location, device, read, created_at)
+                VALUES (?, ?, ?, ?, NULL, NULL, NULL, 0, ?)
+                """,
+                [
+                    notification_id,
+                    int(uid),
+                    "CheyaVerse · Admin",
+                    message,
+                    created_at,
+                ],
+            )
+            await _execute(
+                """
+                INSERT INTO messages
+                    (id, uid, sender, sender_role, title, content, created_at, delivered_at, read_at)
+                VALUES (?, ?, 'bot', 'admin', ?, ?, ?, ?, NULL)
+                """,
+                [
+                    message_id,
+                    int(uid),
+                    "CheyaVerse · Admin",
+                    message,
+                    created_at,
+                    created_at,
+                ],
+            )
+            await _notify_expired_media(
+                int(uid),
+                notification_id,
+                str(row.get("filename") or media_id),
+            )
+        except Exception as exc:
+            logger.error(
+                f"Failed to create web expiry notification for media {media_id}: {exc}"
+            )
 
     return len(records)
