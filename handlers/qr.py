@@ -128,9 +128,13 @@ def _compose(data: str) -> Image.Image:
 
 
 def _derive_filename(message: Message, kind: str, ext: str) -> str:
-    if kind == "video" and message.video and message.video.file_name:
+    if message.video and message.video.file_name:
         return message.video.file_name
-    return f"cheyaverse_{kind}_{int(time.time() * 1000)}.{ext}"
+    if message.document and message.document.file_name:
+        return message.document.file_name
+    if message.audio and message.audio.file_name:
+        return message.audio.file_name
+    return f"{kind}_{int(time.time() * 1000)}.{ext}"
 
 
 def _content_type_for(kind: str, ext: str) -> str:
