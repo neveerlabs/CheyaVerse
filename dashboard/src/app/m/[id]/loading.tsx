@@ -1,8 +1,8 @@
 const SHIMMER =
-  "bg-[linear-gradient(105deg,transparent_38%,rgba(255,255,255,.7)_48%,rgba(255,255,255,.9)_50%,rgba(255,255,255,.7)_52%,transparent_62%)] bg-[length:220%_100%] animate-shimmer";
+  "bg-[linear-gradient(105deg,transparent_38%,rgba(255,255,255,.75)_48%,rgba(255,255,255,.95)_50%,rgba(255,255,255,.75)_52%,transparent_62%)] bg-[length:220%_100%] animate-shimmer";
 
 const DARK_SHIMMER =
-  "bg-[linear-gradient(105deg,transparent_38%,rgba(255,255,255,.06)_48%,rgba(255,255,255,.11)_50%,rgba(255,255,255,.06)_52%,transparent_62%)] bg-[length:220%_100%] animate-shimmer";
+  "bg-[linear-gradient(105deg,transparent_38%,rgba(255,255,255,.06)_48%,rgba(255,255,255,.13)_50%,rgba(255,255,255,.06)_52%,transparent_62%)] bg-[length:220%_100%] animate-shimmer";
 
 export default function PublicViewerLoading() {
   return (
@@ -44,6 +44,9 @@ export default function PublicViewerLoading() {
           <span className={`absolute inset-0 ${DARK_SHIMMER}`} />
         </div>
         <div className="flex-1 h-12 rounded-xl bg-[#fafafa] border border-line overflow-hidden relative">
+          <span className={`absolute inset-0 ${SHIMMER}`} />
+        </div>
+        <div className="w-11 h-12 rounded-xl bg-[#fafafa] border border-line overflow-hidden relative flex-shrink-0">
           <span className={`absolute inset-0 ${SHIMMER}`} />
         </div>
         <div className="w-11 h-12 rounded-xl bg-[#fafafa] border border-line overflow-hidden relative flex-shrink-0">
