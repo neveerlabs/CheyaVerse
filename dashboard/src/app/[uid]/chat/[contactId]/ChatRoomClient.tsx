@@ -8,17 +8,17 @@ import {
   ChevronLeft,
   Info,
   MoreVertical,
-  Mic,
   Search,
   X,
-  Send,
   Check,
   CheckCheck,
   Clock,
   Copy,
 } from "lucide-react";
 import { useRealtime } from "@/lib/use-realtime";
-import { TelegramAvatar } from "@/components/TelegramAvatar";
+import { ChatComposer } from "@/components/ChatComposer";
+import { ChatMessageBubble, chatMessageTime } from "@/components/ChatMessageBubble";
+import { MessageActionSheet } from "@/components/MessageActionSheet";
 
 type Notification = {
   id: string;
@@ -84,27 +84,6 @@ type RecognitionWindow = Window & {
 };
 
 const MARK_READ_THROTTLE_MS = 400;
-
-function formatTime(iso: string): string {
-  try {
-    const d = new Date(iso);
-    if (isNaN(d.getTime())) return "";
-    const now = new Date();
-    const sameDay =
-      d.getFullYear() === now.getFullYear() &&
-      d.getMonth() === now.getMonth() &&
-      d.getDate() === now.getDate();
-    const hh = String(d.getHours()).padStart(2, "0");
-    const mm = String(d.getMinutes()).padStart(2, "0");
-    if (sameDay) return `${hh}:${mm}`;
-    const dd = String(d.getDate()).padStart(2, "0");
-    const mo = String(d.getMonth() + 1).padStart(2, "0");
-    const yy = String(d.getFullYear()).slice(2);
-    return `${dd}/${mo}/${yy} ${hh}:${mm}`;
-  } catch {
-    return "";
-  }
-}
 
 function computeUserDisplayName(user: TelegramUser | null): string {
   if (!user) return "Anda";
@@ -558,8 +537,6 @@ export function ChatRoomClient({
     }
   }
 
-  const hasText = text.trim().length > 0;
-
   const fadeCls = `transition-opacity duration-500 ease-out ${
     revealed ? "opacity-100" : "opacity-0"
   }`;
@@ -646,42 +623,22 @@ export function ChatRoomClient({
     <footer
       className={`chat-footer fixed left-0 right-0 z-30 bg-transparent pointer-events-none ${fadeCls}`}
       style={{
-        bottom: "var(--chat-kb, 0px)",
-        willChange: "opacity",
-      }}
-    >
-      <div className="relative mx-auto flex max-w-[600px] items-end gap-2 px-3 pt-2 pointer-events-auto pb-[var(--chat-footer-pad,calc(8px+env(safe-area-inset-bottom)))]">
-        <div className="flex min-h-11 min-w-0 flex-1 items-end rounded-full border border-line bg-white px-3 py-1.5">
-          <textarea
-            ref={taRef}
-            rows={1}
-            placeholder="Pesan"
-            enterKeyHint="send"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onInput={autoGrow}
-            onKeyDown={onKeyDown}
-            className="max-h-[120px] min-h-7 min-w-0 flex-1 resize-none overflow-y-auto bg-transparent p-0 text-[14px] leading-[22px] tracking-[-.005em] text-ink outline-none placeholder:text-ink-mute font-[inherit]"
-          />
-          <button
-            type="button"
-            aria-label={recording ? "Hentikan dikte" : "Dikte suara"}
-            onClick={toggleVoiceInput}
-            className="ml-2 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-ink-soft active:bg-[#f2f3f5]"
-          >
-            <Mic size={17} strokeWidth={2.2} className={recording ? "text-danger" : ""} />
-          </button>
-        </div>
-        <button
-          type="button"
-          aria-label="Kirim"
-          onClick={sendMessage}
-          disabled={sending || !hasText}
-          className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full border border-ink bg-ink text-white active:scale-90 transition-transform disabled:opacity-50"
-        >
-          <Send size={18} strokeWidth={2.2} />
-        </button>
-      </div>
+          bottom: "var(--chat-kb, 0px)",
+          willChange: "opacity",
+        }}
+      >
+        <ChatComposer
+          value={text}
+          sending={sending}
+          inputRef={taRef}
+          onChange={setText}
+          onSend={() => void sendMessage()}
+          onInput={autoGrow}
+          onKeyDown={onKeyDown}
+          onToggleDictation={toggleVoiceInput}
+          dictating={recording}
+          className="mx-auto max-w-[600px] pointer-events-auto pb-[var(--chat-footer-pad,calc(8px+env(safe-area-inset-bottom)))]"
+        />
     </footer>
   );
 
@@ -707,74 +664,34 @@ export function ChatRoomClient({
           <div className="flex min-w-0 flex-col gap-2 px-3">
             {visibleChatItems.map((item) => {
               const isUser = item.sender === "user";
-              if (isUser) {
-                return (
-                  <div key={item.id} className="flex min-w-0 items-end justify-end gap-2">
-                    <div className="min-w-0 max-w-[calc(100%-40px)]">
-                      <div
-                        onPointerDown={(event) => startChatItemPress(event, item)}
-                        onPointerMove={moveChatItemPress}
-                        onPointerUp={stopChatItemPress}
-                        onPointerLeave={stopChatItemPress}
-                        onPointerCancel={stopChatItemPress}
-                        onContextMenu={(event) => {
-                          event.preventDefault();
-                          longPressTriggeredAtRef.current = Date.now();
-                          setSelectedChatItem(item);
-                        }}
-                        className="inline-block max-w-full touch-pan-y rounded-2xl rounded-tr-md bg-ink px-2.5 py-[5px] text-white shadow-[0_1px_2px_rgba(0,0,0,.06)] transition-transform active:scale-[.99]"
-                      >
-                        <span
-                          className="inline text-[13.5px] leading-[1.35] whitespace-pre-wrap break-words [&_b]:font-semibold [&_i]:italic [&_a]:underline"
-                          dangerouslySetInnerHTML={{ __html: item.content }}
-                        />
-                        <span className="ml-1 inline-flex items-center gap-1 whitespace-nowrap align-bottom leading-none">
-                          <span className="text-[10px] text-white/70 tabular-nums leading-none">
-                            {formatTime(item.created_at)}
-                          </span>
-                          <StatusIcon
-                            pending={item._pending}
-                            deliveredAt={item.delivered_at}
-                            readAt={item.read_at}
-                          />
-                        </span>
-                      </div>
-                    </div>
-                    <span className="mb-0.5 h-8 w-8 flex-shrink-0 overflow-hidden rounded-full border border-line bg-[#f0f0f0]">
-                      <TelegramAvatar src={`/api/avatar/${uid}`} />
-                    </span>
-                  </div>
-                );
-              }
               return (
-                <div key={item.id} className="flex min-w-0 gap-2.5">
-                  <div className="mt-0.5 h-8 w-8 flex-shrink-0 overflow-hidden rounded-full border border-line bg-[#f0f0f0]">
-                    <TelegramAvatar src="/icon.png" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div
-                      onPointerDown={(event) => startChatItemPress(event, item)}
-                      onPointerMove={moveChatItemPress}
-                      onPointerUp={stopChatItemPress}
-                      onPointerLeave={stopChatItemPress}
-                      onPointerCancel={stopChatItemPress}
-                      onContextMenu={(event) => {
-                        event.preventDefault();
-                        longPressTriggeredAtRef.current = Date.now();
-                        setSelectedChatItem(item);
-                      }}
-                    className="inline-block max-w-full touch-pan-y rounded-2xl rounded-tl-md bg-[#f2f2f2] px-2.5 py-[5px] shadow-[0_1px_2px_rgba(0,0,0,.05)] transition-transform active:scale-[.99]"
-                    >
-                    <span
-                      className="inline text-[13.5px] text-ink-soft leading-[1.4] whitespace-pre-wrap break-words [&_b]:font-semibold [&_b]:text-ink [&_i]:italic [&_a]:text-ink [&_a]:underline"
-                      dangerouslySetInnerHTML={{ __html: item.content }}
+                <ChatMessageBubble
+                  key={item.id}
+                  outgoing={isUser}
+                  avatarUrl={isUser ? `/api/avatar/${uid}` : "/icon.png"}
+                  content={item.content}
+                  richText
+                  timestamp={chatMessageTime(item.created_at)}
+                  status={
+                    <StatusIcon
+                      pending={item._pending}
+                      deliveredAt={item.delivered_at}
+                      readAt={item.read_at}
                     />
-                    <span className="ml-1 inline-flex items-center whitespace-nowrap align-bottom text-[10px] text-ink-mute tabular-nums leading-none">
-                      {formatTime(item.created_at)}
-                    </span>
-                    </div>
-                  </div>
-                </div>
+                  }
+                  label={`Pesan dari ${isUser ? "Anda" : "CheyaVerse"}`}
+                  pending={item._pending}
+                  onPointerDown={(event) => startChatItemPress(event, item)}
+                  onPointerMove={moveChatItemPress}
+                  onPointerUp={stopChatItemPress}
+                  onPointerLeave={stopChatItemPress}
+                  onPointerCancel={stopChatItemPress}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    longPressTriggeredAtRef.current = Date.now();
+                    setSelectedChatItem(item);
+                  }}
+                />
               );
             })}
             <div ref={bottomRef} />
@@ -785,23 +702,14 @@ export function ChatRoomClient({
       {mounted && createPortal(header, document.body)}
       {mounted && createPortal(footer, document.body)}
       {selectedChatItem && mounted && createPortal(
-        <div
-          role="presentation"
-          onClick={() => setSelectedChatItem(null)}
-          className="fixed inset-0 z-[70] flex items-end justify-center bg-black/25 px-4 pb-[calc(16px+env(safe-area-inset-bottom))]"
+        <MessageActionSheet
+          onClose={() => setSelectedChatItem(null)}
+          preview={
+            new DOMParser()
+              .parseFromString(selectedChatItem.content, "text/html")
+              .body.textContent?.trim() || "Pesan"
+          }
         >
-          <section
-            role="dialog"
-            aria-modal="true"
-            aria-label="Aksi pesan"
-            onClick={(event) => event.stopPropagation()}
-            className="w-full max-w-[560px] overflow-hidden rounded-2xl bg-white pb-1 shadow-2xl animate-fade-up"
-          >
-            <div className="border-b border-line px-4 py-3">
-              <p className="line-clamp-2 whitespace-pre-wrap break-words text-[12.5px] text-ink-soft">
-                {new DOMParser().parseFromString(selectedChatItem.content, "text/html").body.textContent}
-              </p>
-            </div>
             <button
               type="button"
               onClick={() => void copyChatItem(selectedChatItem)}
@@ -816,8 +724,7 @@ export function ChatRoomClient({
             >
               Tutup
             </button>
-          </section>
-        </div>,
+        </MessageActionSheet>,
         document.body,
       )}
       {searchOpen && mounted && createPortal(

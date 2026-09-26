@@ -12,7 +12,6 @@ import {
   MoreVertical,
   Pin,
   Search,
-  Send,
   Trash2,
   UserRound,
   X,
@@ -22,6 +21,9 @@ import {
   BellOff,
 } from "lucide-react";
 import { TelegramAvatar } from "@/components/TelegramAvatar";
+import { ChatComposer } from "@/components/ChatComposer";
+import { ChatMessageBubble, chatMessageTime } from "@/components/ChatMessageBubble";
+import { MessageActionSheet } from "@/components/MessageActionSheet";
 import type { DirectMessage, TelegramUser } from "@/lib/storage";
 import { useRealtime } from "@/lib/use-realtime";
 
@@ -30,17 +32,10 @@ type ChatContact = Pick<
   "uid" | "username" | "first_name" | "last_name" | "photo_url"
 >;
 type SearchUser = ChatContact;
-const MESSAGE_ROW_GUTTER = "px-1";
 
 function userName(user: ChatContact): string {
   const fullName = [user.first_name, user.last_name].filter(Boolean).join(" ").trim();
   return fullName || (user.username ? `@${user.username}` : `Telegram ${user.uid}`);
-}
-
-function messageTime(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
 }
 
 function formatPresence(lastSeen: number | null): string {
@@ -683,7 +678,7 @@ export function DirectChatRoomClient({
       className="fixed left-0 right-0 z-50 mx-auto flex max-w-[600px] flex-col overflow-hidden"
       style={{ top: viewport.top, height: viewport.height || "100dvh" }}
     >
-      <header className="relative z-20 flex h-[62px] flex-shrink-0 items-center gap-2 bg-transparent px-3">
+      <header className="relative z-20 flex h-[68px] flex-shrink-0 items-center gap-2 bg-transparent px-3">
         <Link
           href={`/${uid}/chat`}
           aria-label="Kembali ke chat"
@@ -829,167 +824,137 @@ export function DirectChatRoomClient({
           visibleMessages.map((message) => {
             const mine = message.sender_uid === myUid;
             const isPending = pendingIdsRef.current.has(message.id);
+            const reply = message.reply_to_id
+              ? messages.find((item) => item.id === message.reply_to_id)
+              : null;
+            const prefix = (message.forwarded_from_uid || message.reply_to_id) ? (
+              <>
+                {message.forwarded_from_uid && (
+                  <span className={`mb-1 block text-[10px] italic ${mine ? "text-white/60" : "text-ink-mute"}`}>
+                    Diteruskan
+                  </span>
+                )}
+                {message.reply_to_id && (
+                  <span className={`mb-1 block max-w-full truncate border-l-2 pl-2 text-[10px] ${
+                    mine ? "border-white/50 text-white/70" : "border-ink/30 text-ink-mute"
+                  }`}>
+                    {reply?.media_file_id
+                      ? "Pesan suara tidak didukung"
+                      : reply?.content ?? "Balasan"}
+                  </span>
+                )}
+              </>
+            ) : null;
+            const content = message.deleted_at
+              ? "Pesan dihapus"
+              : message.media_file_id
+                ? "Pesan suara tidak didukung"
+                : message.content;
             return (
               <div
                 key={message.id}
                 id={`direct-message-${message.id}`}
-                className={`flex min-w-0 items-end gap-2 ${MESSAGE_ROW_GUTTER} ${mine ? "justify-end" : "justify-start"}`}
+                className="w-full min-w-0"
               >
-                {!mine && (
-                  <span className="mt-0.5 h-8 w-8 flex-shrink-0 overflow-hidden rounded-full border border-line bg-[#f0f0f0]">
-                    <TelegramAvatar
-                      src={contact.photo_url || `/api/avatar/${contact.uid}`}
-                    />
-                  </span>
-                )}
-                <div className={`min-w-0 ${mine ? "max-w-[calc(100%-40px)]" : "flex-1"}`}>
-                  <div
-                    role="group"
-                    aria-label={`Pesan dari ${mine ? "Anda" : name}`}
-                    onPointerDown={(event) => startMessagePress(event, message)}
-                    onPointerMove={moveMessagePress}
-                    onPointerUp={stopMessagePress}
-                    onPointerLeave={stopMessagePress}
-                    onPointerCancel={stopMessagePress}
-                    onContextMenu={(event) => {
-                      event.preventDefault();
-                      if (isPending) return;
-                      longPressTriggeredAtRef.current = Date.now();
-                      setSelectedMessage(message);
-                    }}
-                    className={`inline-block max-w-full touch-pan-y rounded-2xl px-2.5 py-[5px] text-left shadow-[0_1px_2px_rgba(0,0,0,.06)] transition-transform duration-150 active:scale-[.99] ${
-                      mine
-                        ? "rounded-tr-md bg-ink text-white"
-                        : "rounded-tl-md bg-[#f2f2f2] text-ink"
-                    } ${isPending ? "opacity-70" : ""}`}
-                  >
-                    {message.forwarded_from_uid && (
-                      <span className={`mb-1 block text-[10px] italic ${mine ? "text-white/60" : "text-ink-mute"}`}>
-                        Diteruskan
-                      </span>
-                    )}
-                    {message.reply_to_id && (
-                      <span className={`mb-1 block max-w-full truncate border-l-2 pl-2 text-[10px] ${
-                        mine ? "border-white/50 text-white/70" : "border-ink/30 text-ink-mute"
-                      }`}>
-                        {messages.find((item) => item.id === message.reply_to_id)?.media_file_id
-                          ? "Pesan suara tidak didukung"
-                          : messages.find((item) => item.id === message.reply_to_id)?.content ?? "Balasan"}
-                      </span>
-                    )}
-                    <span className={`inline whitespace-pre-wrap break-words text-[13.5px] leading-[1.45] ${
-                      message.deleted_at ? "italic opacity-65" : ""
-                    }`}>
-                      {message.deleted_at
-                        ? "Pesan dihapus"
-                        : message.media_file_id
-                          ? "Pesan suara tidak didukung"
-                          : message.content}
-                    </span>
-                    <span className={`ml-1 inline-flex items-center gap-1 whitespace-nowrap align-bottom text-[10px] ${
-                      mine ? "text-white/65" : "text-ink-mute"
-                    }`}>
-                      {message.edited_at && !message.deleted_at && <span>diedit</span>}
-                      {message.is_pinned && <Pin size={10} />}
-                      {messageTime(message.created_at)}
-                      {mine && <StatusIcon message={message} pending={isPending} />}
-                    </span>
-                  </div>
-                </div>
-                {mine && (
-                  <span className="mb-0.5 h-8 w-8 flex-shrink-0 overflow-hidden rounded-full border border-line bg-[#f0f0f0]">
-                    <TelegramAvatar src={ownPhotoUrl || `/api/avatar/${myUid}`} />
-                  </span>
-                )}
+                <ChatMessageBubble
+                  outgoing={mine}
+                  avatarUrl={
+                    mine
+                      ? ownPhotoUrl || `/api/avatar/${myUid}`
+                      : contact.photo_url || `/api/avatar/${contact.uid}`
+                  }
+                  content={content}
+                  timestamp={chatMessageTime(message.created_at)}
+                  status={<StatusIcon message={message} pending={isPending} />}
+                  prefix={prefix}
+                  edited={Boolean(message.edited_at && !message.deleted_at)}
+                  pinned={Boolean(message.is_pinned)}
+                  deleted={Boolean(message.deleted_at)}
+                  pending={isPending}
+                  label={`Pesan dari ${mine ? "Anda" : name}`}
+                  onPointerDown={(event) => startMessagePress(event, message)}
+                  onPointerMove={moveMessagePress}
+                  onPointerUp={stopMessagePress}
+                  onPointerLeave={stopMessagePress}
+                  onPointerCancel={stopMessagePress}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    if (isPending) return;
+                    longPressTriggeredAtRef.current = Date.now();
+                    setSelectedMessage(message);
+                  }}
+                />
               </div>
             );
           })
         )}
       </div>
 
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          void sendMessage();
+      <ChatComposer
+        value={text}
+        sending={sending}
+        sendLabel={editingId ? "Simpan edit" : "Kirim pesan"}
+        inputRef={textareaRef}
+        onChange={handleTextChange}
+        onSend={() => void sendMessage()}
+        onInput={(event) => {
+          event.currentTarget.style.height = "auto";
+          event.currentTarget.style.height = `${Math.min(event.currentTarget.scrollHeight, 120)}px`;
         }}
-        className={`flex flex-shrink-0 items-end gap-2 bg-transparent px-3 pt-2 ${
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault();
+            void sendMessage();
+          }
+        }}
+        above={
+          <>
+            {replyingTo && (
+              <div className="flex items-center gap-2 rounded-xl border border-line bg-white/90 px-3 py-2 text-[11px] text-ink-soft">
+                <Reply size={14} className="shrink-0 text-ink-mute" />
+                <span className="min-w-0 flex-1 truncate">
+                  Membalas: {replyingTo.media_file_id ? "Pesan suara tidak didukung" : replyingTo.content}
+                </span>
+                <button type="button" aria-label="Batal membalas" onClick={() => setReplyingTo(null)}>
+                  <X size={14} />
+                </button>
+              </div>
+            )}
+            {editingId && (
+              <div className="flex items-center justify-between rounded-lg bg-[#f5f5f5] px-3 py-1.5 text-[11px] text-ink-soft">
+                <span>Mengedit pesan</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingId(null);
+                    setText("");
+                  }}
+                  aria-label="Batalkan edit"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            )}
+          </>
+        }
+        className={`${
           viewport.keyboard
             ? "pb-2"
             : "pb-[calc(8px+env(safe-area-inset-bottom))]"
         }`}
-      >
-        <div className="min-w-0 flex-1">
-          {replyingTo && (
-            <div className="mb-1 flex items-center gap-2 rounded-xl border border-line bg-white/90 px-3 py-2 text-[11px] text-ink-soft">
-              <Reply size={14} className="shrink-0 text-ink-mute" />
-              <span className="min-w-0 flex-1 truncate">
-                Membalas: {replyingTo.media_file_id ? "Pesan suara tidak didukung" : replyingTo.content}
-              </span>
-              <button type="button" aria-label="Batal membalas" onClick={() => setReplyingTo(null)}>
-                <X size={14} />
-              </button>
-            </div>
-          )}
-          {editingId && (
-            <div className="mb-1 flex items-center justify-between rounded-lg bg-[#f5f5f5] px-3 py-1.5 text-[11px] text-ink-soft">
-              <span>Mengedit pesan</span>
-              <button
-                type="button"
-                onClick={() => {
-                  setEditingId(null);
-                  setText("");
-                }}
-                aria-label="Batalkan edit"
-              >
-                <X size={14} />
-              </button>
-            </div>
-          )}
-          <textarea
-            ref={textareaRef}
-            rows={1}
-            value={text}
-            onChange={(event) => handleTextChange(event.target.value)}
-            onInput={(event) => {
-              event.currentTarget.style.height = "auto";
-              event.currentTarget.style.height = `${Math.min(event.currentTarget.scrollHeight, 120)}px`;
-            }}
-            placeholder="Pesan"
-            className="max-h-[120px] min-h-11 w-full resize-none rounded-full border border-line bg-white px-4 py-2.5 text-[14px] leading-5 outline-none"
-          />
-        </div>
-        <button
-          type="submit"
-          disabled={sending || !text.trim()}
-          aria-label={editingId ? "Simpan edit" : "Kirim pesan"}
-          className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full border border-ink bg-ink text-white transition-transform active:scale-90 disabled:opacity-50"
-        >
-          <Send size={17} />
-        </button>
-      </form>
+      />
 
       {selectedMessage && (
-        <div
-          role="presentation"
-          onClick={() => setSelectedMessage(null)}
-          className="fixed inset-0 z-[70] flex items-end justify-center bg-black/25 px-4 pb-[calc(16px+env(safe-area-inset-bottom))]"
+        <MessageActionSheet
+          onClose={() => setSelectedMessage(null)}
+          preview={
+            selectedMessage.deleted_at
+              ? "Pesan dihapus"
+              : selectedMessage.media_file_id
+                ? "Pesan suara tidak didukung"
+                : selectedMessage.content
+          }
         >
-          <section
-            role="dialog"
-            aria-modal="true"
-            aria-label="Aksi pesan"
-            onClick={(event) => event.stopPropagation()}
-            className="w-full max-w-[560px] overflow-hidden rounded-2xl bg-white pb-1 shadow-2xl"
-          >
-            <div className="border-b border-line px-4 py-3">
-              <p className="line-clamp-2 whitespace-pre-wrap break-words text-[12.5px] text-ink-soft">
-                {selectedMessage.deleted_at
-                  ? "Pesan dihapus"
-                  : selectedMessage.media_file_id
-                    ? "Pesan suara tidak didukung"
-                    : selectedMessage.content}
-              </p>
-            </div>
             {!selectedMessage.deleted_at && (
               <button
                 type="button"
@@ -1042,8 +1007,7 @@ export function DirectChatRoomClient({
             <button type="button" onClick={() => setSelectedMessage(null)} className="flex w-full items-center justify-center gap-2 border-t border-line px-4 py-3 text-[13px] font-semibold text-ink-soft">
               <X size={15} /> Tutup
             </button>
-          </section>
-        </div>
+        </MessageActionSheet>
       )}
 
       {forwardOpen && selectedMessage && (
