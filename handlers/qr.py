@@ -1,6 +1,5 @@
 import asyncio
 import io
-import time
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
@@ -134,7 +133,9 @@ def _derive_filename(message: Message, kind: str, ext: str) -> str:
         return message.document.file_name
     if message.audio and message.audio.file_name:
         return message.audio.file_name
-    return f"{kind}_{int(time.time() * 1000)}.{ext}"
+    if message.photo:
+        return f"{message.photo[-1].file_unique_id}.{ext}"
+    return f"{kind}.{ext}"
 
 
 def _content_type_for(kind: str, ext: str) -> str:
