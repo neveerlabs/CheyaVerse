@@ -83,9 +83,9 @@ VAPID_PRIVATE_KEY=
 VAPID_SUBJECT=mailto:admin@example.com
 ```
 
-> **Login Telegram:** Login widget memerlukan username bot pada `BOT_USERNAME` dan domain web yang sudah didaftarkan lewat menu `/setdomain` di [@BotFather](https://t.me/BotFather). Daftarkan domain saja (tanpa `https://` atau path). Saat menguji lewat Cloudflare Tunnel, domain tunnel aktif juga harus didaftarkan di BotFather dan `PUBLIC_URL` pada `.env` bot serta web harus mengarah ke URL tunnel tersebut.
+> **Login Telegram:** Isi `BOT_USERNAME` pada `.env` web dengan username bot (tanpa `@`). Pengguna membuka link sekali pakai ke bot dan memilih Setujui atau Tolak di chat pribadi. Bot harus online dan `.env` bot/web harus terhubung ke database Turso yang sama. Domain web tidak perlu didaftarkan dengan `/setdomain` untuk metode login ini.
 
-Pengunjung login/register memakai Telegram Login Widget. Session web ditandatangani dengan `TELEGRAM_BOT_TOKEN`; jangan membagikan token dan segera rotasi token jika pernah terekspos. Device ID dibuat setelah identitas Telegram berhasil diverifikasi.
+Setiap permintaan login berlaku selama lima menit, hanya dapat digunakan sekali, dan bot mengambil ID Telegram dari update resmi Telegram—bukan dari browser. Setelah disetujui, session web ditandatangani dengan `TELEGRAM_BOT_TOKEN`; jangan membagikan token dan segera rotasi token jika pernah terekspos. Device ID dibuat setelah identitas Telegram berhasil diverifikasi. Tabel `telegram_login_challenges` dibuat otomatis; tidak perlu menghapus atau membuat ulang tabel database.
 
 Untuk push saat bot menghapus media yang kedaluwarsa, isi `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, dan `VAPID_SUBJECT` di `.env` bot dengan pasangan yang sama seperti `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, dan `VAPID_SUBJECT` di `.env` web.
 
