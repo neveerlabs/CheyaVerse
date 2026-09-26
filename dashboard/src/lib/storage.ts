@@ -1434,15 +1434,17 @@ export async function markDirectMessagesDelivered(
 }
 
 export async function isTelegramUserOnline(uid: number): Promise<boolean> {
+  const lastSeen = await getTelegramUserLastSeen(uid);
+  return lastSeen !== null && lastSeen > Math.floor(Date.now() / 1000) - 90;
+}
+
+export async function getTelegramUserLastSeen(uid: number): Promise<number | null> {
   await ensureDirectMessagesTable();
   const result = await getTurso().execute({
     sql: "SELECT last_seen FROM chat_presence WHERE uid = ? LIMIT 1",
     args: [uid],
   });
-  return (
-    result.rows.length > 0 &&
-    Number(result.rows[0].last_seen) > Math.floor(Date.now() / 1000) - 90
-  );
+  return result.rows.length > 0 ? Number(result.rows[0].last_seen) : null;
 }
 
 export async function updateTelegramUserPresence(uid: number): Promise<void> {

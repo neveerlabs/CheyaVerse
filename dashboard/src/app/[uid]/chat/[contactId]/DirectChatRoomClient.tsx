@@ -42,6 +42,22 @@ function messageTime(iso: string): string {
   return date.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
 }
 
+function formatPresence(lastSeen: number | null): string {
+  if (lastSeen === null) return "offline";
+  const elapsedSeconds = Math.max(0, Math.floor(Date.now() / 1000) - lastSeen);
+  if (elapsedSeconds < 90) return "online";
+  if (elapsedSeconds < 3600) {
+    const minutes = Math.floor(elapsedSeconds / 60);
+    return `terakhir online ${minutes} menit lalu`;
+  }
+  if (elapsedSeconds < 86_400) {
+    const hours = Math.floor(elapsedSeconds / 3600);
+    return `terakhir online ${hours} jam lalu`;
+  }
+  const days = Math.floor(elapsedSeconds / 86_400);
+  return `terakhir online ${days} hari lalu`;
+}
+
 function StatusIcon({
   message,
   pending,
@@ -66,6 +82,7 @@ export function DirectChatRoomClient({
 }) {
   const myUid = Number(uid);
   const name = userName(contact);
+  const headerName = contact.username ? `@${contact.username}` : name;
   const [messages, setMessages] = useState(initialMessages);
   const messagesRef = useRef(initialMessages);
   const initialMessagesRef = useRef(initialMessages);
@@ -84,6 +101,10 @@ export function DirectChatRoomClient({
   const [toast, setToast] = useState("");
   const [replyingTo, setReplyingTo] = useState<DirectMessage | null>(null);
   const [muted, setMuted] = useState(false);
+  const [contactLastSeen, setContactLastSeen] = useState<number | null>(null);
+  const [contactTyping, setContactTyping] = useState(false);
+  const [, setPresenceClock] = useState(0);
+  const presenceLabel = contactTyping ? "mengetik..." : formatPresence(contactLastSeen);
   const [viewport, setViewport] = useState({ top: 0, height: 0, keyboard: false });
   const messageBoxRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -91,6 +112,10 @@ export function DirectChatRoomClient({
   const pendingIdsRef = useRef(new Set<string>());
   const toastTimerRef = useRef<number | null>(null);
   const previousTitleRef = useRef("");
+  const typingActiveRef = useRef(false);
+  const typingLastSentAtRef = useRef(0);
+  const typingTimeoutRef = useRef<number | null>(null);
+  const contactTypingTimeoutRef = useRef<number | null>(null);
   const longPressTimerRef = useRef<number | null>(null);
   const longPressTriggeredAtRef = useRef(0);
   const pressOriginRef = useRef({ x: 0, y: 0 });
@@ -130,6 +155,63 @@ export function DirectChatRoomClient({
       event.clientY - pressOriginRef.current.y,
     );
     if (distance > 10) stopMessagePress();
+  }
+
+  async function sendTypingState(typing: boolean) {
+    try {
+      const response = await fetch(`/api/chats/${contact.uid}/typing`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ typing }),
+      });
+      if (!response.ok) {
+        throw new Error(`Typing state request failed (${response.status})`);
+      }
+    } catch (error) {
+      console.error("[direct-chat] failed to update typing state:", error);
+    }
+  }
+
+  function handleTextChange(value: string) {
+    setText(value);
+    const typing = value.trim().length > 0;
+    if (!typing) {
+      if (typingTimeoutRef.current !== null) {
+        window.clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = null;
+      }
+      if (typingActiveRef.current) {
+        typingActiveRef.current = false;
+        void sendTypingState(false);
+      }
+      return;
+    }
+
+    const now = Date.now();
+    if (!typingActiveRef.current || now - typingLastSentAtRef.current >= 1500) {
+      typingActiveRef.current = true;
+      typingLastSentAtRef.current = now;
+      void sendTypingState(true);
+    }
+    if (typingTimeoutRef.current !== null) {
+      window.clearTimeout(typingTimeoutRef.current);
+    }
+    typingTimeoutRef.current = window.setTimeout(() => {
+      typingActiveRef.current = false;
+      typingTimeoutRef.current = null;
+      void sendTypingState(false);
+    }, 2500);
+  }
+
+  function stopTyping() {
+    if (typingTimeoutRef.current !== null) {
+      window.clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = null;
+    }
+    if (typingActiveRef.current) {
+      typingActiveRef.current = false;
+      void sendTypingState(false);
+    }
   }
 
   function toggleMuted() {
@@ -177,6 +259,35 @@ export function DirectChatRoomClient({
     } finally {
       refreshBusyRef.current = false;
     }
+  }, [contact.uid]);
+
+  useEffect(() => {
+    let active = true;
+    const refreshPresence = async () => {
+      try {
+        const response = await fetch(`/api/presence?uid=${contact.uid}`, {
+          cache: "no-store",
+        });
+        if (!response.ok) throw new Error(`Presence request failed (${response.status})`);
+        const result = await response.json();
+        if (active && result?.ok === true) {
+          setContactLastSeen(
+            typeof result.lastSeen === "number" ? result.lastSeen : null,
+          );
+        }
+      } catch (error) {
+        console.error("[direct-chat] failed to refresh contact presence:", error);
+      }
+    };
+    void refreshPresence();
+    const interval = window.setInterval(() => {
+      setPresenceClock((value) => value + 1);
+      void refreshPresence();
+    }, 15_000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
   }, [contact.uid]);
 
   useEffect(() => {
@@ -232,6 +343,10 @@ export function DirectChatRoomClient({
     return () => {
       if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
       if (longPressTimerRef.current !== null) window.clearTimeout(longPressTimerRef.current);
+      if (typingTimeoutRef.current !== null) window.clearTimeout(typingTimeoutRef.current);
+      if (contactTypingTimeoutRef.current !== null) {
+        window.clearTimeout(contactTypingTimeoutRef.current);
+      }
     };
   }, []);
 
@@ -288,6 +403,21 @@ export function DirectChatRoomClient({
   }, [forwardOpen, forwardQuery]);
 
   useRealtime(uid, (event) => {
+    if (event.type === "direct-chat:typing" && event.senderUid === contact.uid) {
+      const typing = event.typing === true;
+      setContactTyping(typing);
+      if (contactTypingTimeoutRef.current !== null) {
+        window.clearTimeout(contactTypingTimeoutRef.current);
+        contactTypingTimeoutRef.current = null;
+      }
+      if (typing) {
+        contactTypingTimeoutRef.current = window.setTimeout(() => {
+          setContactTyping(false);
+          contactTypingTimeoutRef.current = null;
+        }, 4000);
+      }
+      return;
+    }
     if (event.type === "direct-message:new") {
       const incoming = event.message as DirectMessage | undefined;
       if (
@@ -361,6 +491,7 @@ export function DirectChatRoomClient({
   async function sendMessage() {
     const content = text.trim();
     if (!content || sending) return;
+    stopTyping();
     setSending(true);
     setText("");
     if (textareaRef.current) textareaRef.current.style.height = "auto";
@@ -563,20 +694,17 @@ export function DirectChatRoomClient({
           aria-label={`Lihat profil ${name}`}
         >
           <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-[#f5f5f5]">
-            {contact.photo_url ? (
-              // Telegram profile photos may be remote URLs.
-              <img src={contact.photo_url} alt="" className="h-full w-full object-cover" />
-            ) : (
-              <UserRound size={18} className="text-ink-mute" />
-            )}
+            <img
+              src={contact.photo_url || `/api/avatar/${contact.uid}`}
+              alt=""
+              className="h-full w-full object-cover"
+            />
           </span>
           <span className="min-w-0">
-            <span className="block truncate text-[14px] font-semibold text-ink">{name}</span>
-            {contact.username && (
-              <span className="block truncate text-[11px] text-ink-mute">
-                @{contact.username}
-              </span>
-            )}
+            <span className="block truncate text-[14px] font-semibold text-ink">{headerName}</span>
+            <span className={`block truncate text-[11px] ${presenceLabel === "online" ? "text-emerald-600" : "text-ink-mute"}`}>
+              {presenceLabel}
+            </span>
           </span>
         </Link>
         <button
@@ -704,8 +832,17 @@ export function DirectChatRoomClient({
               <div
                 key={message.id}
                 id={`direct-message-${message.id}`}
-                className={`flex ${MESSAGE_ROW_GUTTER} ${mine ? "justify-end" : "justify-start"}`}
+                className={`flex min-w-0 ${MESSAGE_ROW_GUTTER} ${mine ? "justify-end" : "justify-start gap-2.5"}`}
               >
+                {!mine && (
+                  <span className="mt-0.5 h-8 w-8 flex-shrink-0 overflow-hidden rounded-full border border-line bg-[#f0f0f0]">
+                    <img
+                      src={contact.photo_url || `/api/avatar/${contact.uid}`}
+                      alt=""
+                      className="h-full w-full object-cover"
+                    />
+                  </span>
+                )}
                 <div
                   role="group"
                   aria-label={`Pesan dari ${mine ? "Anda" : name}`}
@@ -720,7 +857,7 @@ export function DirectChatRoomClient({
                     longPressTriggeredAtRef.current = Date.now();
                     setSelectedMessage(message);
                   }}
-                  className={`max-w-[82%] touch-pan-y rounded-2xl px-3 py-2 text-left shadow-[0_1px_2px_rgba(0,0,0,.06)] transition-transform duration-150 active:scale-[.99] ${
+                  className={`max-w-[88%] touch-pan-y rounded-2xl px-2.5 py-[5px] text-left shadow-[0_1px_2px_rgba(0,0,0,.06)] transition-transform duration-150 active:scale-[.99] ${
                     mine
                       ? "rounded-tr-md bg-ink text-white"
                       : "rounded-tl-md bg-[#f2f2f2] text-ink"
@@ -749,11 +886,9 @@ export function DirectChatRoomClient({
                         ? "Pesan suara tidak didukung"
                         : message.content}
                   </span>
-                  <span
-                    className={`mt-1 flex items-center justify-end gap-1 text-[10px] ${
-                      mine ? "text-white/65" : "text-ink-mute"
-                    }`}
-                  >
+                  <span className={`mt-1 flex items-center justify-end gap-1 text-[10px] ${
+                    mine ? "text-white/65" : "text-ink-mute"
+                  }`}>
                     {message.edited_at && !message.deleted_at && <span>diedit</span>}
                     {message.is_pinned && <Pin size={10} />}
                     {messageTime(message.created_at)}
@@ -808,7 +943,7 @@ export function DirectChatRoomClient({
             ref={textareaRef}
             rows={1}
             value={text}
-            onChange={(event) => setText(event.target.value)}
+            onChange={(event) => handleTextChange(event.target.value)}
             onInput={(event) => {
               event.currentTarget.style.height = "auto";
               event.currentTarget.style.height = `${Math.min(event.currentTarget.scrollHeight, 120)}px`;
@@ -817,16 +952,14 @@ export function DirectChatRoomClient({
             className="max-h-[120px] min-h-11 w-full resize-none rounded-full border border-line bg-white px-4 py-2.5 text-[14px] leading-5 outline-none"
           />
         </div>
-        {text.trim() && (
-          <button
-            type="submit"
-            disabled={sending}
-            aria-label={editingId ? "Simpan edit" : "Kirim pesan"}
-            className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full border border-line bg-white text-ink transition-colors active:bg-[#f2f3f5] disabled:opacity-50"
-          >
-            <Send size={17} />
-          </button>
-        )}
+        <button
+          type="submit"
+          disabled={sending || !text.trim()}
+          aria-label={editingId ? "Simpan edit" : "Kirim pesan"}
+          className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full border border-line bg-white text-ink transition-colors active:bg-[#f2f3f5] disabled:opacity-50"
+        >
+          <Send size={17} />
+        </button>
       </form>
 
       {selectedMessage && (

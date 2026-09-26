@@ -8,6 +8,7 @@ import {
 } from "@/lib/storage";
 import { ChatRoomClient } from "./ChatRoomClient";
 import { DirectChatRoomClient } from "./DirectChatRoomClient";
+import { config } from "@/lib/config";
 
 export const dynamic = "force-dynamic";
 
@@ -65,6 +66,7 @@ export default async function ChatRoomPage({
       notifications={notifications}
       initialMessages={messages}
       user={user}
+      botUsername={config.botUsername}
     />
   );
 }

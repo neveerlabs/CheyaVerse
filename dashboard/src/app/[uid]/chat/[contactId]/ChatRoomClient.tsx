@@ -18,7 +18,6 @@ import {
   Copy,
 } from "lucide-react";
 import { useRealtime } from "@/lib/use-realtime";
-import { VerifiedName } from "@/components/VerifiedName";
 
 type Notification = {
   id: string;
@@ -140,11 +139,13 @@ export function ChatRoomClient({
   notifications,
   initialMessages,
   user,
+  botUsername,
 }: {
   uid: string;
   notifications: Notification[];
   initialMessages: ChatMessage[];
   user: TelegramUser | null;
+  botUsername: string;
 }) {
   const taRef = useRef<HTMLTextAreaElement | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
@@ -560,13 +561,13 @@ export function ChatRoomClient({
           <Link
             href={`/${uid}/chat`}
             aria-label="Kembali"
-            className="w-10 h-10 rounded-full flex items-center justify-center text-ink-soft active:scale-90 transition-transform flex-shrink-0"
+            className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full border border-[#dfe3e8] bg-white text-ink-soft active:scale-90 transition-transform"
           >
             <ChevronLeft size={20} strokeWidth={2.2} />
           </Link>
 
-          <div className="flex-1 min-w-0 flex items-center gap-2.5 h-10 pl-1.5 pr-3 rounded-full">
-            <div className="w-8 h-8 rounded-full overflow-hidden bg-[#f0f0f0] border border-line flex-shrink-0">
+          <div className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-full border border-[#dfe3e8] bg-white px-1.5">
+            <div className="h-8 w-8 flex-shrink-0 overflow-hidden rounded-full border border-line bg-[#f0f0f0]">
               <img
                 src="/icon.png"
                 alt=""
@@ -574,11 +575,13 @@ export function ChatRoomClient({
                 className="w-full h-full object-cover"
               />
             </div>
-            <div className="min-w-0 flex-1 flex flex-col justify-center">
-              <VerifiedName name="CheyaVerse" size="sm" />
-              <div className="text-[10px] text-ink-mute truncate leading-tight mt-0.5">
-                admin · service notifications
-              </div>
+            <div className="flex min-w-0 flex-1 flex-col justify-center">
+              <span className="truncate text-[14px] font-semibold text-ink">
+                {botUsername ? `@${botUsername}` : "CheyaVerse"}
+              </span>
+              <span className="mt-0.5 truncate text-[11px] leading-tight text-emerald-600">
+                online
+              </span>
             </div>
           </div>
 
@@ -587,7 +590,7 @@ export function ChatRoomClient({
             aria-label="Menu"
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen((value) => !value)}
-            className="w-10 h-10 rounded-full flex items-center justify-center text-ink-soft active:scale-90 transition-transform flex-shrink-0"
+            className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full border border-[#dfe3e8] bg-white text-ink-soft active:scale-90 transition-transform"
           >
             <MoreVertical size={18} strokeWidth={2.2} />
           </button>
@@ -635,8 +638,8 @@ export function ChatRoomClient({
         willChange: "opacity",
       }}
     >
-      <div className="relative mx-auto max-w-[600px] px-2 flex items-end gap-1.5 pointer-events-auto pt-4 pb-[var(--chat-footer-pad,calc(8px+env(safe-area-inset-bottom)))]">
-        <div className="flex-1 min-w-0 flex items-center rounded-[22px] border border-line bg-white pl-3.5 pr-3.5 py-[6px] min-h-[40px] shadow-[0_1px_2px_rgba(0,0,0,.03)]">
+      <div className="relative mx-auto flex max-w-[600px] items-end gap-2 px-3 pt-2 pointer-events-auto pb-[var(--chat-footer-pad,calc(8px+env(safe-area-inset-bottom)))]">
+        <div className="flex min-h-11 min-w-0 flex-1 items-end rounded-full border border-line bg-white px-3 py-1.5">
           <textarea
             ref={taRef}
             rows={1}
@@ -646,33 +649,26 @@ export function ChatRoomClient({
             onChange={(e) => setText(e.target.value)}
             onInput={autoGrow}
             onKeyDown={onKeyDown}
-            className="flex-1 min-w-0 bg-transparent text-ink text-[14px] leading-[22px] outline-none resize-none overflow-y-auto max-h-[120px] placeholder:text-ink-mute font-[inherit] tracking-[-.005em] p-0 m-0"
+            className="max-h-[120px] min-h-7 min-w-0 flex-1 resize-none overflow-y-auto bg-transparent p-0 text-[14px] leading-[22px] tracking-[-.005em] text-ink outline-none placeholder:text-ink-mute font-[inherit]"
           />
-        </div>
-        {hasText ? (
           <button
             type="button"
-            aria-label="Kirim"
-            onClick={sendMessage}
-            disabled={sending}
-            className="w-10 h-10 rounded-full border border-line bg-white flex items-center justify-center text-ink active:scale-90 transition-transform flex-shrink-0 shadow-[0_1px_2px_rgba(0,0,0,.03)]"
-          >
-            <Send
-              size={18}
-              strokeWidth={2.2}
-              className="animate-send-icon-in"
-            />
-          </button>
-        ) : (
-          <button
-            type="button"
-            aria-label="Rekam suara"
+            aria-label={recording ? "Hentikan dikte" : "Dikte suara"}
             onClick={toggleVoiceInput}
-            className="w-10 h-10 rounded-full border border-line bg-white flex items-center justify-center text-ink-soft active:scale-90 transition-transform flex-shrink-0 shadow-[0_1px_2px_rgba(0,0,0,.03)]"
+            className="ml-2 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-ink-soft active:bg-[#f2f3f5]"
           >
-            <Mic size={18} strokeWidth={2.2} className={recording ? "text-danger" : ""} />
+            <Mic size={17} strokeWidth={2.2} className={recording ? "text-danger" : ""} />
           </button>
-        )}
+        </div>
+        <button
+          type="button"
+          aria-label="Kirim"
+          onClick={sendMessage}
+          disabled={sending || !hasText}
+          className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full border border-line bg-white text-ink active:scale-90 transition-transform disabled:opacity-50"
+        >
+          <Send size={18} strokeWidth={2.2} />
+        </button>
       </div>
     </footer>
   );
@@ -701,7 +697,7 @@ export function ChatRoomClient({
               const isUser = item.sender === "user";
               if (isUser) {
                 return (
-                  <div key={item.id} className="flex justify-end">
+                  <div key={item.id} className="flex min-w-0 justify-end">
                     <div className="flex w-full min-w-0 flex-col items-end">
                       <div
                         onPointerDown={(event) => startChatItemPress(event, item)}
@@ -713,13 +709,13 @@ export function ChatRoomClient({
                           longPressTriggeredAtRef.current = Date.now();
                           setSelectedChatItem(item);
                         }}
-                        className="inline-flex max-w-[88%] touch-pan-y items-end gap-x-2 rounded-2xl rounded-tr-md bg-ink px-2.5 py-[5px] text-white shadow-[0_1px_2px_rgba(0,0,0,.06)] transition-transform active:scale-[.99]"
+                        className="inline-flex max-w-[88%] touch-pan-y flex-col items-stretch rounded-2xl rounded-tr-md bg-ink px-2.5 py-[5px] text-white shadow-[0_1px_2px_rgba(0,0,0,.06)] transition-transform active:scale-[.99]"
                       >
                         <span
                           className="text-[13.5px] leading-[1.35] whitespace-pre-wrap break-words min-w-0 [&_b]:font-semibold [&_i]:italic [&_a]:underline"
                           dangerouslySetInnerHTML={{ __html: item.content }}
                         />
-                        <span className="inline-flex items-center gap-0.5 flex-shrink-0 leading-none pb-[2px]">
+                        <span className="mt-1 inline-flex items-center justify-end gap-1 flex-shrink-0 leading-none">
                           <span className="text-[10px] text-white/70 tabular-nums leading-none">
                             {formatTime(item.created_at)}
                           </span>
@@ -755,7 +751,7 @@ export function ChatRoomClient({
                         longPressTriggeredAtRef.current = Date.now();
                         setSelectedChatItem(item);
                       }}
-                      className="inline-block max-w-[94%] touch-pan-y rounded-2xl rounded-tl-md bg-[#f5f5f5] px-3 py-2 shadow-[0_1px_2px_rgba(0,0,0,.05)] transition-transform active:scale-[.99]"
+                      className="inline-block max-w-[88%] touch-pan-y rounded-2xl rounded-tl-md bg-[#f2f2f2] px-2.5 py-[5px] shadow-[0_1px_2px_rgba(0,0,0,.05)] transition-transform active:scale-[.99]"
                     >
                       <div
                         className="text-[13px] text-ink-soft leading-[1.5] whitespace-pre-wrap break-words [&_b]:font-semibold [&_b]:text-ink [&_i]:italic [&_a]:text-ink [&_a]:underline"
