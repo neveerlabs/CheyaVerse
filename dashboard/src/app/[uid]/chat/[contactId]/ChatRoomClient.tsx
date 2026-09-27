@@ -29,6 +29,7 @@ import { ChatMessageBubble, chatMessageTime } from "@/components/ChatMessageBubb
 import { MessageActionSheet } from "@/components/MessageActionSheet";
 import { TelegramAvatar } from "@/components/TelegramAvatar";
 import { VerifiedName } from "@/components/VerifiedName";
+import { playSendSound } from "@/lib/chat-sounds";
 
 type Notification = {
   id: string;
@@ -842,6 +843,7 @@ export function ChatRoomClient({
       return;
     }
 
+    playSendSound();
     const replySnapshot = replyingTo;
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const displayName = computeUserDisplayName(user);

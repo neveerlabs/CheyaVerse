@@ -32,6 +32,7 @@ import { ChatMessageBubble, chatMessageTime } from "@/components/ChatMessageBubb
 import { MessageActionSheet } from "@/components/MessageActionSheet";
 import type { DirectMessage, TelegramUser } from "@/lib/storage";
 import { useRealtime } from "@/lib/use-realtime";
+import { playSendSound, playReceiveSound } from "@/lib/chat-sounds";
 
 type ChatContact = Pick<
   TelegramUser,
@@ -167,6 +168,7 @@ export function DirectChatRoomClient({
   } | null>(null);
   const DRAFT_KEY = `cheya-draft:${uid}:${contact.uid}`;
   const draftReadyRef = useRef(false);
+  const mutedRef = useRef(false);
 
   const repliedSenderName = useCallback(
     (msg: DirectMessage | null): string => {
@@ -334,6 +336,7 @@ export function DirectChatRoomClient({
     try {
       window.localStorage.setItem(`cheya-chat-muted:${contact.uid}`, next ? "1" : "0");
       setMuted(next);
+      mutedRef.current = next;
       setMenuOpen(false);
       showToast(next ? "Notifikasi browser percakapan dibisukan." : "Notifikasi browser percakapan aktif.");
     } catch (error) {
@@ -424,7 +427,9 @@ export function DirectChatRoomClient({
 
   useEffect(() => {
     try {
-      setMuted(window.localStorage.getItem(`cheya-chat-muted:${contact.uid}`) === "1");
+      const value = window.localStorage.getItem(`cheya-chat-muted:${contact.uid}`) === "1";
+      setMuted(value);
+      mutedRef.current = value;
     } catch (error) {
       console.error("[direct-chat] notification preference unavailable:", error);
     }
@@ -667,6 +672,8 @@ export function DirectChatRoomClient({
           (incoming.sender_uid === contact.uid && incoming.recipient_uid === myUid))
       ) {
         if (messagesRef.current.some((message) => message.id === incoming.id)) return;
+        const isFromContact =
+          incoming.sender_uid === contact.uid && incoming.recipient_uid === myUid;
         setMessages((current) => {
           const index = current.findIndex((message) => message.id === incoming.id);
           if (index >= 0) {
@@ -679,6 +686,9 @@ export function DirectChatRoomClient({
           );
         });
         void refreshMessages();
+        if (isFromContact && !mutedRef.current) {
+          playReceiveSound();
+        }
         if (incoming.recipient_uid === myUid && document.visibilityState === "hidden") {
           if (!muted && typeof Notification !== "undefined" && Notification.permission === "granted") {
             try {
@@ -737,6 +747,7 @@ export function DirectChatRoomClient({
     const content = text.trim();
     if (!content || sending) return;
     stopTyping();
+    playSendSound();
     const replySnapshot = replyingTo;
     setSending(true);
     setText("");
