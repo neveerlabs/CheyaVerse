@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -122,6 +122,31 @@ function chatPreviewText(content: string): string {
     .trim();
 }
 
+function formatDateSeparator(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const now = new Date();
+  const startOfDay = (d: Date) =>
+    new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const todayStart = startOfDay(now);
+  const messageStart = startOfDay(date);
+  const diffDays = Math.round((todayStart - messageStart) / 86_400_000);
+
+  if (diffDays <= 0) return "Today";
+  if (diffDays === 1) return "Yesterday";
+  if (diffDays < 7) {
+    return date.toLocaleDateString("id-ID", { weekday: "long" });
+  }
+  if (date.getFullYear() === now.getFullYear()) {
+    return date.toLocaleDateString("id-ID", { day: "numeric", month: "long" });
+  }
+  return date.toLocaleDateString("id-ID", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
+
 function computeUserDisplayName(user: TelegramUser | null): string {
   if (!user) return "Anda";
   const full = [user.first_name, user.last_name].filter(Boolean).join(" ").trim();
@@ -186,6 +211,7 @@ export function ChatRoomClient({
   const router = useRouter();
   const DRAFT_KEY = `cheya-draft:${uid}:system`;
   const draftReadyRef = useRef(false);
+  const sheetRef = useRef<ChatItem | null>(null);
   const swipeRef = useRef<{
     id: string;
     mine: boolean;
@@ -407,6 +433,10 @@ export function ChatRoomClient({
   );
 
   useEffect(() => {
+    sheetRef.current = selectedChatItem;
+  }, [selectedChatItem]);
+
+  useEffect(() => {
     const viewportElement = window.visualViewport;
     if (!viewportElement) {
       setViewport({ top: 0, height: 0, keyboard: false, keyboardInset: 0 });
@@ -526,6 +556,10 @@ export function ChatRoomClient({
     if (typeof window === "undefined") return;
     window.history.pushState({ chatRoom: true }, "", window.location.href);
     const onPopState = () => {
+      if (sheetRef.current) {
+        setSelectedChatItem(null);
+        return;
+      }
       router.replace(`/${uid}/chat`);
     };
     window.addEventListener("popstate", onPopState);
@@ -533,6 +567,12 @@ export function ChatRoomClient({
       window.removeEventListener("popstate", onPopState);
     };
   }, [uid, router]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!selectedChatItem) return;
+    window.history.pushState({ chatSheet: true }, "", window.location.href);
+  }, [selectedChatItem]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1202,6 +1242,8 @@ export function ChatRoomClient({
     </footer>
   );
 
+  let previousDayKey = "";
+
   return (
     <>
       {mounted && createPortal(header, document.body)}
@@ -1327,68 +1369,79 @@ export function ChatRoomClient({
               const isSwiping = swipe?.id === item.id;
               const swipeOffset = isSwiping ? swipe!.offset : 0;
               const swipeProgress = Math.min(1, Math.abs(swipeOffset) / SWIPE_TRIGGER);
+              const dayKey = new Date(item.created_at).toDateString();
+              const showDaySeparator = dayKey !== previousDayKey;
+              previousDayKey = dayKey;
               return (
-                <div
-                  key={item.id}
-                  id={item.id}
-                  className="relative w-full min-w-0"
-                  style={{ touchAction: "pan-y" }}
-                >
-                  {isSwiping && (
-                    <span
-                      className="pointer-events-none absolute top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-ink text-white shadow-[0_2px_8px_rgba(0,0,0,.15)]"
-                      style={{
-                        left: swipeOffset > 0 ? 6 : undefined,
-                        right: swipeOffset < 0 ? 6 : undefined,
-                        opacity: swipeProgress,
-                        transform: `translateY(-50%) scale(${0.75 + swipeProgress * 0.25})`,
-                      }}
-                    >
-                      <Reply size={15} strokeWidth={2.4} />
-                    </span>
+                <Fragment key={item.id}>
+                  {showDaySeparator && (
+                    <div className="my-2 flex items-center justify-center">
+                      <span className="rounded-full bg-[#eef0f2] px-3 py-1 text-[11px] font-semibold tracking-[-.005em] text-ink-mute">
+                        {formatDateSeparator(item.created_at)}
+                      </span>
+                    </div>
                   )}
                   <div
-                    style={{
-                      transform: isSwiping ? `translate3d(${swipeOffset}px, 0, 0)` : undefined,
-                      transition: isSwiping ? "none" : "transform 200ms cubic-bezier(.2,.8,.2,1)",
-                      willChange: "transform",
-                    }}
+                    id={item.id}
+                    className="relative w-full min-w-0"
+                    style={{ touchAction: "pan-y" }}
                   >
-                    <ChatMessageBubble
-                      outgoing={isUser}
-                      avatarUrl={isUser ? `/api/avatar/${uid}` : "/icon.png"}
-                      content={item.deleted_at ? "Pesan dihapus" : item.content}
-                      richText={item.sender === "bot" && !item.deleted_at}
-                      timestamp={chatMessageTime(item.created_at)}
-                      status={
-                        <StatusIcon
-                          pending={item._pending}
-                          deliveredAt={item.delivered_at}
-                          readAt={item.read_at}
-                        />
-                      }
-                      label={`Pesan dari ${isUser ? "Anda" : "CheyaVerse"}`}
-                      pending={item._pending}
-                      deleted={Boolean(item.deleted_at)}
-                      edited={Boolean(item.edited_at && !item.deleted_at)}
-                      pinned={item.is_pinned}
-                      highlight={highlightedId === item.id}
-                      prefix={prefix}
-                      onPointerDown={(event) => {
-                        if (!item._pending) startChatItemPress(event, item);
+                    {isSwiping && (
+                      <span
+                        className="pointer-events-none absolute top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-ink text-white shadow-[0_2px_8px_rgba(0,0,0,.15)]"
+                        style={{
+                          left: swipeOffset > 0 ? 6 : undefined,
+                          right: swipeOffset < 0 ? 6 : undefined,
+                          opacity: swipeProgress,
+                          transform: `translateY(-50%) scale(${0.75 + swipeProgress * 0.25})`,
+                        }}
+                      >
+                        <Reply size={15} strokeWidth={2.4} />
+                      </span>
+                    )}
+                    <div
+                      style={{
+                        transform: isSwiping ? `translate3d(${swipeOffset}px, 0, 0)` : undefined,
+                        transition: isSwiping ? "none" : "transform 200ms cubic-bezier(.2,.8,.2,1)",
+                        willChange: "transform",
                       }}
-                      onPointerMove={moveChatItemPress}
-                      onPointerUp={(event) => stopChatItemPress(event)}
-                      onPointerCancel={(event) => stopChatItemPress(event)}
-                      onContextMenu={(event) => {
-                        event.preventDefault();
-                        if (item._pending) return;
-                        longPressTriggeredAtRef.current = Date.now();
-                        setSelectedChatItem(item);
-                      }}
-                    />
+                    >
+                      <ChatMessageBubble
+                        outgoing={isUser}
+                        avatarUrl={isUser ? `/api/avatar/${uid}` : "/icon.png"}
+                        content={item.deleted_at ? "Pesan dihapus" : item.content}
+                        richText={item.sender === "bot" && !item.deleted_at}
+                        timestamp={chatMessageTime(item.created_at)}
+                        status={
+                          <StatusIcon
+                            pending={item._pending}
+                            deliveredAt={item.delivered_at}
+                            readAt={item.read_at}
+                          />
+                        }
+                        label={`Pesan dari ${isUser ? "Anda" : "CheyaVerse"}`}
+                        pending={item._pending}
+                        deleted={Boolean(item.deleted_at)}
+                        edited={Boolean(item.edited_at && !item.deleted_at)}
+                        pinned={item.is_pinned}
+                        highlight={highlightedId === item.id}
+                        prefix={prefix}
+                        onPointerDown={(event) => {
+                          if (!item._pending) startChatItemPress(event, item);
+                        }}
+                        onPointerMove={moveChatItemPress}
+                        onPointerUp={(event) => stopChatItemPress(event)}
+                        onPointerCancel={(event) => stopChatItemPress(event)}
+                        onContextMenu={(event) => {
+                          event.preventDefault();
+                          if (item._pending) return;
+                          longPressTriggeredAtRef.current = Date.now();
+                          setSelectedChatItem(item);
+                        }}
+                      />
+                    </div>
                   </div>
-                </div>
+                </Fragment>
               );
             })
           )}

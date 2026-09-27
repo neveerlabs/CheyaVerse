@@ -35,6 +35,14 @@ export default async function ChatRoomPage({
       listDirectMessages(uid, contactUid),
       getTelegramUser(uid),
     ]);
+    const firstUnreadMessage = messages.find(
+      (message) =>
+        message.sender_uid === contactUid &&
+        message.recipient_uid === uid &&
+        message.read_at === null &&
+        message.deleted_at === null,
+    );
+    const firstUnreadId = firstUnreadMessage?.id ?? null;
     const ownName = currentUser
       ? [currentUser.first_name, currentUser.last_name]
           .filter(Boolean)
@@ -63,6 +71,7 @@ export default async function ChatRoomPage({
         }}
         ownPhotoUrl={currentUser?.photo_url ?? null}
         ownName={ownName}
+        firstUnreadId={firstUnreadId}
         initialMessages={messages}
       />
     );

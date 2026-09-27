@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowDown,
   ArrowLeft,
@@ -71,6 +71,31 @@ function formatPresence(lastSeen: number | null): string {
   return `terakhir online ${days} hari lalu`;
 }
 
+function formatDateSeparator(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const now = new Date();
+  const startOfDay = (d: Date) =>
+    new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const todayStart = startOfDay(now);
+  const messageStart = startOfDay(date);
+  const diffDays = Math.round((todayStart - messageStart) / 86_400_000);
+
+  if (diffDays <= 0) return "Today";
+  if (diffDays === 1) return "Yesterday";
+  if (diffDays < 7) {
+    return date.toLocaleDateString("id-ID", { weekday: "long" });
+  }
+  if (date.getFullYear() === now.getFullYear()) {
+    return date.toLocaleDateString("id-ID", { day: "numeric", month: "long" });
+  }
+  return date.toLocaleDateString("id-ID", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
+
 function StatusIcon({
   message,
   pending,
@@ -97,12 +122,14 @@ export function DirectChatRoomClient({
   contact,
   ownPhotoUrl,
   ownName,
+  firstUnreadId,
   initialMessages,
 }: {
   uid: string;
   contact: ChatContact;
   ownPhotoUrl: string | null;
   ownName: string;
+  firstUnreadId: string | null;
   initialMessages: DirectMessage[];
 }) {
   const myUid = Number(uid);
@@ -133,6 +160,7 @@ export function DirectChatRoomClient({
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [swipe, setSwipe] = useState<{ id: string; offset: number } | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const [unreadMarkerId] = useState<string | null>(firstUnreadId);
   const [, setPresenceClock] = useState(0);
   const presenceLabel = contactTyping ? "mengetik..." : formatPresence(contactLastSeen);
   const [viewport, setViewport] = useState<ViewportState>({
@@ -158,6 +186,7 @@ export function DirectChatRoomClient({
   const longPressTimerRef = useRef<number | null>(null);
   const longPressTriggeredAtRef = useRef(0);
   const pressOriginRef = useRef({ x: 0, y: 0 });
+  const sheetRef = useRef<DirectMessage | null>(null);
   const swipeRef = useRef<{
     id: string;
     mine: boolean;
@@ -436,6 +465,10 @@ export function DirectChatRoomClient({
   }, [contact.uid]);
 
   useEffect(() => {
+    sheetRef.current = selectedMessage;
+  }, [selectedMessage]);
+
+  useEffect(() => {
     const viewportElement = window.visualViewport;
     if (!viewportElement) {
       setViewport({ top: 0, height: 0, keyboard: false, keyboardInset: 0 });
@@ -592,6 +625,10 @@ export function DirectChatRoomClient({
     if (typeof window === "undefined") return;
     window.history.pushState({ chatRoom: true }, "", window.location.href);
     const onPopState = () => {
+      if (sheetRef.current) {
+        setSelectedMessage(null);
+        return;
+      }
       router.replace(`/${uid}/chat`);
     };
     window.addEventListener("popstate", onPopState);
@@ -599,6 +636,12 @@ export function DirectChatRoomClient({
       window.removeEventListener("popstate", onPopState);
     };
   }, [uid, router]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!selectedMessage) return;
+    window.history.pushState({ chatSheet: true }, "", window.location.href);
+  }, [selectedMessage]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1123,6 +1166,8 @@ export function DirectChatRoomClient({
     </footer>
   );
 
+  let previousDayKey = "";
+
   return (
     <>
       {mounted && createPortal(header, document.body)}
@@ -1269,63 +1314,85 @@ export function DirectChatRoomClient({
               const isSwiping = swipe?.id === message.id;
               const swipeOffset = isSwiping ? swipe!.offset : 0;
               const swipeProgress = Math.min(1, Math.abs(swipeOffset) / SWIPE_TRIGGER);
+              const dayKey = new Date(message.created_at).toDateString();
+              const showDaySeparator = dayKey !== previousDayKey;
+              previousDayKey = dayKey;
+              const showUnreadSeparator =
+                unreadMarkerId !== null && message.id === unreadMarkerId;
               return (
-                <div
-                  key={message.id}
-                  id={`direct-message-${message.id}`}
-                  className="relative w-full min-w-0"
-                  style={{ touchAction: "pan-y" }}
-                >
-                  {isSwiping && (
-                    <span
-                      className="pointer-events-none absolute top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-ink text-white shadow-[0_2px_8px_rgba(0,0,0,.15)]"
-                      style={{
-                        left: swipeOffset > 0 ? 6 : undefined,
-                        right: swipeOffset < 0 ? 6 : undefined,
-                        opacity: swipeProgress,
-                        transform: `translateY(-50%) scale(${0.75 + swipeProgress * 0.25})`,
-                      }}
-                    >
-                      <Reply size={15} strokeWidth={2.4} />
-                    </span>
+                <Fragment key={message.id}>
+                  {showDaySeparator && (
+                    <div className="my-2 flex items-center justify-center">
+                      <span className="rounded-full bg-[#eef0f2] px-3 py-1 text-[11px] font-semibold tracking-[-.005em] text-ink-mute">
+                        {formatDateSeparator(message.created_at)}
+                      </span>
+                    </div>
+                  )}
+                  {showUnreadSeparator && (
+                    <div className="my-2 flex items-center gap-3 px-1">
+                      <span className="h-px flex-1 bg-danger/30" />
+                      <span className="rounded-full bg-danger/10 px-3 py-1 text-[10.5px] font-bold uppercase tracking-[.08em] text-danger">
+                        Unread messages
+                      </span>
+                      <span className="h-px flex-1 bg-danger/30" />
+                    </div>
                   )}
                   <div
-                    style={{
-                      transform: isSwiping ? `translate3d(${swipeOffset}px, 0, 0)` : undefined,
-                      transition: isSwiping ? "none" : "transform 200ms cubic-bezier(.2,.8,.2,1)",
-                      willChange: "transform",
-                    }}
+                    id={`direct-message-${message.id}`}
+                    className="relative w-full min-w-0"
+                    style={{ touchAction: "pan-y" }}
                   >
-                    <ChatMessageBubble
-                      outgoing={mine}
-                      avatarUrl={
-                        mine
-                          ? ownPhotoUrl || `/api/avatar/${myUid}`
-                          : contact.photo_url || `/api/avatar/${contact.uid}`
-                      }
-                      content={content}
-                      timestamp={chatMessageTime(message.created_at)}
-                      status={<StatusIcon message={message} pending={isPending} />}
-                      prefix={prefix}
-                      edited={Boolean(message.edited_at && !message.deleted_at)}
-                      pinned={Boolean(message.is_pinned)}
-                      deleted={Boolean(message.deleted_at)}
-                      pending={isPending}
-                      highlight={highlightedId === message.id}
-                      label={`Pesan dari ${mine ? "Anda" : name}`}
-                      onPointerDown={(event) => startMessagePress(event, message)}
-                      onPointerMove={moveMessagePress}
-                      onPointerUp={(event) => stopMessagePress(event)}
-                      onPointerCancel={(event) => stopMessagePress(event)}
-                      onContextMenu={(event) => {
-                        event.preventDefault();
-                        if (isPending) return;
-                        longPressTriggeredAtRef.current = Date.now();
-                        setSelectedMessage(message);
+                    {isSwiping && (
+                      <span
+                        className="pointer-events-none absolute top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-ink text-white shadow-[0_2px_8px_rgba(0,0,0,.15)]"
+                        style={{
+                          left: swipeOffset > 0 ? 6 : undefined,
+                          right: swipeOffset < 0 ? 6 : undefined,
+                          opacity: swipeProgress,
+                          transform: `translateY(-50%) scale(${0.75 + swipeProgress * 0.25})`,
+                        }}
+                      >
+                        <Reply size={15} strokeWidth={2.4} />
+                      </span>
+                    )}
+                    <div
+                      style={{
+                        transform: isSwiping ? `translate3d(${swipeOffset}px, 0, 0)` : undefined,
+                        transition: isSwiping ? "none" : "transform 200ms cubic-bezier(.2,.8,.2,1)",
+                        willChange: "transform",
                       }}
-                    />
+                    >
+                      <ChatMessageBubble
+                        outgoing={mine}
+                        avatarUrl={
+                          mine
+                            ? ownPhotoUrl || `/api/avatar/${myUid}`
+                            : contact.photo_url || `/api/avatar/${contact.uid}`
+                        }
+                        content={content}
+                        timestamp={chatMessageTime(message.created_at)}
+                        status={<StatusIcon message={message} pending={isPending} />}
+                        prefix={prefix}
+                        edited={Boolean(message.edited_at && !message.deleted_at)}
+                        pinned={Boolean(message.is_pinned)}
+                        deleted={Boolean(message.deleted_at)}
+                        pending={isPending}
+                        highlight={highlightedId === message.id}
+                        label={`Pesan dari ${mine ? "Anda" : name}`}
+                        onPointerDown={(event) => startMessagePress(event, message)}
+                        onPointerMove={moveMessagePress}
+                        onPointerUp={(event) => stopMessagePress(event)}
+                        onPointerCancel={(event) => stopMessagePress(event)}
+                        onContextMenu={(event) => {
+                          event.preventDefault();
+                          if (isPending) return;
+                          longPressTriggeredAtRef.current = Date.now();
+                          setSelectedMessage(message);
+                        }}
+                      />
+                    </div>
                   </div>
-                </div>
+                </Fragment>
               );
             })
           )}
