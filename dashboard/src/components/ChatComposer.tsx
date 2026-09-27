@@ -8,7 +8,9 @@ import type {
   RefObject,
   ReactNode,
 } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Mic, Send } from "lucide-react";
+import { renderMarkdownInline } from "@/lib/markdown";
 
 type ChatComposerProps = {
   value: string;
@@ -28,6 +30,12 @@ type ChatComposerProps = {
   style?: CSSProperties;
 };
 
+const MIRROR_CLASS =
+  "pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-[14px] leading-[22px] tracking-[-.005em] text-ink [overflow-wrap:anywhere] [&_strong]:font-bold [&_em]:italic [&_s]:line-through [&_a]:underline";
+
+const TEXTAREA_CLASS =
+  "relative z-10 block w-full resize-none overflow-y-auto bg-transparent p-0 text-[14px] leading-[22px] tracking-[-.005em] text-transparent caret-ink outline-none placeholder:text-ink-mute [overflow-wrap:anywhere]";
+
 export function ChatComposer({
   value,
   sending,
@@ -46,8 +54,46 @@ export function ChatComposer({
   style,
 }: ChatComposerProps) {
   const hasText = value.trim().length > 0;
+  const mirrorRef = useRef<HTMLDivElement | null>(null);
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(pointer: coarse)");
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+
+  useEffect(() => {
+    const ta = inputRef.current;
+    const mirror = mirrorRef.current;
+    if (!ta || !mirror) return;
+    const sync = () => {
+      mirror.scrollTop = ta.scrollTop;
+      mirror.scrollLeft = ta.scrollLeft;
+    };
+    ta.addEventListener("scroll", sync);
+    return () => ta.removeEventListener("scroll", sync);
+  }, [inputRef]);
+
+  const mirrorHtml = useMemo(() => {
+    if (!value) return "";
+    return renderMarkdownInline(value);
+  }, [value]);
 
   function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    onSend();
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    onKeyDown?.(event);
+    if (event.defaultPrevented) return;
+    if (event.key !== "Enter") return;
+    if (event.shiftKey) return;
+    if (isMobile) return;
     event.preventDefault();
     onSend();
   }
@@ -63,23 +109,31 @@ export function ChatComposer({
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-[22px] border border-line bg-white">
           {reply}
           <div className="flex min-h-11 w-full items-end px-3 py-1.5">
-            <textarea
-              ref={inputRef}
-              rows={1}
-              placeholder={placeholder}
-              enterKeyHint="send"
-              value={value}
-              onChange={(event) => onChange(event.target.value)}
-              onInput={onInput}
-              onKeyDown={onKeyDown}
-              className="min-h-7 min-w-0 flex-1 resize-none overflow-y-auto bg-transparent p-0 text-[14px] leading-[22px] tracking-[-.005em] text-ink outline-none placeholder:text-ink-mute [overflow-wrap:anywhere]"
-              style={{
-                maxHeight: 120,
-                fontFamily: "inherit",
-                touchAction: "auto",
-                overscrollBehavior: "contain",
-              }}
-            />
+            <div className="relative min-w-0 flex-1">
+              <div
+                ref={mirrorRef}
+                aria-hidden
+                className={MIRROR_CLASS}
+                dangerouslySetInnerHTML={{ __html: mirrorHtml || "&nbsp;" }}
+              />
+              <textarea
+                ref={inputRef}
+                rows={1}
+                placeholder={placeholder}
+                enterKeyHint={isMobile ? "enter" : "send"}
+                value={value}
+                onChange={(event) => onChange(event.target.value)}
+                onInput={onInput}
+                onKeyDown={handleKeyDown}
+                className={TEXTAREA_CLASS}
+                style={{
+                  maxHeight: 120,
+                  fontFamily: "inherit",
+                  touchAction: "auto",
+                  overscrollBehavior: "contain",
+                }}
+              />
+            </div>
             {onToggleDictation && (
               <button
                 type="button"
@@ -88,7 +142,11 @@ export function ChatComposer({
                 onClick={onToggleDictation}
                 className="ml-2 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-ink-soft active:bg-[#f2f3f5]"
               >
-                <Mic size={17} strokeWidth={2.2} className={dictating ? "text-danger" : ""} />
+                <Mic
+                  size={17}
+                  strokeWidth={2.2}
+                  className={dictating ? "text-danger" : ""}
+                />
               </button>
             )}
           </div>

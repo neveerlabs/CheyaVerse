@@ -2,8 +2,12 @@
 
 import type { ReactNode, PointerEventHandler } from "react";
 import type { MouseEventHandler } from "react";
+import { useMemo } from "react";
 import { Pin } from "lucide-react";
 import { TelegramAvatar } from "@/components/TelegramAvatar";
+import { LinkPreview } from "@/components/LinkPreview";
+import { extractFirstUrl } from "@/lib/link-preview";
+import { renderMarkdown } from "@/lib/markdown";
 
 export function chatMessageTime(iso: string): string {
   const date = new Date(iso);
@@ -25,6 +29,8 @@ type ChatMessageBubbleProps = {
   pinned?: boolean;
   deleted?: boolean;
   richText?: boolean;
+  markdown?: boolean;
+  linkPreview?: boolean;
   pending?: boolean;
   highlight?: boolean;
   label: string;
@@ -46,6 +52,8 @@ export function ChatMessageBubble({
   pinned = false,
   deleted = false,
   richText = false,
+  markdown = false,
+  linkPreview = false,
   pending = false,
   highlight = false,
   label,
@@ -63,6 +71,21 @@ export function ChatMessageBubble({
       {outgoing && status}
     </>
   );
+
+  const markdownHtml = useMemo(() => {
+    if (!markdown) return null;
+    if (deleted) return null;
+    return renderMarkdown(content);
+  }, [markdown, deleted, content]);
+
+  const previewUrl = useMemo(() => {
+    if (!linkPreview || deleted || richText) return null;
+    return extractFirstUrl(content);
+  }, [linkPreview, deleted, richText, content]);
+
+  const markdownClass = outgoing
+    ? "[&_a]:underline [&_a]:text-white [&_code]:rounded [&_code]:bg-white/15 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[12.5px] [&_code]:font-mono [&_strong]:font-semibold [&_em]:italic [&_s]:line-through"
+    : "[&_a]:underline [&_a]:text-ink [&_code]:rounded [&_code]:bg-black/10 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[12.5px] [&_code]:font-mono [&_strong]:font-semibold [&_em]:italic [&_s]:line-through";
 
   return (
     <div
@@ -93,6 +116,9 @@ export function ChatMessageBubble({
           }`}
         >
           {prefix}
+          {previewUrl && (
+            <LinkPreview url={previewUrl} tone={outgoing ? "outgoing" : "incoming"} />
+          )}
           <span className="relative inline-block w-full align-top">
             {richText ? (
               <span
@@ -104,6 +130,11 @@ export function ChatMessageBubble({
                       : "text-ink-soft [&_b]:font-semibold [&_b]:text-ink [&_i]:italic [&_a]:text-ink [&_a]:underline"
                 }`}
                 dangerouslySetInnerHTML={{ __html: content }}
+              />
+            ) : markdownHtml !== null ? (
+              <span
+                className={`inline whitespace-pre-wrap break-words text-[13.5px] leading-[1.4] ${markdownClass}`}
+                dangerouslySetInnerHTML={{ __html: markdownHtml }}
               />
             ) : (
               <span

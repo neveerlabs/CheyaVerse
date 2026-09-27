@@ -1105,12 +1105,6 @@ export function DirectChatRoomClient({
           event.currentTarget.style.height = "auto";
           event.currentTarget.style.height = `${Math.min(event.currentTarget.scrollHeight, 120)}px`;
         }}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" && !event.shiftKey) {
-            event.preventDefault();
-            void sendMessage();
-          }
-        }}
         reply={
           replyingTo ? (
             <div className="relative flex items-stretch gap-2.5 border-b border-line bg-gradient-to-r from-[#f6f6f6] to-[#fafafa] px-3 py-2 pr-10">
@@ -1236,8 +1230,8 @@ export function DirectChatRoomClient({
               const mine = message.sender_uid === myUid;
               const isPending = pendingIdsRef.current.has(message.id);
               const reply = message.reply_to_id
-              ? messages.find((item) => item.id === message.reply_to_id) ?? null
-              : null;
+                ? messages.find((item) => item.id === message.reply_to_id) ?? null
+                : null;
               const repliedName = repliedSenderName(reply);
               const replyPreview = reply?.media_file_id
                 ? "Pesan suara tidak didukung"
@@ -1378,6 +1372,8 @@ export function DirectChatRoomClient({
                         deleted={Boolean(message.deleted_at)}
                         pending={isPending}
                         highlight={highlightedId === message.id}
+                        markdown={!message.deleted_at && !message.media_file_id}
+                        linkPreview={!message.deleted_at && !message.media_file_id}
                         label={`Pesan dari ${mine ? "Anda" : name}`}
                         onPointerDown={(event) => startMessagePress(event, message)}
                         onPointerMove={moveMessagePress}

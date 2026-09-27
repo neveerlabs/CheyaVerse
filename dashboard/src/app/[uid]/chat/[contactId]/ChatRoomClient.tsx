@@ -1075,13 +1075,6 @@ export function ChatRoomClient({
     }
   }
 
-  function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      void sendMessage();
-    }
-  }
-
   const vvApplied = viewport.keyboard ? vvOffset : 0;
   const footerBottom = viewport.keyboard
     ? Math.max(0, viewport.keyboardInset - vvOffset)
@@ -1188,7 +1181,6 @@ export function ChatRoomClient({
         onChange={handleTextChange}
         onSend={() => void sendMessage()}
         onInput={autoGrow}
-        onKeyDown={onKeyDown}
         reply={
           replyingTo ? (
             <div className="relative flex items-stretch gap-2.5 border-b border-line bg-gradient-to-r from-[#f6f6f6] to-[#fafafa] px-3 py-2 pr-10">
@@ -1300,7 +1292,7 @@ export function ChatRoomClient({
               const reply = item.reply_to_id
                 ? chatItems.find(
                     (message) => message.replyTargetId === item.reply_to_id,
-                  )
+                  ) ?? null
                 : null;
               const repliedName = reply
                 ? reply.sender === "user"
@@ -1411,6 +1403,8 @@ export function ChatRoomClient({
                         avatarUrl={isUser ? `/api/avatar/${uid}` : "/icon.png"}
                         content={item.deleted_at ? "Pesan dihapus" : item.content}
                         richText={item.sender === "bot" && !item.deleted_at}
+                        markdown={item.sender === "user" && !item.deleted_at}
+                        linkPreview={!item.deleted_at}
                         timestamp={chatMessageTime(item.created_at)}
                         status={
                           <StatusIcon
