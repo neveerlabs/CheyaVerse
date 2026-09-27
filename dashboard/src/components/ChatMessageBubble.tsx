@@ -57,10 +57,10 @@ export function ChatMessageBubble({
 }: ChatMessageBubbleProps) {
   return (
     <div
-      className={`flex w-full min-w-0 items-end gap-2 ${outgoing ? "justify-end" : "justify-start"}`}
+      className={`flex w-full min-w-0 items-start gap-2 ${outgoing ? "justify-end" : "justify-start"}`}
     >
       {!outgoing && (
-        <span className="mb-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-[#f0f0f0]">
+        <span className="mt-1 flex h-8 w-8 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-[#f0f0f0]">
           <TelegramAvatar src={avatarUrl} />
         </span>
       )}
@@ -98,7 +98,7 @@ export function ChatMessageBubble({
             </span>
           )}
           <span
-            className={`ml-1 inline-flex items-center gap-1 whitespace-nowrap align-bottom text-[10px] ${
+            className={`float-right ml-2 mt-1 inline-flex items-center gap-1 whitespace-nowrap text-[10px] ${
               outgoing ? "text-white/70" : "text-ink-mute"
             }`}
           >
@@ -110,7 +110,7 @@ export function ChatMessageBubble({
         </div>
       </div>
       {outgoing && (
-        <span className="mb-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-[#f0f0f0]">
+        <span className="mt-1 flex h-8 w-8 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-[#f0f0f0]">
           <TelegramAvatar src={avatarUrl} />
         </span>
       )}

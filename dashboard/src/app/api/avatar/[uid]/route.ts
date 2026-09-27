@@ -23,9 +23,12 @@ export async function GET(
   }
 
   const headers = new Headers();
+  const upstreamContentType = upstream.headers.get("Content-Type");
   headers.set(
     "Content-Type",
-    upstream.headers.get("Content-Type") ?? "image/jpeg",
+    upstreamContentType?.startsWith("image/")
+      ? upstreamContentType
+      : "image/jpeg",
   );
   headers.set("Cache-Control", "public, max-age=1800, immutable");
 

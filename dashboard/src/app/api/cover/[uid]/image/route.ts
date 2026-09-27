@@ -18,7 +18,7 @@ export async function GET(
       headers: { "Cache-Control": "no-store" },
     });
   }
-  if (!(await getUserSession(req, uid))) {
+  if (!(await getUserSession(req))) {
     return new NextResponse("Unauthorized", { status: 401 });
   }
 

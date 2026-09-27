@@ -6,7 +6,6 @@ import {
   getPinnedDirectMessage,
   getTelegramUser,
   listDirectMessages,
-  markDirectMessagesDelivered,
   markDirectMessagesRead,
   isTelegramUserOnline,
 } from "@/lib/storage";
@@ -37,23 +36,18 @@ export async function GET(
   if (!contact) {
     return NextResponse.json({ ok: false, error: "account_not_found" }, { status: 404 });
   }
-  const deliveredAt = await markDirectMessagesDelivered(session.uid, contactUid);
   const readAt = await markDirectMessagesRead(session.uid, contactUid);
-  const items = await listDirectMessages(session.uid, contactUid);
+  const [items, pinned] = await Promise.all([
+    listDirectMessages(session.uid, contactUid),
+    getPinnedDirectMessage(session.uid, contactUid),
+  ]);
   if (readAt) {
     broadcastToUid(contactUid, {
       type: "direct-message:read",
       uid: session.uid,
       read_at: readAt,
     });
-  } else if (deliveredAt) {
-    broadcastToUid(contactUid, {
-      type: "direct-message:delivered",
-      uid: session.uid,
-      delivered_at: deliveredAt,
-    });
   }
-  const pinned = await getPinnedDirectMessage(session.uid, contactUid);
   return NextResponse.json({
     ok: true,
     contact: {

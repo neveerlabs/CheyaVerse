@@ -34,7 +34,7 @@ type Snapshot = {
   } | null;
 };
 
-const VISIBLE_MS = 2500;
+const VISIBLE_MS = 10000;
 const HIDDEN_MS = 30000;
 const BACKOFF_BASE_MS = 4000;
 const BACKOFF_MAX_MS = 30000;
@@ -59,6 +59,9 @@ export function useRealtime(
     let prev: Snapshot | null = null;
     let errCount = 0;
     let inflight: AbortController | null = null;
+    let streamConnected = false;
+    let streamErrorLogged = false;
+    let source: EventSource | null = null;
 
     const emit = (event: RealtimeEvent) => {
       try {
@@ -69,6 +72,7 @@ export function useRealtime(
     };
 
     const nextInterval = (): number => {
+      if (!streamConnected && errCount === 0) return 2500;
       if (errCount > 0) {
         return Math.min(
           BACKOFF_MAX_MS,
@@ -84,9 +88,7 @@ export function useRealtime(
     const tick = async () => {
       if (cancelled) return;
 
-      if (inflight) {
-        try { inflight.abort(); } catch {}
-      }
+      if (inflight) return;
       inflight = new AbortController();
       const ac = inflight;
 
@@ -166,6 +168,7 @@ export function useRealtime(
         if (name === "AbortError") return;
         errCount++;
       } finally {
+        if (inflight === ac) inflight = null;
         if (!cancelled) {
           timer = setTimeout(tick, nextInterval());
         }
@@ -185,6 +188,31 @@ export function useRealtime(
       if (e.persisted) kick();
     };
 
+    if (typeof EventSource !== "undefined") {
+      source = new EventSource(`/api/events?uid=${u}`);
+      source.onopen = () => {
+        streamConnected = true;
+        streamErrorLogged = false;
+        errCount = 0;
+      };
+      source.onmessage = (message) => {
+        try {
+          const event = JSON.parse(message.data) as RealtimeEvent;
+          if (typeof event.type === "string" && event.type !== "ready") emit(event);
+        } catch (err) {
+          console.error("[realtime] invalid event payload:", err);
+        }
+      };
+      source.onerror = () => {
+        streamConnected = false;
+        if (!streamErrorLogged) {
+          console.warn("[realtime] event stream disconnected; using polling fallback");
+          streamErrorLogged = true;
+        }
+        kick();
+      };
+    }
+
     window.addEventListener("pageshow", onPageShow);
     document.addEventListener("visibilitychange", onVisibility);
 
@@ -195,6 +223,7 @@ export function useRealtime(
       window.removeEventListener("pageshow", onPageShow);
       document.removeEventListener("visibilitychange", onVisibility);
       if (timer) clearTimeout(timer);
+      source?.close();
       if (inflight) {
         try { inflight.abort(); } catch {}
       }

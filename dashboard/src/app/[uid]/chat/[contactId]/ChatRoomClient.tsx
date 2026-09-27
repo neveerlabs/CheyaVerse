@@ -14,6 +14,12 @@ import {
   CheckCheck,
   Clock,
   Copy,
+  Forward,
+  Pin,
+  Pencil,
+  Reply,
+  Trash2,
+  UserRound,
 } from "lucide-react";
 import { useRealtime } from "@/lib/use-realtime";
 import { ChatComposer } from "@/components/ChatComposer";
@@ -30,6 +36,7 @@ type Notification = {
   device: string | null;
   read: number;
   created_at: string;
+  is_pinned: boolean;
 };
 
 type ChatMessage = {
@@ -42,6 +49,10 @@ type ChatMessage = {
   created_at: string;
   delivered_at: string | null;
   read_at: string | null;
+  edited_at: string | null;
+  deleted_at: string | null;
+  reply_to_id: string | null;
+  is_pinned: boolean;
 };
 
 type TelegramUser = {
@@ -57,12 +68,28 @@ type TelegramUser = {
 
 type ChatItem = {
   id: string;
+  messageId: string | null;
+  notificationId: string | null;
+  replyTargetId: string | null;
   sender: "user" | "bot";
   content: string;
   created_at: string;
   delivered_at: string | null;
   read_at: string | null;
+  edited_at: string | null;
+  deleted_at: string | null;
+  reply_to_id: string | null;
+  is_pinned: boolean;
+  source: "message" | "notification";
   _pending: boolean;
+};
+
+type ForwardUser = {
+  uid: number;
+  username: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  photo_url: string | null;
 };
 
 type Recognition = {
@@ -84,6 +111,20 @@ type RecognitionWindow = Window & {
 };
 
 const MARK_READ_THROTTLE_MS = 400;
+
+function chatPreviewText(content: string): string {
+  return content
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(?:p|div|li)>/gi, "\n")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .trim();
+}
 
 function computeUserDisplayName(user: TelegramUser | null): string {
   if (!user) return "Anda";
@@ -131,6 +172,10 @@ export function ChatRoomClient({
   const [mounted, setMounted] = useState(false);
   const [revealed, setRevealed] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
+  const [hiddenNotificationIds, setHiddenNotificationIds] = useState<Set<string>>(() => new Set());
+  const [pinnedNotificationIds, setPinnedNotificationIds] = useState<Set<string>>(
+    () => new Set(notifications.filter((item) => item.is_pinned).map((item) => item.id)),
+  );
   const initialMessagesRef = useRef(initialMessages);
   const [pending, setPending] = useState<Set<string>>(() => new Set());
   const [text, setText] = useState("");
@@ -140,11 +185,26 @@ export function ChatRoomClient({
   const [searchText, setSearchText] = useState("");
   const [recording, setRecording] = useState(false);
   const [selectedChatItem, setSelectedChatItem] = useState<ChatItem | null>(null);
+  const [replyingTo, setReplyingTo] = useState<ChatItem | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [forwardOpen, setForwardOpen] = useState(false);
+  const [forwardQuery, setForwardQuery] = useState("");
+  const [forwardUsers, setForwardUsers] = useState<ForwardUser[]>([]);
+  const [forwardLoading, setForwardLoading] = useState(false);
+  const [toast, setToast] = useState("");
+  const menuRootRef = useRef<HTMLElement | null>(null);
   const recognitionRef = useRef<Recognition | null>(null);
   const voiceBaseTextRef = useRef("");
   const longPressTimerRef = useRef<number | null>(null);
   const longPressTriggeredAtRef = useRef(0);
   const pressOriginRef = useRef({ x: 0, y: 0 });
+  const toastTimerRef = useRef<number | null>(null);
+
+  function showToast(message: string) {
+    setToast(message);
+    if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = window.setTimeout(() => setToast(""), 2600);
+  }
 
   const markReadRef = useRef<(() => void) | null>(null);
   const lastMarkReadAtRef = useRef(0);
@@ -189,9 +249,10 @@ export function ChatRoomClient({
       if (!plainText) throw new Error("Pesan tidak berisi teks yang dapat disalin.");
       await navigator.clipboard.writeText(plainText);
       setSelectedChatItem(null);
+      showToast("Pesan disalin.");
     } catch (error) {
       console.error("[chat-room] clipboard write failed:", error);
-      window.alert("Pesan tidak dapat disalin. Periksa izin clipboard browser.");
+      showToast("Pesan tidak dapat disalin. Periksa izin clipboard browser.");
     }
   }
 
@@ -215,6 +276,22 @@ export function ChatRoomClient({
     return () => window.clearTimeout(t);
   }, []);
 
+  useEffect(() => {
+    if (!menuOpen) return;
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (!menuRootRef.current?.contains(event.target as Node)) setMenuOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointer);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [menuOpen]);
+
   useEffect(
     () => () => {
       if (recognitionRef.current) {
@@ -225,6 +302,7 @@ export function ChatRoomClient({
         }
       }
       if (longPressTimerRef.current !== null) window.clearTimeout(longPressTimerRef.current);
+      if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
     },
     [],
   );
@@ -288,6 +366,59 @@ export function ChatRoomClient({
       }
       return;
     }
+    if (event.type === "message:updated") {
+      const incoming = event.message as ChatMessage | undefined;
+      if (incoming) {
+        setMessages((prev) =>
+          prev.map((message) => message.id === incoming.id ? { ...message, ...incoming } : message),
+        );
+      }
+      return;
+    }
+    if (event.type === "message:deleted") {
+      const messageId = typeof event.messageId === "string" ? event.messageId : "";
+      if (!messageId) return;
+      setMessages((prev) =>
+        prev.map((message) => message.id === messageId
+          ? { ...message, content: "", deleted_at: new Date().toISOString() }
+          : message),
+      );
+      return;
+    }
+    if (event.type === "message:hidden") {
+      const messageId = typeof event.messageId === "string" ? event.messageId : "";
+      if (messageId) setMessages((prev) => prev.filter((message) => message.id !== messageId));
+      return;
+    }
+    if (event.type === "message:pinned") {
+      const messageId = typeof event.messageId === "string" ? event.messageId : "";
+      const pinned = event.pinned === true;
+      if (messageId) {
+        setMessages((prev) => prev.map((message) =>
+          message.id === messageId ? { ...message, is_pinned: pinned } : message,
+        ));
+      }
+      return;
+    }
+    if (event.type === "notification:deleted") {
+      const notificationId = typeof event.notificationId === "string" ? event.notificationId : "";
+      if (notificationId) {
+        setHiddenNotificationIds((current) => new Set(current).add(notificationId));
+      }
+      return;
+    }
+    if (event.type === "notification:pinned") {
+      const notificationId = typeof event.notificationId === "string" ? event.notificationId : "";
+      if (notificationId) {
+        setPinnedNotificationIds((current) => {
+          const next = new Set(current);
+          if (event.pinned === true) next.add(notificationId);
+          else next.delete(notificationId);
+          return next;
+        });
+      }
+      return;
+    }
     if (event.type === "message:delivered") {
       const id = typeof event.messageId === "string" ? event.messageId : "";
       const deliveredAt =
@@ -325,27 +456,45 @@ export function ChatRoomClient({
   useEffect(() => {
     const vv = window.visualViewport;
     const root = document.documentElement;
+    let frame = 0;
     const update = () => {
-      const layoutHeight = window.innerHeight || document.documentElement.clientHeight;
-      const visualHeight = vv?.height ?? layoutHeight;
-      const visualTop = vv?.offsetTop ?? 0;
-      const keyboardInset = Math.max(0, layoutHeight - visualHeight - visualTop);
-      root.style.setProperty("--chat-vv-top", `${Math.max(0, visualTop)}px`);
-      root.style.setProperty("--chat-vv-height", `${Math.max(1, visualHeight)}px`);
-      root.style.setProperty("--chat-kb", `${keyboardInset}px`);
-      root.style.setProperty(
-        "--chat-footer-pad",
-        keyboardInset > 120 ? "8px" : "calc(8px + env(safe-area-inset-bottom))",
-      );
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        const layoutHeight = window.innerHeight || document.documentElement.clientHeight;
+        const visualHeight = vv?.height ?? layoutHeight;
+        const isEditing =
+          document.activeElement instanceof HTMLInputElement ||
+          document.activeElement instanceof HTMLTextAreaElement;
+        const keyboardInset =
+          isEditing && layoutHeight - visualHeight > 120
+            ? Math.max(0, layoutHeight - visualHeight)
+            : 0;
+        root.style.setProperty("--chat-vv-top", "0px");
+        root.style.setProperty(
+          "--chat-vv-height",
+          keyboardInset > 0 ? `${Math.max(1, visualHeight)}px` : "100dvh",
+        );
+        root.style.setProperty("--chat-kb", `${keyboardInset}px`);
+        root.style.setProperty(
+          "--chat-footer-pad",
+          keyboardInset > 0 ? "8px" : "calc(8px + env(safe-area-inset-bottom))",
+        );
+      });
     };
     update();
     vv?.addEventListener("resize", update);
     vv?.addEventListener("scroll", update);
+    document.addEventListener("focusin", update);
+    document.addEventListener("focusout", update);
     window.addEventListener("resize", update);
     window.addEventListener("orientationchange", update);
     return () => {
+      if (frame) window.cancelAnimationFrame(frame);
       vv?.removeEventListener("resize", update);
       vv?.removeEventListener("scroll", update);
+      document.removeEventListener("focusin", update);
+      document.removeEventListener("focusout", update);
       window.removeEventListener("resize", update);
       window.removeEventListener("orientationchange", update);
       root.style.removeProperty("--chat-vv-top");
@@ -360,37 +509,86 @@ export function ChatRoomClient({
     const messageContents = new Set(messages.map((m) => m.content));
 
     for (const n of notifications) {
+      if (hiddenNotificationIds.has(n.id)) continue;
       if (messageContents.has(n.message)) continue;
       merged.push({
         id: `n-${n.id}`,
+        messageId: null,
+        notificationId: n.id,
+        replyTargetId: `n-${n.id}`,
         sender: "bot",
         content: n.message,
         created_at: n.created_at,
         delivered_at: null,
         read_at: null,
+        edited_at: null,
+        deleted_at: null,
+        reply_to_id: null,
+        is_pinned: pinnedNotificationIds.has(n.id),
+        source: "notification",
         _pending: false,
       });
     }
     for (const m of messages) {
       merged.push({
         id: `m-${m.id}`,
+        messageId: m.id,
+        notificationId: null,
+        replyTargetId: m.id,
         sender: m.sender,
         content: m.content,
         created_at: m.created_at,
         delivered_at: m.delivered_at,
         read_at: m.read_at,
+        edited_at: m.edited_at,
+        deleted_at: m.deleted_at,
+        reply_to_id: m.reply_to_id,
+        is_pinned: m.is_pinned,
+        source: "message",
         _pending: pending.has(m.id),
       });
     }
     merged.sort((a, b) => a.created_at.localeCompare(b.created_at));
     return merged;
-  }, [notifications, messages, pending]);
+  }, [notifications, hiddenNotificationIds, pinnedNotificationIds, messages, pending]);
 
   const visibleChatItems = searchText.trim()
     ? chatItems.filter((item) =>
         item.content.toLowerCase().includes(searchText.trim().toLowerCase()),
       )
     : chatItems;
+
+  useEffect(() => {
+    if (!forwardOpen || !forwardQuery.trim()) {
+      setForwardUsers([]);
+      setForwardLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setForwardLoading(true);
+      try {
+        const response = await fetch(
+          `/api/users/search?q=${encodeURIComponent(forwardQuery.trim())}`,
+          { signal: controller.signal },
+        );
+        if (!response.ok) throw new Error(`Pencarian kontak gagal (${response.status}).`);
+        const result = await response.json();
+        setForwardUsers(Array.isArray(result.users) ? result.users : []);
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        console.error("[chat-room] forward search failed:", error);
+        setForwardUsers([]);
+        showToast("Kontak tidak dapat dicari saat ini.");
+      } finally {
+        if (!controller.signal.aborted) setForwardLoading(false);
+      }
+    }, 250);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [forwardOpen, forwardQuery]);
 
   function toggleVoiceInput() {
     if (recognitionRef.current) {
@@ -465,6 +663,32 @@ export function ChatRoomClient({
   async function sendMessage() {
     const trimmed = text.trim();
     if (!trimmed || sending) return;
+    if (editingId) {
+      const id = editingId;
+      setSending(true);
+      try {
+        const response = await fetch(`/api/messages/${encodeURIComponent(uid)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ messageId: id, content: trimmed }),
+        });
+        const result = await response.json();
+        if (!response.ok || !result.message) {
+          throw new Error("Pesan gagal diedit.");
+        }
+        setMessages((current) => current.map((message) =>
+          message.id === id ? { ...message, ...result.message } : message,
+        ));
+        setEditingId(null);
+        setText("");
+        showToast("Pesan diperbarui.");
+      } catch (error) {
+        showToast(error instanceof Error ? error.message : "Pesan gagal diedit.");
+      } finally {
+        setSending(false);
+      }
+      return;
+    }
 
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const displayName = computeUserDisplayName(user);
@@ -480,6 +704,10 @@ export function ChatRoomClient({
       created_at: nowIso,
       delivered_at: null,
       read_at: null,
+      edited_at: null,
+      deleted_at: null,
+      reply_to_id: replyingTo?.replyTargetId ?? null,
+      is_pinned: false,
     };
 
     setMessages((prev) => [...prev, optimistic]);
@@ -496,7 +724,7 @@ export function ChatRoomClient({
       const res = await fetch(`/api/messages/${encodeURIComponent(uid)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: trimmed }),
+        body: JSON.stringify({ content: trimmed, replyToId: replyingTo?.replyTargetId ?? null }),
       });
       if (res.ok) {
         const j = await res.json().catch(() => ({}));
@@ -512,6 +740,7 @@ export function ChatRoomClient({
           next.delete(tempId);
           return next;
         });
+        setReplyingTo(null);
 
       } else {
         throw new Error("Pesan gagal dikirim. Silakan coba lagi.");
@@ -530,6 +759,117 @@ export function ChatRoomClient({
     }
   }
 
+  function beginReply(item: ChatItem) {
+    setReplyingTo(item);
+    setSelectedChatItem(null);
+    requestAnimationFrame(() => taRef.current?.focus());
+  }
+
+  function beginEdit(item: ChatItem) {
+    if (!item.messageId || item.sender !== "user" || item.deleted_at) return;
+    setEditingId(item.messageId);
+    setReplyingTo(null);
+    setText(item.content);
+    setSelectedChatItem(null);
+    requestAnimationFrame(() => taRef.current?.focus());
+  }
+
+  async function deleteChatMessage(item: ChatItem, scope: "me" | "everyone") {
+    const notificationId = item.notificationId;
+    if (item.source === "notification" && notificationId) {
+      try {
+        const response = await fetch(
+          `/api/notifications/${encodeURIComponent(uid)}?id=${encodeURIComponent(notificationId)}`,
+          { method: "DELETE" },
+        );
+        if (!response.ok) throw new Error("Pesan gagal dihapus.");
+        setHiddenNotificationIds((current) => new Set(current).add(notificationId));
+        setSelectedChatItem(null);
+        showToast("Pesan dihapus.");
+      } catch (error) {
+        showToast(error instanceof Error ? error.message : "Pesan gagal dihapus.");
+      }
+      return;
+    }
+    if (!item.messageId) return;
+    if (
+      scope === "everyone" &&
+      !window.confirm("Hapus pesan ini untuk semua orang?")
+    ) return;
+    try {
+      const response = await fetch(
+        `/api/messages/${encodeURIComponent(uid)}?messageId=${encodeURIComponent(item.messageId)}&scope=${scope}`,
+        { method: "DELETE" },
+      );
+      if (!response.ok) throw new Error("Pesan gagal dihapus.");
+      setSelectedChatItem(null);
+      if (scope === "me") {
+        setMessages((current) => current.filter((message) => message.id !== item.messageId));
+      } else {
+        setMessages((current) => current.map((message) =>
+          message.id === item.messageId
+            ? { ...message, content: "", deleted_at: new Date().toISOString() }
+            : message,
+        ));
+      }
+      showToast("Pesan dihapus.");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Pesan gagal dihapus.");
+    }
+  }
+
+  async function toggleChatMessagePin(item: ChatItem) {
+    if (!item.replyTargetId) return;
+    try {
+      const response = await fetch(`/api/messages/${encodeURIComponent(uid)}/actions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "pin", messageId: item.replyTargetId }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error("Pesan gagal disematkan.");
+      const notificationId = item.notificationId;
+      if (notificationId) {
+        setPinnedNotificationIds((current) => {
+          const next = new Set(current);
+          if (result.pinned) next.add(notificationId);
+          else next.delete(notificationId);
+          return next;
+        });
+      } else {
+        setMessages((current) => current.map((message) =>
+          message.id === item.messageId ? { ...message, is_pinned: result.pinned === true } : message,
+        ));
+      }
+      setSelectedChatItem(null);
+      showToast(result.pinned ? "Pesan disematkan." : "Sematan dilepas.");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Aksi gagal.");
+    }
+  }
+
+  async function forwardChatMessage(targetUid: number) {
+    if (!selectedChatItem?.replyTargetId) return;
+    try {
+      const response = await fetch(`/api/messages/${encodeURIComponent(uid)}/actions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "forward",
+          messageId: selectedChatItem.replyTargetId,
+          targetUid,
+        }),
+      });
+      if (!response.ok) throw new Error("Pesan gagal diteruskan.");
+      setForwardOpen(false);
+      setSelectedChatItem(null);
+      setForwardQuery("");
+      showToast("Pesan diteruskan.");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Pesan gagal diteruskan.");
+    }
+  }
+
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -543,6 +883,7 @@ export function ChatRoomClient({
 
   const header = (
     <header
+      ref={menuRootRef}
       className={`fixed left-0 right-0 top-[var(--chat-vv-top,0px)] z-40 bg-transparent pt-[calc(12px+env(safe-area-inset-top))] pb-3 ${fadeCls}`}
     >
       <div className="relative mx-auto max-w-[600px] px-5">
@@ -630,6 +971,7 @@ export function ChatRoomClient({
         <ChatComposer
           value={text}
           sending={sending}
+          sendLabel={editingId ? "Simpan edit" : "Kirim"}
           inputRef={taRef}
           onChange={setText}
           onSend={() => void sendMessage()}
@@ -637,6 +979,36 @@ export function ChatRoomClient({
           onKeyDown={onKeyDown}
           onToggleDictation={toggleVoiceInput}
           dictating={recording}
+          above={
+            <>
+              {replyingTo && (
+                <div className="flex items-center gap-2 rounded-xl border border-line bg-white px-3 py-2 text-[11px] text-ink-soft">
+                  <Reply size={14} className="shrink-0 text-ink-mute" />
+                  <span className="min-w-0 flex-1 truncate">
+                    Membalas: {chatPreviewText(replyingTo.content) || "Pesan"}
+                  </span>
+                  <button type="button" aria-label="Batal membalas" onClick={() => setReplyingTo(null)}>
+                    <X size={14} />
+                  </button>
+                </div>
+              )}
+              {editingId && (
+                <div className="flex items-center justify-between rounded-lg bg-[#f5f5f5] px-3 py-1.5 text-[11px] text-ink-soft">
+                  <span>Mengedit pesan</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingId(null);
+                      setText("");
+                    }}
+                    aria-label="Batalkan edit"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              )}
+            </>
+          }
           className="mx-auto max-w-[600px] pointer-events-auto pb-[var(--chat-footer-pad,calc(8px+env(safe-area-inset-bottom)))]"
         />
     </footer>
@@ -664,13 +1036,29 @@ export function ChatRoomClient({
           <div className="flex min-w-0 flex-col gap-2 px-3">
             {visibleChatItems.map((item) => {
               const isUser = item.sender === "user";
+              const reply = item.reply_to_id
+                ? chatItems.find((message) => message.replyTargetId === item.reply_to_id)
+                : null;
+              const prefix = item.edited_at || item.is_pinned || item.reply_to_id ? (
+                <>
+                  {item.reply_to_id && (
+                    <span className={`mb-1 block max-w-full truncate border-l-2 pl-2 text-[10px] ${
+                      isUser ? "border-white/50 text-white/70" : "border-ink/30 text-ink-mute"
+                    }`}>
+                      {reply?.deleted_at
+                        ? "Pesan dihapus"
+                        : chatPreviewText(reply?.content ?? "") || "Balasan"}
+                    </span>
+                  )}
+                </>
+              ) : null;
               return (
                 <ChatMessageBubble
                   key={item.id}
                   outgoing={isUser}
                   avatarUrl={isUser ? `/api/avatar/${uid}` : "/icon.png"}
-                  content={item.content}
-                  richText
+                  content={item.deleted_at ? "Pesan dihapus" : item.content}
+                  richText={item.sender === "bot" && !item.deleted_at}
                   timestamp={chatMessageTime(item.created_at)}
                   status={
                     <StatusIcon
@@ -681,13 +1069,20 @@ export function ChatRoomClient({
                   }
                   label={`Pesan dari ${isUser ? "Anda" : "CheyaVerse"}`}
                   pending={item._pending}
-                  onPointerDown={(event) => startChatItemPress(event, item)}
+                  deleted={Boolean(item.deleted_at)}
+                  edited={Boolean(item.edited_at && !item.deleted_at)}
+                  pinned={item.is_pinned}
+                  prefix={prefix}
+                  onPointerDown={(event) => {
+                    if (!item._pending) startChatItemPress(event, item);
+                  }}
                   onPointerMove={moveChatItemPress}
                   onPointerUp={stopChatItemPress}
                   onPointerLeave={stopChatItemPress}
                   onPointerCancel={stopChatItemPress}
                   onContextMenu={(event) => {
                     event.preventDefault();
+                    if (item._pending) return;
                     longPressTriggeredAtRef.current = Date.now();
                     setSelectedChatItem(item);
                   }}
@@ -704,27 +1099,144 @@ export function ChatRoomClient({
       {selectedChatItem && mounted && createPortal(
         <MessageActionSheet
           onClose={() => setSelectedChatItem(null)}
-          preview={
-            new DOMParser()
-              .parseFromString(selectedChatItem.content, "text/html")
-              .body.textContent?.trim() || "Pesan"
-          }
+          preview={chatPreviewText(selectedChatItem.deleted_at ? "Pesan dihapus" : selectedChatItem.content) || "Pesan"}
         >
+          {!selectedChatItem.deleted_at && selectedChatItem.replyTargetId && (
+            <button
+              type="button"
+              onClick={() => beginReply(selectedChatItem)}
+              className="flex w-full items-center gap-3 px-4 py-3 text-[13px] text-ink hover:bg-[#f7f7f7] active:bg-[#f7f7f7]"
+            >
+              <Reply size={17} /> Balas
+            </button>
+          )}
             <button
               type="button"
               onClick={() => void copyChatItem(selectedChatItem)}
-              className="flex w-full items-center gap-3 px-4 py-3 text-[13px] text-ink"
+              className="flex w-full items-center gap-3 px-4 py-3 text-[13px] text-ink hover:bg-[#f7f7f7] active:bg-[#f7f7f7]"
             >
               <Copy size={17} /> Salin
             </button>
+          {selectedChatItem.source === "message" && selectedChatItem.sender === "user" && !selectedChatItem.deleted_at && (
+            <button
+              type="button"
+              onClick={() => beginEdit(selectedChatItem)}
+              className="flex w-full items-center gap-3 px-4 py-3 text-[13px] text-ink hover:bg-[#f7f7f7] active:bg-[#f7f7f7]"
+            >
+              <Pencil size={17} /> Edit
+            </button>
+          )}
+          {selectedChatItem.source === "message" || selectedChatItem.source === "notification" ? (
+            <button
+              type="button"
+              onClick={() => void deleteChatMessage(selectedChatItem, "me")}
+              className="flex w-full items-center gap-3 px-4 py-3 text-[13px] text-ink hover:bg-[#f7f7f7] active:bg-[#f7f7f7]"
+            >
+              <Trash2 size={17} /> Hapus untuk saya
+            </button>
+          ) : null}
+          {selectedChatItem.source === "message" && selectedChatItem.sender === "user" && !selectedChatItem.deleted_at && (
+            <button
+              type="button"
+              onClick={() => void deleteChatMessage(selectedChatItem, "everyone")}
+              className="flex w-full items-center gap-3 px-4 py-3 text-[13px] text-danger hover:bg-[#f7f7f7] active:bg-[#f7f7f7]"
+            >
+              <Trash2 size={17} /> Hapus untuk semua orang
+            </button>
+          )}
+          {!selectedChatItem.deleted_at && selectedChatItem.replyTargetId && (
+            <>
+              <button
+                type="button"
+                onClick={() => setForwardOpen(true)}
+                className="flex w-full items-center gap-3 px-4 py-3 text-[13px] text-ink hover:bg-[#f7f7f7] active:bg-[#f7f7f7]"
+              >
+                <Forward size={17} /> Teruskan
+              </button>
+              <button
+                type="button"
+                onClick={() => void toggleChatMessagePin(selectedChatItem)}
+                className="flex w-full items-center gap-3 px-4 py-3 text-[13px] text-ink hover:bg-[#f7f7f7] active:bg-[#f7f7f7]"
+              >
+                <Pin size={17} /> {selectedChatItem.is_pinned ? "Lepas sematan" : "Sematkan"}
+              </button>
+            </>
+          )}
             <button
               type="button"
               onClick={() => setSelectedChatItem(null)}
-              className="flex w-full items-center justify-center border-t border-line px-4 py-3 text-[13px] font-semibold text-ink-soft"
+              className="flex w-full items-center justify-center border-t border-line px-4 py-3 text-[13px] font-semibold text-ink-soft hover:bg-[#f7f7f7] active:bg-[#f7f7f7]"
             >
               Tutup
             </button>
         </MessageActionSheet>,
+        document.body,
+      )}
+      {forwardOpen && selectedChatItem && mounted && createPortal(
+        <div
+          role="presentation"
+          onClick={() => setForwardOpen(false)}
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/30 px-5"
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-label="Teruskan pesan"
+            onClick={(event) => event.stopPropagation()}
+            className="w-full max-w-[420px] overflow-hidden rounded-2xl bg-white shadow-2xl"
+          >
+            <div className="flex items-center justify-between border-b border-line px-4 py-3">
+              <h2 className="text-[14px] font-semibold text-ink">Teruskan pesan</h2>
+              <button type="button" aria-label="Tutup" onClick={() => setForwardOpen(false)}>
+                <X size={18} className="text-ink-mute" />
+              </button>
+            </div>
+            <div className="p-4">
+              <input
+                autoFocus
+                value={forwardQuery}
+                onChange={(event) => setForwardQuery(event.target.value)}
+                placeholder="Cari nama atau username"
+                className="w-full rounded-xl border border-line px-3 py-2.5 text-[13px] outline-none"
+              />
+              <div className="mt-2 max-h-64 overflow-y-auto">
+                {forwardLoading && <p className="px-2 py-3 text-[12px] text-ink-mute">Mencari…</p>}
+                {!forwardLoading && forwardUsers.map((target) => {
+                  const fullName = [target.first_name, target.last_name].filter(Boolean).join(" ").trim();
+                  const name = fullName || target.username || `Telegram ${target.uid}`;
+                  return (
+                    <button
+                      key={target.uid}
+                      type="button"
+                      onClick={() => void forwardChatMessage(target.uid)}
+                      className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left hover:bg-[#f7f7f7] active:bg-[#f7f7f7]"
+                    >
+                      <span className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-[#f5f5f5]">
+                        {target.photo_url
+                          ? <img src={target.photo_url} alt="" className="h-full w-full object-cover" />
+                          : <UserRound size={17} className="text-ink-mute" />}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[13px] font-medium text-ink">{name}</span>
+                        {target.username && <span className="block truncate text-[11px] text-ink-mute">@{target.username}</span>}
+                      </span>
+                      <Forward size={16} className="text-ink-mute" />
+                    </button>
+                  );
+                })}
+                {forwardQuery.trim() && !forwardLoading && forwardUsers.length === 0 && (
+                  <p className="px-2 py-3 text-[12px] text-ink-mute">Kontak tidak ditemukan.</p>
+                )}
+              </div>
+            </div>
+          </section>
+        </div>,
+        document.body,
+      )}
+      {toast && mounted && createPortal(
+        <div role="status" className="fixed bottom-20 left-1/2 z-[90] -translate-x-1/2 rounded-full bg-ink px-4 py-2 text-[12px] text-white shadow-lg">
+          {toast}
+        </div>,
         document.body,
       )}
       {searchOpen && mounted && createPortal(

@@ -271,6 +271,7 @@ export type Notification = {
   device: string | null;
   read: number;
   created_at: string;
+  is_pinned: boolean;
 };
 
 function rowToNotification(row: Record<string, unknown>): Notification {
@@ -284,6 +285,7 @@ function rowToNotification(row: Record<string, unknown>): Notification {
     device: row.device == null ? null : String(row.device),
     read: Number(row.read ?? 0),
     created_at: String(row.created_at ?? ""),
+    is_pinned: Number(row.is_pinned ?? 0) === 1,
   };
 }
 
@@ -337,6 +339,7 @@ export async function createNotification(data: {
       device: data.device ?? null,
       read: 0,
       created_at: createdAt,
+      is_pinned: false,
     };
   } catch (err) {
     console.error("createNotification error:", err);
@@ -438,13 +441,22 @@ export async function ensureWelcomeNotification(
 
 export async function listNotifications(uid: number, limit = 100): Promise<Notification[]> {
   try {
+    await ensureChatMessageActions();
     const result = await getTurso().execute({
-      sql: "SELECT * FROM notifications WHERE uid = ? ORDER BY created_at DESC LIMIT ?",
+      sql: `SELECT notifications.*,
+                   EXISTS (
+                     SELECT 1 FROM chat_notification_pins pins
+                     WHERE pins.uid = notifications.uid AND pins.notification_id = notifications.id
+                   ) AS is_pinned
+            FROM notifications
+            WHERE uid = ?
+            ORDER BY created_at DESC LIMIT ?`,
       args: [uid, limit],
     });
     return result.rows.map((r) => rowToNotification(r as unknown as Record<string, unknown>));
-  } catch {
-    return [];
+  } catch (error) {
+    console.error("[notifications] failed to list notifications:", error);
+    throw error;
   }
 }
 
@@ -901,6 +913,59 @@ export async function createTelegramLoginChallenge(
   return true;
 }
 
+export async function getChatNotification(uid: number, id: string): Promise<Notification | null> {
+  await ensureChatMessageActions();
+  const result = await getTurso().execute({
+    sql: `SELECT notifications.*,
+                 EXISTS (
+                   SELECT 1 FROM chat_notification_pins pins
+                   WHERE pins.uid = notifications.uid AND pins.notification_id = notifications.id
+                 ) AS is_pinned
+          FROM notifications WHERE uid = ? AND id = ? LIMIT 1`,
+    args: [uid, id],
+  });
+  return result.rows[0]
+    ? rowToNotification(result.rows[0] as unknown as Record<string, unknown>)
+    : null;
+}
+
+export async function deleteChatNotification(uid: number, id: string): Promise<boolean> {
+  await ensureChatMessageActions();
+  const result = await getTurso().execute({
+    sql: "DELETE FROM notifications WHERE uid = ? AND id = ?",
+    args: [uid, id],
+  });
+  if (result.rowsAffected > 0) {
+    await getTurso().execute({
+      sql: "DELETE FROM chat_notification_pins WHERE uid = ? AND notification_id = ?",
+      args: [uid, id],
+    });
+  }
+  return result.rowsAffected > 0;
+}
+
+export async function toggleChatNotificationPin(
+  uid: number,
+  id: string,
+): Promise<boolean | null> {
+  await ensureChatMessageActions();
+  const notification = await getChatNotification(uid, id);
+  if (!notification) return null;
+  if (notification.is_pinned) {
+    await getTurso().execute({
+      sql: "DELETE FROM chat_notification_pins WHERE uid = ? AND notification_id = ?",
+      args: [uid, id],
+    });
+    return false;
+  }
+  await getTurso().execute({
+    sql: `INSERT OR IGNORE INTO chat_notification_pins (uid, notification_id, created_at)
+          VALUES (?, ?, ?)`,
+    args: [uid, id, new Date().toISOString()],
+  });
+  return true;
+}
+
 export async function getTelegramLoginChallenge(
   challengeHash: string,
 ): Promise<TelegramLoginChallenge | null> {
@@ -1078,7 +1143,56 @@ export type ChatMessage = {
   created_at: string;
   delivered_at: string | null;
   read_at: string | null;
+  edited_at: string | null;
+  deleted_at: string | null;
+  reply_to_id: string | null;
+  is_pinned: boolean;
 };
+
+let chatMessageActionsReady: Promise<void> | null = null;
+
+async function ensureChatMessageActions(): Promise<void> {
+  if (!chatMessageActionsReady) {
+    chatMessageActionsReady = (async () => {
+      const db = getTurso();
+      const columns = await db.execute("PRAGMA table_info(messages)");
+      const existing = new Set(
+        columns.rows.map((row) => String((row as Record<string, unknown>).name)),
+      );
+      for (const [name, type] of [
+        ["edited_at", "TEXT"],
+        ["deleted_at", "TEXT"],
+        ["reply_to_id", "TEXT"],
+      ]) {
+        if (!existing.has(name)) {
+          await db.execute(`ALTER TABLE messages ADD COLUMN ${name} ${type}`);
+        }
+      }
+      await db.execute(`CREATE TABLE IF NOT EXISTS chat_message_hides (
+        uid INTEGER NOT NULL,
+        message_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (uid, message_id)
+      )`);
+      await db.execute(`CREATE TABLE IF NOT EXISTS chat_message_pins (
+        uid INTEGER NOT NULL,
+        message_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (uid, message_id)
+      )`);
+      await db.execute(`CREATE TABLE IF NOT EXISTS chat_notification_pins (
+        uid INTEGER NOT NULL,
+        notification_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (uid, notification_id)
+      )`);
+    })().catch((error) => {
+      chatMessageActionsReady = null;
+      throw error;
+    });
+  }
+  await chatMessageActionsReady;
+}
 
 function rowToMessage(row: Record<string, unknown>): ChatMessage {
   return {
@@ -1091,6 +1205,10 @@ function rowToMessage(row: Record<string, unknown>): ChatMessage {
     created_at: String(row.created_at ?? ""),
     delivered_at: row.delivered_at == null ? null : String(row.delivered_at),
     read_at: row.read_at == null ? null : String(row.read_at),
+    edited_at: row.edited_at == null ? null : String(row.edited_at),
+    deleted_at: row.deleted_at == null ? null : String(row.deleted_at),
+    reply_to_id: row.reply_to_id == null ? null : String(row.reply_to_id),
+    is_pinned: Number(row.is_pinned ?? 0) === 1,
   };
 }
 
@@ -1107,16 +1225,18 @@ export async function createMessage(data: {
   content: string;
   delivered_at?: string | null;
   read_at?: string | null;
+  reply_to_id?: string | null;
 }): Promise<ChatMessage | null> {
-  const id = genMessageId();
-  const createdAt = new Date().toISOString();
-  const deliveredAt = data.delivered_at ?? null;
-  const readAt = data.read_at ?? null;
   try {
+    await ensureChatMessageActions();
+    const id = genMessageId();
+    const createdAt = new Date().toISOString();
+    const deliveredAt = data.delivered_at ?? null;
+    const readAt = data.read_at ?? null;
     await getTurso().execute({
       sql: `INSERT INTO messages
-              (id, uid, sender, sender_role, title, content, created_at, delivered_at, read_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              (id, uid, sender, sender_role, title, content, created_at, delivered_at, read_at, reply_to_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       args: [
         id,
         data.uid,
@@ -1127,6 +1247,7 @@ export async function createMessage(data: {
         createdAt,
         deliveredAt,
         readAt,
+        data.reply_to_id ?? null,
       ],
     });
     return {
@@ -1139,6 +1260,10 @@ export async function createMessage(data: {
       created_at: createdAt,
       delivered_at: deliveredAt,
       read_at: readAt,
+      edited_at: null,
+      deleted_at: null,
+      reply_to_id: data.reply_to_id ?? null,
+      is_pinned: false,
     };
   } catch (err) {
     console.error("createMessage error:", err);
@@ -1148,14 +1273,105 @@ export async function createMessage(data: {
 
 export async function listMessages(uid: number, limit = 500): Promise<ChatMessage[]> {
   try {
+    await ensureChatMessageActions();
     const result = await getTurso().execute({
-      sql: "SELECT * FROM messages WHERE uid = ? ORDER BY created_at ASC LIMIT ?",
+      sql: `SELECT messages.*,
+                   EXISTS (
+                     SELECT 1 FROM chat_message_pins pins
+                     WHERE pins.uid = messages.uid AND pins.message_id = messages.id
+                   ) AS is_pinned
+            FROM messages
+            WHERE uid = ?
+              AND NOT EXISTS (
+                SELECT 1 FROM chat_message_hides hides
+                WHERE hides.uid = messages.uid AND hides.message_id = messages.id
+              )
+            ORDER BY created_at ASC LIMIT ?`,
       args: [uid, limit],
     });
     return result.rows.map((r) => rowToMessage(r as unknown as Record<string, unknown>));
-  } catch {
-    return [];
+  } catch (error) {
+    console.error("[chat-messages] failed to list messages:", error);
+    throw error;
   }
+}
+
+export async function getChatMessage(uid: number, id: string): Promise<ChatMessage | null> {
+  await ensureChatMessageActions();
+  const result = await getTurso().execute({
+    sql: `SELECT messages.*,
+                 EXISTS (
+                   SELECT 1 FROM chat_message_pins pins
+                   WHERE pins.uid = messages.uid AND pins.message_id = messages.id
+                 ) AS is_pinned
+          FROM messages WHERE uid = ? AND id = ? LIMIT 1`,
+    args: [uid, id],
+  });
+  return result.rows[0]
+    ? rowToMessage(result.rows[0] as unknown as Record<string, unknown>)
+    : null;
+}
+
+export async function editChatMessage(
+  uid: number,
+  id: string,
+  content: string,
+): Promise<ChatMessage | null> {
+  await ensureChatMessageActions();
+  await getTurso().execute({
+    sql: `UPDATE messages SET content = ?, edited_at = ?
+          WHERE uid = ? AND id = ? AND sender = 'user' AND deleted_at IS NULL`,
+    args: [content, new Date().toISOString(), uid, id],
+  });
+  return getChatMessage(uid, id);
+}
+
+export async function deleteChatMessage(
+  uid: number,
+  id: string,
+  scope: "me" | "everyone",
+): Promise<boolean> {
+  await ensureChatMessageActions();
+  const message = await getChatMessage(uid, id);
+  if (!message) return false;
+  if (scope === "everyone") {
+    if (message.sender !== "user" || message.deleted_at) return false;
+    const result = await getTurso().execute({
+      sql: `UPDATE messages SET content = '', deleted_at = ?
+            WHERE uid = ? AND id = ? AND sender = 'user' AND deleted_at IS NULL`,
+      args: [new Date().toISOString(), uid, id],
+    });
+    return result.rowsAffected > 0;
+  }
+  await getTurso().execute({
+    sql: `INSERT OR IGNORE INTO chat_message_hides (uid, message_id, created_at)
+          VALUES (?, ?, ?)`,
+    args: [uid, id, new Date().toISOString()],
+  });
+  await getTurso().execute({
+    sql: "DELETE FROM chat_message_pins WHERE uid = ? AND message_id = ?",
+    args: [uid, id],
+  });
+  return true;
+}
+
+export async function toggleChatMessagePin(uid: number, id: string): Promise<boolean | null> {
+  await ensureChatMessageActions();
+  const message = await getChatMessage(uid, id);
+  if (!message || message.deleted_at) return null;
+  if (message.is_pinned) {
+    await getTurso().execute({
+      sql: "DELETE FROM chat_message_pins WHERE uid = ? AND message_id = ?",
+      args: [uid, id],
+    });
+    return false;
+  }
+  await getTurso().execute({
+    sql: `INSERT OR IGNORE INTO chat_message_pins (uid, message_id, created_at)
+          VALUES (?, ?, ?)`,
+    args: [uid, id, new Date().toISOString()],
+  });
+  return true;
 }
 
 export type DirectMessage = {

@@ -79,6 +79,7 @@ export function ProfileClient({
   const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | null>(null);
   const [isMobile, setIsMobile] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
+  const [avatarUsingProxy, setAvatarUsingProxy] = useState(!info?.photo_url);
   const [avatarOpen, setAvatarOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [deviceId, setDeviceId] = useState<string | null>(null);
@@ -357,17 +358,22 @@ export function ProfileClient({
     (info ? [info.first_name, info.last_name].filter(Boolean).join(" ") : "") ||
     "there";
 
-  const initials = (info
-    ? [info.first_name, info.last_name].filter(Boolean).join(" ") ||
-      info.username ||
-      "U"
-    : "U")
-    .split(" ")
-    .map((s) => s[0])
-    .filter(Boolean)
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
+  const avatarSrc = avatarUsingProxy
+    ? `/api/avatar/${uid}`
+    : info?.photo_url;
+
+  useEffect(() => {
+    setAvatarUsingProxy(!info?.photo_url);
+    setAvatarFailed(false);
+  }, [info?.photo_url, uid]);
+
+  function handleAvatarError() {
+    if (!avatarUsingProxy) {
+      setAvatarUsingProxy(true);
+      return;
+    }
+    setAvatarFailed(true);
+  }
 
   function openMenu() {
     if (triggerRef.current) {
@@ -677,18 +683,16 @@ export function ProfileClient({
             onClick={() => setAvatarOpen(true)}
             className="w-[104px] h-[104px] flex-shrink-0 rounded-full border-4 border-white bg-[#f4f4f5] overflow-hidden shadow-[0_4px_16px_-6px_rgba(0,0,0,.18)] flex items-center justify-center cursor-pointer active:scale-95 transition-transform"
           >
-            {!avatarFailed ? (
+            {!avatarFailed && avatarSrc ? (
               <img
-                src={info?.photo_url || `/api/avatar/${uid}`}
+                src={avatarSrc}
                 alt=""
                 draggable={false}
-                onError={() => setAvatarFailed(true)}
+                onError={handleAvatarError}
                 className="w-full h-full object-cover"
               />
             ) : (
-              <span className="text-[32px] font-semibold text-ink-soft tracking-[-.02em]">
-                {initials || <UserIcon size={38} className="text-ink-mute" strokeWidth={1.5} />}
-              </span>
+              <UserIcon size={38} className="text-ink-mute" strokeWidth={1.5} />
             )}
           </div>
           <div className="pl-3 pb-1 min-w-0 flex-1 translate-y-2">
@@ -1015,17 +1019,16 @@ export function ProfileClient({
               style={{ transformOrigin: "center center", touchAction: "none" }}
               className="w-full h-full flex items-center justify-center will-change-transform"
             >
-              {!avatarFailed ? (
+              {!avatarFailed && avatarSrc ? (
                 <img
-                  src={info?.photo_url || `/api/avatar/${uid}`}
+                  src={avatarSrc}
                   alt=""
                   draggable={false}
                   className="w-full h-full object-cover"
+                  onError={handleAvatarError}
                 />
               ) : (
-                <span className="text-[80px] font-semibold text-ink-soft tracking-[-.02em]">
-                  {initials || <UserIcon size={100} className="text-ink-mute" strokeWidth={1.5} />}
-                </span>
+                <UserIcon size={100} className="text-ink-mute" strokeWidth={1.5} />
               )}
             </div>
           </div>

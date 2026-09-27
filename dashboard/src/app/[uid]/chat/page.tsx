@@ -98,7 +98,7 @@ export default async function ChatListPage({
                 className="flex items-center gap-3 -ml-2 pr-1 py-3 transition-opacity active:opacity-60"
               >
                 <div className="relative h-12 w-12 flex-shrink-0">
-                  <div className="h-12 w-12 overflow-hidden rounded-full border border-line bg-[#f0f0f0]">
+                  <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-[#f0f0f0]">
                     <TelegramAvatar src="/icon.png" />
                   </div>
                   {hasUnread && (
@@ -141,7 +141,7 @@ export default async function ChatListPage({
               href={`/${uid}/chat/${contact.uid}`}
               className="flex items-center gap-3 -ml-2 pr-1 py-3 transition-opacity active:opacity-60"
             >
-              <div className="h-12 w-12 flex-shrink-0 overflow-hidden rounded-full border border-line bg-[#f0f0f0]">
+              <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-[#f0f0f0]">
                 <TelegramAvatar src={contact.photo_url} />
               </div>
               <div className="flex min-w-0 flex-1 flex-col gap-1">

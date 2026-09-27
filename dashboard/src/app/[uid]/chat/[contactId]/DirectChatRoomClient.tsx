@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { createPortal } from "react-dom";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
@@ -97,6 +98,7 @@ export function DirectChatRoomClient({
   const [forwardUsers, setForwardUsers] = useState<SearchUser[]>([]);
   const [forwardLoading, setForwardLoading] = useState(false);
   const [toast, setToast] = useState("");
+  const [mounted, setMounted] = useState(false);
   const [replyingTo, setReplyingTo] = useState<DirectMessage | null>(null);
   const [muted, setMuted] = useState(false);
   const [contactLastSeen, setContactLastSeen] = useState<number | null>(null);
@@ -105,6 +107,7 @@ export function DirectChatRoomClient({
   const presenceLabel = contactTyping ? "mengetik..." : formatPresence(contactLastSeen);
   const [viewport, setViewport] = useState({ top: 0, height: 0, keyboard: false });
   const messageBoxRef = useRef<HTMLDivElement | null>(null);
+  const menuRootRef = useRef<HTMLElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const refreshBusyRef = useRef(false);
   const pendingIdsRef = useRef(new Set<string>());
@@ -303,26 +306,66 @@ export function DirectChatRoomClient({
   useEffect(() => {
     const viewportElement = window.visualViewport;
     if (!viewportElement) {
-      setViewport({ top: 0, height: window.innerHeight, keyboard: false });
+      setViewport({ top: 0, height: 0, keyboard: false });
       return;
     }
+    let frame = 0;
     const update = () => {
-      const top = Math.max(0, viewportElement.offsetTop);
-      const height = Math.max(1, viewportElement.height);
-      const keyboard =
-        window.innerHeight - (viewportElement.height + viewportElement.offsetTop) > 120;
-      setViewport({ top, height, keyboard });
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        const isEditing =
+          document.activeElement instanceof HTMLInputElement ||
+          document.activeElement instanceof HTMLTextAreaElement;
+        const keyboard =
+          isEditing && window.innerHeight - viewportElement.height > 120;
+        setViewport((current) => {
+          const next = {
+            top: 0,
+            height: keyboard ? Math.max(1, viewportElement.height) : 0,
+            keyboard,
+          };
+          return current.keyboard === next.keyboard &&
+            current.height === next.height &&
+            current.top === next.top
+            ? current
+            : next;
+        });
+      });
     };
     update();
     viewportElement.addEventListener("resize", update);
     viewportElement.addEventListener("scroll", update);
+    document.addEventListener("focusin", update);
+    document.addEventListener("focusout", update);
+    window.addEventListener("resize", update);
     window.addEventListener("orientationchange", update);
     return () => {
+      if (frame) window.cancelAnimationFrame(frame);
       viewportElement.removeEventListener("resize", update);
       viewportElement.removeEventListener("scroll", update);
+      document.removeEventListener("focusin", update);
+      document.removeEventListener("focusout", update);
+      window.removeEventListener("resize", update);
       window.removeEventListener("orientationchange", update);
     };
   }, []);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (!menuRootRef.current?.contains(event.target as Node)) setMenuOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointer);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [menuOpen]);
 
   useEffect(() => {
     if (initialMessagesRef.current === initialMessages) return;
@@ -347,25 +390,6 @@ export function DirectChatRoomClient({
       }
     };
   }, []);
-
-  useEffect(() => {
-    const intervalMs = () =>
-      document.visibilityState === "visible" ? 2500 : 15000;
-    const refresh = () => {
-      if (document.visibilityState === "visible") void refreshMessages();
-    };
-    let interval = window.setInterval(refresh, intervalMs());
-    const onVisible = () => {
-      window.clearInterval(interval);
-      interval = window.setInterval(refresh, intervalMs());
-      if (document.visibilityState === "visible") refresh();
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => {
-      window.clearInterval(interval);
-      document.removeEventListener("visibilitychange", onVisible);
-    };
-  }, [refreshMessages]);
 
   useEffect(() => {
     if (!forwardOpen || !forwardQuery.trim()) {
@@ -423,6 +447,7 @@ export function DirectChatRoomClient({
         ((incoming.sender_uid === myUid && incoming.recipient_uid === contact.uid) ||
           (incoming.sender_uid === contact.uid && incoming.recipient_uid === myUid))
       ) {
+        if (messagesRef.current.some((message) => message.id === incoming.id)) return;
         setMessages((current) => {
           const index = current.findIndex((message) => message.id === incoming.id);
           if (index >= 0) {
@@ -434,6 +459,7 @@ export function DirectChatRoomClient({
             a.created_at.localeCompare(b.created_at),
           );
         });
+        void refreshMessages();
         if (incoming.recipient_uid === myUid && document.visibilityState === "hidden") {
           if (!muted && typeof Notification !== "undefined" && Notification.permission === "granted") {
             try {
@@ -673,47 +699,57 @@ export function DirectChatRoomClient({
       : true,
   );
 
-  return (
-    <div
-      className="fixed left-0 right-0 z-50 mx-auto flex max-w-[600px] flex-col overflow-hidden"
-      style={{ top: viewport.top, height: viewport.height || "100dvh" }}
+  useEffect(() => {
+    setMounted(true);
+    return () => setMounted(false);
+  }, []);
+
+  const keyboardInset = viewport.keyboard
+    ? Math.max(0, window.innerHeight - viewport.height)
+    : 0;
+
+  const header = (
+    <header
+      ref={menuRootRef}
+      className="fixed left-0 right-0 z-40 bg-transparent pt-[calc(12px+env(safe-area-inset-top))] pb-3"
+      style={{ top: 0 }}
     >
-      <header className="relative z-20 flex h-[68px] flex-shrink-0 items-center gap-2 bg-transparent px-3">
-        <Link
-          href={`/${uid}/chat`}
-          aria-label="Kembali ke chat"
-          className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full border border-[#dfe3e8] bg-white text-ink-soft transition-colors active:bg-[#f2f3f5]"
-        >
-          <ArrowLeft size={21} />
-        </Link>
-        <Link
-          href={`/${uid}/profile/contact/${contact.uid}`}
-          className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-full border border-[#dfe3e8] bg-white px-1.5 transition-colors active:bg-[#f2f3f5]"
-          aria-label={`Lihat profil ${name}`}
-        >
-          <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-[#f5f5f5]">
-            <TelegramAvatar
-              src={contact.photo_url || `/api/avatar/${contact.uid}`}
-            />
-          </span>
-          <span className="min-w-0">
-            <span className="block truncate text-[14px] font-semibold text-ink">{headerName}</span>
-            <span className={`block truncate text-[11px] ${presenceLabel === "online" ? "text-emerald-600" : "text-ink-mute"}`}>
-              {presenceLabel}
+      <div className="relative mx-auto max-w-[600px] px-5">
+        <div className="flex items-center gap-2 -mx-3">
+          <Link
+            href={`/${uid}/chat`}
+            aria-label="Kembali ke chat"
+            className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full border border-[#dfe3e8] bg-white text-ink-soft transition-transform active:scale-90"
+          >
+            <ArrowLeft size={21} />
+          </Link>
+          <Link
+            href={`/${uid}/profile/contact/${contact.uid}`}
+            className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-full border border-[#dfe3e8] bg-white px-1.5"
+            aria-label={`Lihat profil ${name}`}
+          >
+            <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-[#f5f5f5]">
+              <TelegramAvatar src={contact.photo_url || `/api/avatar/${contact.uid}`} />
             </span>
-          </span>
-        </Link>
-        <button
-          type="button"
-          aria-label="Opsi percakapan"
-          aria-expanded={menuOpen}
-          onClick={() => setMenuOpen((value) => !value)}
-          className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full border border-[#dfe3e8] bg-white text-ink-soft transition-colors active:bg-[#f2f3f5]"
-        >
-          <MoreVertical size={19} />
-        </button>
+            <span className="min-w-0">
+              <span className="block truncate text-[14px] font-semibold text-ink">{headerName}</span>
+              <span className={`block truncate text-[11px] ${presenceLabel === "online" ? "text-emerald-600" : "text-ink-mute"}`}>
+                {presenceLabel}
+              </span>
+            </span>
+          </Link>
+          <button
+            type="button"
+            aria-label="Opsi percakapan"
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen((value) => !value)}
+            className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full border border-[#dfe3e8] bg-white text-ink-soft transition-transform active:scale-90"
+          >
+            <MoreVertical size={19} />
+          </button>
+        </div>
         {menuOpen && (
-          <div className="absolute right-3 top-[54px] z-30 w-56 overflow-hidden rounded-2xl border border-line bg-white py-1 shadow-xl animate-fade-up">
+          <div className="absolute right-5 top-[calc(100%-4px)] z-50 w-56 overflow-hidden rounded-2xl border border-line bg-white py-1 shadow-xl animate-fade-up">
             <Link
               href={`/${uid}/profile/contact/${contact.uid}`}
               onClick={() => setMenuOpen(false)}
@@ -766,10 +802,85 @@ export function DirectChatRoomClient({
             </button>
           </div>
         )}
-      </header>
+      </div>
+    </header>
+  );
 
-      {searchOpen && (
-        <div className="flex flex-shrink-0 items-center gap-2 border-b border-line px-4 py-2">
+  const footer = (
+    <footer
+      className="chat-footer pointer-events-none fixed left-0 right-0 z-30 bg-transparent"
+      style={{ bottom: keyboardInset }}
+    >
+      <ChatComposer
+        value={text}
+        sending={sending}
+        sendLabel={editingId ? "Simpan edit" : "Kirim pesan"}
+        inputRef={textareaRef}
+        onChange={handleTextChange}
+        onSend={() => void sendMessage()}
+        onInput={(event) => {
+          event.currentTarget.style.height = "auto";
+          event.currentTarget.style.height = `${Math.min(event.currentTarget.scrollHeight, 120)}px`;
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault();
+            void sendMessage();
+          }
+        }}
+        above={
+          <>
+            {replyingTo && (
+              <div className="flex items-center gap-2 rounded-xl border border-line bg-white px-3 py-2 text-[11px] text-ink-soft">
+                <Reply size={14} className="shrink-0 text-ink-mute" />
+                <span className="min-w-0 flex-1 truncate">
+                  Membalas: {replyingTo.media_file_id ? "Pesan suara tidak didukung" : replyingTo.content}
+                </span>
+                <button type="button" aria-label="Batal membalas" onClick={() => setReplyingTo(null)}>
+                  <X size={14} />
+                </button>
+              </div>
+            )}
+            {editingId && (
+              <div className="flex items-center justify-between rounded-lg bg-[#f5f5f5] px-3 py-1.5 text-[11px] text-ink-soft">
+                <span>Mengedit pesan</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingId(null);
+                    setText("");
+                  }}
+                  aria-label="Batalkan edit"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            )}
+          </>
+        }
+        className="mx-auto max-w-[600px] pointer-events-auto"
+        style={{
+          paddingBottom: viewport.keyboard
+            ? "8px"
+            : "calc(8px + env(safe-area-inset-bottom))",
+        }}
+      />
+    </footer>
+  );
+
+  return (
+    <>
+      {mounted && createPortal(header, document.body)}
+      <section
+        ref={messageBoxRef}
+        className="fixed left-0 right-0 z-10 mx-auto max-w-[600px] overflow-x-hidden overflow-y-auto overscroll-contain pt-[calc(80px+env(safe-area-inset-top))] pb-[calc(96px+env(safe-area-inset-bottom))]"
+        style={{
+          top: 0,
+          height: viewport.keyboard ? viewport.height : "100dvh",
+        }}
+      >
+        {searchOpen && (
+        <div className="flex flex-shrink-0 items-center gap-2 bg-transparent px-4 py-2">
           <Search size={16} className="text-ink-mute" />
           <input
             autoFocus
@@ -784,7 +895,7 @@ export function DirectChatRoomClient({
         </div>
       )}
 
-      {pinned && (
+        {pinned && (
         <button
           type="button"
           onClick={() => {
@@ -793,7 +904,7 @@ export function DirectChatRoomClient({
               block: "center",
             });
           }}
-          className="flex flex-shrink-0 items-center gap-2 border-b border-line bg-[#f5f6f8] px-4 py-2 text-left"
+          className="flex flex-shrink-0 items-center gap-2 bg-transparent px-4 py-2 text-left"
         >
           <Pin size={14} className="flex-shrink-0 text-ink-soft" />
           <span className="truncate text-[12px] text-ink-soft">
@@ -807,9 +918,8 @@ export function DirectChatRoomClient({
       )}
 
       <div
-        ref={messageBoxRef}
         onContextMenu={(event) => event.preventDefault()}
-        className="flex min-h-0 flex-1 flex-col gap-2 overflow-x-hidden overflow-y-auto overscroll-contain px-3 py-3"
+        className="flex min-w-0 flex-col gap-2 px-3 py-3"
       >
         {visibleMessages.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center py-16 text-center">
@@ -890,59 +1000,8 @@ export function DirectChatRoomClient({
         )}
       </div>
 
-      <ChatComposer
-        value={text}
-        sending={sending}
-        sendLabel={editingId ? "Simpan edit" : "Kirim pesan"}
-        inputRef={textareaRef}
-        onChange={handleTextChange}
-        onSend={() => void sendMessage()}
-        onInput={(event) => {
-          event.currentTarget.style.height = "auto";
-          event.currentTarget.style.height = `${Math.min(event.currentTarget.scrollHeight, 120)}px`;
-        }}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" && !event.shiftKey) {
-            event.preventDefault();
-            void sendMessage();
-          }
-        }}
-        above={
-          <>
-            {replyingTo && (
-              <div className="flex items-center gap-2 rounded-xl border border-line bg-white/90 px-3 py-2 text-[11px] text-ink-soft">
-                <Reply size={14} className="shrink-0 text-ink-mute" />
-                <span className="min-w-0 flex-1 truncate">
-                  Membalas: {replyingTo.media_file_id ? "Pesan suara tidak didukung" : replyingTo.content}
-                </span>
-                <button type="button" aria-label="Batal membalas" onClick={() => setReplyingTo(null)}>
-                  <X size={14} />
-                </button>
-              </div>
-            )}
-            {editingId && (
-              <div className="flex items-center justify-between rounded-lg bg-[#f5f5f5] px-3 py-1.5 text-[11px] text-ink-soft">
-                <span>Mengedit pesan</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditingId(null);
-                    setText("");
-                  }}
-                  aria-label="Batalkan edit"
-                >
-                  <X size={14} />
-                </button>
-              </div>
-            )}
-          </>
-        }
-        className={`${
-          viewport.keyboard
-            ? "pb-2"
-            : "pb-[calc(8px+env(safe-area-inset-bottom))]"
-        }`}
-      />
+      </section>
+      {mounted && createPortal(footer, document.body)}
 
       {selectedMessage && (
         <MessageActionSheet
@@ -1074,6 +1133,6 @@ export function DirectChatRoomClient({
           {toast}
         </div>
       )}
-    </div>
+    </>
   );
 }

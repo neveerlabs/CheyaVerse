@@ -87,7 +87,7 @@ export function ChatComposer({
           type="submit"
           aria-label={sendLabel}
           disabled={sending || !hasText}
-          className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full border border-ink bg-ink text-white transition-transform active:scale-90 disabled:opacity-50"
+          className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full border border-[#dfe3e8] bg-white text-ink hover:bg-white active:bg-white"
         >
           <Send size={18} strokeWidth={2.2} />
         </button>
