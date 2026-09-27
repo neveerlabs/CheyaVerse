@@ -1,12 +1,30 @@
 const SHIMMER =
   "bg-[linear-gradient(105deg,transparent_38%,rgba(255,255,255,.7)_48%,rgba(255,255,255,.9)_50%,rgba(255,255,255,.7)_52%,transparent_62%)] bg-[length:220%_100%] animate-shimmer";
 
-const BUBBLE_WIDTHS = [62, 78, 52, 88, 70, 60];
+type BubbleSpec = {
+  outgoing: boolean;
+  width: number;
+  minHeight: number;
+};
+
+const BUBBLES: BubbleSpec[] = [
+  { outgoing: false, width: 62, minHeight: 54 },
+  { outgoing: true, width: 48, minHeight: 44 },
+  { outgoing: false, width: 78, minHeight: 74 },
+  { outgoing: true, width: 70, minHeight: 60 },
+  { outgoing: false, width: 52, minHeight: 44 },
+  { outgoing: true, width: 58, minHeight: 54 },
+  { outgoing: false, width: 88, minHeight: 74 },
+  { outgoing: true, width: 44, minHeight: 44 },
+];
 
 export default function ChatRoomLoading() {
   return (
     <>
-      <header className="fixed left-0 right-0 z-40 pt-[calc(12px+env(safe-area-inset-top))] pb-3" style={{ top: 0 }}>
+      <header
+        className="fixed left-0 right-0 z-40 pt-[calc(12px+env(safe-area-inset-top))] pb-3"
+        style={{ top: 0 }}
+      >
         <div className="mx-auto max-w-[600px] px-5">
           <div className="flex items-center gap-2 -mx-3">
             <div className="w-10 h-10 rounded-full border border-line bg-white/45 backdrop-blur-xl shadow-[0_1px_2px_rgba(0,0,0,.03)]" />
@@ -31,18 +49,27 @@ export default function ChatRoomLoading() {
       </header>
 
       <section className="pt-[calc(80px+env(safe-area-inset-top))] pb-[calc(96px+env(safe-area-inset-bottom))]">
-        <div className="flex flex-col gap-3">
-          {BUBBLE_WIDTHS.map((w, i) => (
-            <div key={i} className="flex gap-2.5 pr-1 -ml-3">
+        <div className="flex flex-col gap-3 px-3">
+          {BUBBLES.map((bubble, index) => (
+            <div
+              key={index}
+              className={`flex gap-2.5 ${
+                bubble.outgoing ? "flex-row-reverse pl-8" : "pr-8 -ml-0"
+              }`}
+            >
               <div className="w-8 h-8 rounded-full bg-[#f0f0f0]/55 backdrop-blur-md flex-shrink-0 mt-0.5 overflow-hidden relative">
                 <span className={`absolute inset-0 ${SHIMMER}`} />
               </div>
-              <div className="flex-1 min-w-0">
+              <div className="min-w-0 flex-1 flex">
                 <div
-                  className="inline-block max-w-full bg-[#f5f5f5]/65 backdrop-blur-md rounded-2xl rounded-tl-md px-3.5 py-2.5 relative overflow-hidden"
+                  className={`inline-block bg-[#f5f5f5]/65 backdrop-blur-md px-3.5 py-2.5 relative overflow-hidden ${
+                    bubble.outgoing
+                      ? "rounded-2xl rounded-tr-md ml-auto"
+                      : "rounded-2xl rounded-tl-md"
+                  }`}
                   style={{
-                    width: `${w}%`,
-                    minHeight: i % 3 === 0 ? 74 : 54,
+                    width: `${bubble.width}%`,
+                    minHeight: bubble.minHeight,
                   }}
                 >
                   <span className={`absolute inset-0 ${SHIMMER}`} />
