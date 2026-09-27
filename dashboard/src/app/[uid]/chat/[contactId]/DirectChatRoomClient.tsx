@@ -138,6 +138,8 @@ export function DirectChatRoomClient({
   const longPressTimerRef = useRef<number | null>(null);
   const longPressTriggeredAtRef = useRef(0);
   const pressOriginRef = useRef({ x: 0, y: 0 });
+  const DRAFT_KEY = `cheya-draft:${uid}:${contact.uid}`;
+  const draftReadyRef = useRef(false);
 
   const showToast = useCallback((message: string) => {
     setToast(message);
@@ -484,6 +486,30 @@ export function DirectChatRoomClient({
       window.removeEventListener("popstate", onPopState);
     };
   }, [uid, router]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const value = window.localStorage.getItem(DRAFT_KEY);
+      if (value) setText(value);
+    } catch {}
+  }, [DRAFT_KEY]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!draftReadyRef.current) {
+      draftReadyRef.current = true;
+      return;
+    }
+    try {
+      if (text.trim()) {
+        window.localStorage.setItem(DRAFT_KEY, text);
+      } else {
+        window.localStorage.removeItem(DRAFT_KEY);
+      }
+      window.dispatchEvent(new Event("cheya-draft-change"));
+    } catch {}
+  }, [text, DRAFT_KEY]);
 
   useRealtime(uid, (event) => {
     if (event.type === "direct-chat:typing" && event.senderUid === contact.uid) {

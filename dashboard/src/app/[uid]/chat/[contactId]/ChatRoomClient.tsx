@@ -170,6 +170,8 @@ export function ChatRoomClient({
   const lastMarkReadAtRef = useRef(0);
   const markReadInflightRef = useRef(false);
   const router = useRouter();
+  const DRAFT_KEY = `cheya-draft:${uid}:system`;
+  const draftReadyRef = useRef(false);
 
   const [mounted, setMounted] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
@@ -205,6 +207,10 @@ export function ChatRoomClient({
     setToast(message);
     if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
     toastTimerRef.current = window.setTimeout(() => setToast(""), 2600);
+  }
+
+  function handleTextChange(value: string) {
+    setText(value);
   }
 
   function startChatItemPress(event: React.PointerEvent, item: ChatItem) {
@@ -423,6 +429,30 @@ export function ChatRoomClient({
       window.removeEventListener("popstate", onPopState);
     };
   }, [uid, router]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const value = window.localStorage.getItem(DRAFT_KEY);
+      if (value) setText(value);
+    } catch {}
+  }, [DRAFT_KEY]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!draftReadyRef.current) {
+      draftReadyRef.current = true;
+      return;
+    }
+    try {
+      if (text.trim()) {
+        window.localStorage.setItem(DRAFT_KEY, text);
+      } else {
+        window.localStorage.removeItem(DRAFT_KEY);
+      }
+      window.dispatchEvent(new Event("cheya-draft-change"));
+    } catch {}
+  }, [text, DRAFT_KEY]);
 
   useRealtime(uid, (event) => {
     if (event.type === "message:new") {
@@ -963,7 +993,7 @@ export function ChatRoomClient({
         sending={sending}
         sendLabel={editingId ? "Simpan edit" : "Kirim pesan"}
         inputRef={taRef}
-        onChange={setText}
+        onChange={handleTextChange}
         onSend={() => void sendMessage()}
         onInput={autoGrow}
         onKeyDown={onKeyDown}

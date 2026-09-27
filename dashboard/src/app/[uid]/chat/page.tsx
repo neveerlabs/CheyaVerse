@@ -7,6 +7,7 @@ import {
 } from "@/lib/storage";
 import { VerifiedName } from "@/components/VerifiedName";
 import { TelegramAvatar } from "@/components/TelegramAvatar";
+import { ChatDraftPreview } from "@/components/ChatDraftPreview";
 import { ChatSearch } from "./ChatSearch";
 
 export const dynamic = "force-dynamic";
@@ -113,11 +114,13 @@ export default async function ChatListPage({
                     size="lg"
                     nameClassName={hasUnread ? "font-bold" : "font-semibold"}
                   />
-                  {hasMessage && (
-                    <span className={`truncate text-[12.5px] ${hasUnread ? "font-medium text-ink-soft" : "text-ink-mute"}`}>
-                      {lastPreview}
-                    </span>
-                  )}
+                  <span className={`truncate text-[12.5px] ${hasUnread ? "font-medium text-ink-soft" : "text-ink-mute"}`}>
+                    <ChatDraftPreview
+                      uid={String(uid)}
+                      contactId="system"
+                      fallback={hasMessage ? lastPreview : ""}
+                    />
+                  </span>
                 </div>
                 <div className="flex min-h-[36px] flex-shrink-0 flex-col items-end justify-center gap-1">
                   {lastIso && (
@@ -149,11 +152,15 @@ export default async function ChatListPage({
                   {name}
                 </span>
                 <span className={`truncate text-[12.5px] ${conversation.unread ? "font-medium text-ink-soft" : "text-ink-mute"}`}>
-                  {previewText(
-                    conversation.last_message.deleted_at
-                      ? "Pesan dihapus"
-                      : conversation.last_message.content,
-                  )}
+                  <ChatDraftPreview
+                    uid={String(uid)}
+                    contactId={String(contact.uid)}
+                    fallback={previewText(
+                      conversation.last_message.deleted_at
+                        ? "Pesan dihapus"
+                        : conversation.last_message.content,
+                    )}
+                  />
                 </span>
               </div>
               <div className="flex min-h-[36px] flex-shrink-0 flex-col items-end justify-center gap-1">
