@@ -1516,21 +1516,36 @@ export async function searchTelegramUsers(
   excludeUid: number,
   limit = 30,
 ): Promise<TelegramUser[]> {
-  const term = query.trim().replace(/^@/, "").toLowerCase();
-  if (!term) return [];
+  const cleaned = query.trim().replace(/^@/, "").toLowerCase();
+  if (!cleaned) return [];
+  const words = cleaned.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [];
   await ensureTelegramAccountsTable();
-  const match = `%${term.replace(/[\\%_]/g, "\\$&")}%`;
+
+  const conditions = words
+    .map(
+      () =>
+        `(LOWER(COALESCE(username, '')) LIKE ? ESCAPE '\\'
+          OR LOWER(COALESCE(first_name, '')) LIKE ? ESCAPE '\\'
+          OR LOWER(COALESCE(last_name, '')) LIKE ? ESCAPE '\\')`,
+    )
+    .join(" AND ");
+
+  const args: (string | number)[] = [excludeUid];
+  for (const word of words) {
+    const prefix = `${word.replace(/[\\%_]/g, "\\$&")}%`;
+    args.push(prefix, prefix, prefix);
+  }
+  args.push(cleaned, limit);
+
   const result = await getTurso().execute({
     sql: `SELECT * FROM "akun-telegram"
-          WHERE uid != ? AND (
-            LOWER(COALESCE(username, '')) LIKE ? ESCAPE '\\'
-            OR LOWER(COALESCE(first_name, '') || ' ' || COALESCE(last_name, '')) LIKE ? ESCAPE '\\'
-          )
+          WHERE uid != ? AND (${conditions})
           ORDER BY
             CASE WHEN LOWER(COALESCE(username, '')) = ? THEN 0 ELSE 1 END,
             first_name COLLATE NOCASE, last_name COLLATE NOCASE
           LIMIT ?`,
-    args: [excludeUid, match, match, term, limit],
+    args,
   });
   return result.rows.map((row) =>
     rowToTelegramUser(row as unknown as Record<string, unknown>),

@@ -84,7 +84,7 @@ export default async function ChatListPage({
 
   return (
     <>
-      <header className="relative z-50 -mx-2 pt-[calc(12px+env(safe-area-inset-top))] pb-4 animate-fade-up">
+      <header className="sticky top-0 z-50 -mx-2 pt-[calc(12px+env(safe-area-inset-top))] pb-4 bg-white">
         <ChatSearch uid={String(uid)} />
       </header>
 
