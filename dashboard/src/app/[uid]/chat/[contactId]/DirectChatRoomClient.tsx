@@ -34,6 +34,13 @@ type ChatContact = Pick<
 >;
 type SearchUser = ChatContact;
 
+type ViewportState = {
+  top: number;
+  height: number;
+  keyboard: boolean;
+  keyboardInset: number;
+};
+
 function userName(user: ChatContact): string {
   const fullName = [user.first_name, user.last_name].filter(Boolean).join(" ").trim();
   return fullName || (user.username ? `@${user.username}` : `Telegram ${user.uid}`);
@@ -105,7 +112,12 @@ export function DirectChatRoomClient({
   const [contactTyping, setContactTyping] = useState(false);
   const [, setPresenceClock] = useState(0);
   const presenceLabel = contactTyping ? "mengetik..." : formatPresence(contactLastSeen);
-  const [viewport, setViewport] = useState({ top: 0, height: 0, keyboard: false });
+  const [viewport, setViewport] = useState<ViewportState>({
+    top: 0,
+    height: 0,
+    keyboard: false,
+    keyboardInset: 0,
+  });
   const messageBoxRef = useRef<HTMLDivElement | null>(null);
   const menuRootRef = useRef<HTMLElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -306,7 +318,7 @@ export function DirectChatRoomClient({
   useEffect(() => {
     const viewportElement = window.visualViewport;
     if (!viewportElement) {
-      setViewport({ top: 0, height: 0, keyboard: false });
+      setViewport({ top: 0, height: 0, keyboard: false, keyboardInset: 0 });
       return;
     }
     let frame = 0;
@@ -317,19 +329,25 @@ export function DirectChatRoomClient({
         const isEditing =
           document.activeElement instanceof HTMLInputElement ||
           document.activeElement instanceof HTMLTextAreaElement;
-        const keyboard =
-          isEditing && window.innerHeight - viewportElement.height > 120;
+        const layoutHeight = document.documentElement.clientHeight;
+        const delta = layoutHeight - viewportElement.height;
+        const keyboard = isEditing && delta > 120;
+        const nextHeight = keyboard ? Math.max(1, viewportElement.height) : 0;
+        const nextInset = keyboard ? Math.max(0, delta) : 0;
         setViewport((current) => {
-          const next = {
+          if (
+            current.keyboard === keyboard &&
+            Math.abs(current.height - nextHeight) < 4 &&
+            Math.abs(current.keyboardInset - nextInset) < 4
+          ) {
+            return current;
+          }
+          return {
             top: 0,
-            height: keyboard ? Math.max(1, viewportElement.height) : 0,
+            height: nextHeight,
             keyboard,
+            keyboardInset: nextInset,
           };
-          return current.keyboard === next.keyboard &&
-            current.height === next.height &&
-            current.top === next.top
-            ? current
-            : next;
         });
       });
     };
@@ -704,10 +722,6 @@ export function DirectChatRoomClient({
     return () => setMounted(false);
   }, []);
 
-  const keyboardInset = viewport.keyboard
-    ? Math.max(0, window.innerHeight - viewport.height)
-    : 0;
-
   const header = (
     <header
       ref={menuRootRef}
@@ -809,7 +823,7 @@ export function DirectChatRoomClient({
   const footer = (
     <footer
       className="chat-footer pointer-events-none fixed left-0 right-0 z-30 bg-transparent"
-      style={{ bottom: keyboardInset }}
+      style={{ bottom: viewport.keyboardInset }}
     >
       <ChatComposer
         value={text}
@@ -880,126 +894,125 @@ export function DirectChatRoomClient({
         }}
       >
         {searchOpen && (
-        <div className="flex flex-shrink-0 items-center gap-2 bg-transparent px-4 py-2">
-          <Search size={16} className="text-ink-mute" />
-          <input
-            autoFocus
-            value={searchText}
-            onChange={(event) => setSearchText(event.target.value)}
-            placeholder="Cari isi pesan"
-            className="min-w-0 flex-1 bg-transparent py-1 text-[13px] outline-none"
-          />
-          <button type="button" aria-label="Tutup pencarian" onClick={() => { setSearchOpen(false); setSearchText(""); }}>
-            <X size={17} className="text-ink-mute" />
-          </button>
-        </div>
-      )}
+          <div className="flex flex-shrink-0 items-center gap-2 bg-transparent px-4 py-2">
+            <Search size={16} className="text-ink-mute" />
+            <input
+              autoFocus
+              value={searchText}
+              onChange={(event) => setSearchText(event.target.value)}
+              placeholder="Cari isi pesan"
+              className="min-w-0 flex-1 bg-transparent py-1 text-[13px] outline-none"
+            />
+            <button type="button" aria-label="Tutup pencarian" onClick={() => { setSearchOpen(false); setSearchText(""); }}>
+              <X size={17} className="text-ink-mute" />
+            </button>
+          </div>
+        )}
 
         {pinned && (
-        <button
-          type="button"
-          onClick={() => {
-            document.getElementById(`direct-message-${pinned.id}`)?.scrollIntoView({
-              behavior: "smooth",
-              block: "center",
-            });
-          }}
-          className="flex flex-shrink-0 items-center gap-2 bg-transparent px-4 py-2 text-left"
-        >
-          <Pin size={14} className="flex-shrink-0 text-ink-soft" />
-          <span className="truncate text-[12px] text-ink-soft">
-            {pinned.deleted_at
-              ? "Pesan dihapus"
-              : pinned.media_file_id
-                ? "Pesan suara tidak didukung"
-                : pinned.content}
-          </span>
-        </button>
-      )}
-
-      <div
-        onContextMenu={(event) => event.preventDefault()}
-        className="flex min-w-0 flex-col gap-2 px-3 py-3"
-      >
-        {visibleMessages.length === 0 ? (
-          <div className="flex flex-1 flex-col items-center justify-center py-16 text-center">
-            <p className="mb-1 text-[14px] font-medium text-ink">
-              {searchText ? "Pesan tidak ditemukan" : "Belum ada pesan"}
-            </p>
-            {!searchText && (
-              <p className="text-[12.5px] text-ink-mute">Mulai percakapan dengan {name}.</p>
-            )}
-          </div>
-        ) : (
-          visibleMessages.map((message) => {
-            const mine = message.sender_uid === myUid;
-            const isPending = pendingIdsRef.current.has(message.id);
-            const reply = message.reply_to_id
-              ? messages.find((item) => item.id === message.reply_to_id)
-              : null;
-            const prefix = (message.forwarded_from_uid || message.reply_to_id) ? (
-              <>
-                {message.forwarded_from_uid && (
-                  <span className={`mb-1 block text-[10px] italic ${mine ? "text-white/60" : "text-ink-mute"}`}>
-                    Diteruskan
-                  </span>
-                )}
-                {message.reply_to_id && (
-                  <span className={`mb-1 block max-w-full truncate border-l-2 pl-2 text-[10px] ${
-                    mine ? "border-white/50 text-white/70" : "border-ink/30 text-ink-mute"
-                  }`}>
-                    {reply?.media_file_id
-                      ? "Pesan suara tidak didukung"
-                      : reply?.content ?? "Balasan"}
-                  </span>
-                )}
-              </>
-            ) : null;
-            const content = message.deleted_at
-              ? "Pesan dihapus"
-              : message.media_file_id
-                ? "Pesan suara tidak didukung"
-                : message.content;
-            return (
-              <div
-                key={message.id}
-                id={`direct-message-${message.id}`}
-                className="w-full min-w-0"
-              >
-                <ChatMessageBubble
-                  outgoing={mine}
-                  avatarUrl={
-                    mine
-                      ? ownPhotoUrl || `/api/avatar/${myUid}`
-                      : contact.photo_url || `/api/avatar/${contact.uid}`
-                  }
-                  content={content}
-                  timestamp={chatMessageTime(message.created_at)}
-                  status={<StatusIcon message={message} pending={isPending} />}
-                  prefix={prefix}
-                  edited={Boolean(message.edited_at && !message.deleted_at)}
-                  pinned={Boolean(message.is_pinned)}
-                  deleted={Boolean(message.deleted_at)}
-                  pending={isPending}
-                  label={`Pesan dari ${mine ? "Anda" : name}`}
-                  onPointerDown={(event) => startMessagePress(event, message)}
-                  onPointerMove={moveMessagePress}
-                  onPointerUp={stopMessagePress}
-                  onPointerLeave={stopMessagePress}
-                  onPointerCancel={stopMessagePress}
-                  onContextMenu={(event) => {
-                    event.preventDefault();
-                    if (isPending) return;
-                    longPressTriggeredAtRef.current = Date.now();
-                    setSelectedMessage(message);
-                  }}
-                />
-              </div>
-            );
-          })
+          <button
+            type="button"
+            onClick={() => {
+              document.getElementById(`direct-message-${pinned.id}`)?.scrollIntoView({
+                behavior: "smooth",
+                block: "center",
+              });
+            }}
+            className="flex flex-shrink-0 items-center gap-2 bg-transparent px-4 py-2 text-left"
+          >
+            <Pin size={14} className="flex-shrink-0 text-ink-soft" />
+            <span className="truncate text-[12px] text-ink-soft">
+              {pinned.deleted_at
+                ? "Pesan dihapus"
+                : pinned.media_file_id
+                  ? "Pesan suara tidak didukung"
+                  : pinned.content}
+            </span>
+          </button>
         )}
-      </div>
 
+        <div
+          onContextMenu={(event) => event.preventDefault()}
+          className="flex min-w-0 flex-col gap-2 px-3 py-3"
+        >
+          {visibleMessages.length === 0 ? (
+            <div className="flex flex-1 flex-col items-center justify-center py-16 text-center">
+              <p className="mb-1 text-[14px] font-medium text-ink">
+                {searchText ? "Pesan tidak ditemukan" : "Belum ada pesan"}
+              </p>
+              {!searchText && (
+                <p className="text-[12.5px] text-ink-mute">Mulai percakapan dengan {name}.</p>
+              )}
+            </div>
+          ) : (
+            visibleMessages.map((message) => {
+              const mine = message.sender_uid === myUid;
+              const isPending = pendingIdsRef.current.has(message.id);
+              const reply = message.reply_to_id
+                ? messages.find((item) => item.id === message.reply_to_id)
+                : null;
+              const prefix = (message.forwarded_from_uid || message.reply_to_id) ? (
+                <>
+                  {message.forwarded_from_uid && (
+                    <span className={`mb-1 block text-[10px] italic ${mine ? "text-white/60" : "text-ink-mute"}`}>
+                      Diteruskan
+                    </span>
+                  )}
+                  {message.reply_to_id && (
+                    <span className={`mb-1 block max-w-full truncate border-l-2 pl-2 text-[10px] ${
+                      mine ? "border-white/50 text-white/70" : "border-ink/30 text-ink-mute"
+                    }`}>
+                      {reply?.media_file_id
+                        ? "Pesan suara tidak didukung"
+                        : reply?.content ?? "Balasan"}
+                    </span>
+                  )}
+                </>
+              ) : null;
+              const content = message.deleted_at
+                ? "Pesan dihapus"
+                : message.media_file_id
+                  ? "Pesan suara tidak didukung"
+                  : message.content;
+              return (
+                <div
+                  key={message.id}
+                  id={`direct-message-${message.id}`}
+                  className="w-full min-w-0"
+                >
+                  <ChatMessageBubble
+                    outgoing={mine}
+                    avatarUrl={
+                      mine
+                        ? ownPhotoUrl || `/api/avatar/${myUid}`
+                        : contact.photo_url || `/api/avatar/${contact.uid}`
+                    }
+                    content={content}
+                    timestamp={chatMessageTime(message.created_at)}
+                    status={<StatusIcon message={message} pending={isPending} />}
+                    prefix={prefix}
+                    edited={Boolean(message.edited_at && !message.deleted_at)}
+                    pinned={Boolean(message.is_pinned)}
+                    deleted={Boolean(message.deleted_at)}
+                    pending={isPending}
+                    label={`Pesan dari ${mine ? "Anda" : name}`}
+                    onPointerDown={(event) => startMessagePress(event, message)}
+                    onPointerMove={moveMessagePress}
+                    onPointerUp={stopMessagePress}
+                    onPointerLeave={stopMessagePress}
+                    onPointerCancel={stopMessagePress}
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      if (isPending) return;
+                      longPressTriggeredAtRef.current = Date.now();
+                      setSelectedMessage(message);
+                    }}
+                  />
+                </div>
+              );
+            })
+          )}
+        </div>
       </section>
       {mounted && createPortal(footer, document.body)}
 
@@ -1014,58 +1027,58 @@ export function DirectChatRoomClient({
                 : selectedMessage.content
           }
         >
-            {!selectedMessage.deleted_at && (
-              <button
-                type="button"
-                onClick={() => beginReply(selectedMessage)}
-                className="flex w-full items-center gap-3 px-4 py-3 text-[13px] text-ink"
-              >
-                <Reply size={17} /> Balas
-              </button>
-            )}
-            <button type="button" onClick={() => void copyMessage(selectedMessage)} className="flex w-full items-center gap-3 px-4 py-3 text-[13px] text-ink">
-              <Copy size={17} /> Salin
-            </button>
-            {selectedMessage.sender_uid === myUid &&
-              !selectedMessage.deleted_at &&
-              !selectedMessage.media_file_id && (
-              <button type="button" onClick={() => beginEdit(selectedMessage)} className="flex w-full items-center gap-3 px-4 py-3 text-[13px] text-ink">
-                <Pencil size={17} /> Edit
-              </button>
-            )}
+          {!selectedMessage.deleted_at && (
             <button
               type="button"
-              onClick={() => void deleteMessage(selectedMessage, "me")}
+              onClick={() => beginReply(selectedMessage)}
               className="flex w-full items-center gap-3 px-4 py-3 text-[13px] text-ink"
             >
-              <Trash2 size={17} /> Hapus untuk saya
+              <Reply size={17} /> Balas
             </button>
-            {selectedMessage.sender_uid === myUid && !selectedMessage.deleted_at && (
-              <button
-                type="button"
-                onClick={() => void deleteMessage(selectedMessage, "everyone")}
-                className="flex w-full items-center gap-3 px-4 py-3 text-[13px] text-danger"
-              >
-                <Trash2 size={17} /> Hapus untuk semua orang
-              </button>
-            )}
+          )}
+          <button type="button" onClick={() => void copyMessage(selectedMessage)} className="flex w-full items-center gap-3 px-4 py-3 text-[13px] text-ink">
+            <Copy size={17} /> Salin
+          </button>
+          {selectedMessage.sender_uid === myUid &&
+            !selectedMessage.deleted_at &&
+            !selectedMessage.media_file_id && (
+            <button type="button" onClick={() => beginEdit(selectedMessage)} className="flex w-full items-center gap-3 px-4 py-3 text-[13px] text-ink">
+              <Pencil size={17} /> Edit
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => void deleteMessage(selectedMessage, "me")}
+            className="flex w-full items-center gap-3 px-4 py-3 text-[13px] text-ink"
+          >
+            <Trash2 size={17} /> Hapus untuk saya
+          </button>
+          {selectedMessage.sender_uid === myUid && !selectedMessage.deleted_at && (
             <button
               type="button"
-              onClick={() => setForwardOpen(true)}
-              className="flex w-full items-center gap-3 px-4 py-3 text-[13px] text-ink"
+              onClick={() => void deleteMessage(selectedMessage, "everyone")}
+              className="flex w-full items-center gap-3 px-4 py-3 text-[13px] text-danger"
             >
-              <Forward size={17} /> Teruskan
+              <Trash2 size={17} /> Hapus untuk semua orang
             </button>
-            <button
-              type="button"
-              onClick={() => void togglePin(selectedMessage)}
-              className="flex w-full items-center gap-3 px-4 py-3 text-[13px] text-ink"
-            >
-              <Pin size={17} /> {selectedMessage.is_pinned ? "Lepas sematan" : "Sematkan"}
-            </button>
-            <button type="button" onClick={() => setSelectedMessage(null)} className="flex w-full items-center justify-center gap-2 border-t border-line px-4 py-3 text-[13px] font-semibold text-ink-soft">
-              <X size={15} /> Tutup
-            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setForwardOpen(true)}
+            className="flex w-full items-center gap-3 px-4 py-3 text-[13px] text-ink"
+          >
+            <Forward size={17} /> Teruskan
+          </button>
+          <button
+            type="button"
+            onClick={() => void togglePin(selectedMessage)}
+            className="flex w-full items-center gap-3 px-4 py-3 text-[13px] text-ink"
+          >
+            <Pin size={17} /> {selectedMessage.is_pinned ? "Lepas sematan" : "Sematkan"}
+          </button>
+          <button type="button" onClick={() => setSelectedMessage(null)} className="flex w-full items-center justify-center gap-2 border-t border-line px-4 py-3 text-[13px] font-semibold text-ink-soft">
+            <X size={15} /> Tutup
+          </button>
         </MessageActionSheet>
       )}
 

@@ -54,11 +54,11 @@ export function ChatComposer({
     <form
       onSubmit={submit}
       className={`pointer-events-auto flex w-full flex-shrink-0 flex-col gap-1 bg-transparent px-3 pt-2 pb-[calc(8px+env(safe-area-inset-bottom))] ${className}`}
-      style={style}
+      style={{ ...style, touchAction: "none" }}
     >
       {above}
       <div className="flex w-full min-w-0 items-end gap-2">
-        <div className="flex min-h-11 min-w-0 flex-1 items-end rounded-full border border-line bg-white px-3 py-1.5">
+        <div className="flex min-h-11 min-w-0 flex-1 items-end overflow-hidden rounded-[22px] border border-line bg-white px-3 py-1.5">
           <textarea
             ref={inputRef}
             rows={1}
@@ -69,7 +69,12 @@ export function ChatComposer({
             onInput={onInput}
             onKeyDown={onKeyDown}
             className="min-h-7 min-w-0 flex-1 resize-none overflow-y-auto bg-transparent p-0 text-[14px] leading-[22px] tracking-[-.005em] text-ink outline-none placeholder:text-ink-mute [overflow-wrap:anywhere]"
-            style={{ maxHeight: 120, fontFamily: "inherit" }}
+            style={{
+              maxHeight: 120,
+              fontFamily: "inherit",
+              touchAction: "auto",
+              overscrollBehavior: "contain",
+            }}
           />
           {onToggleDictation && (
             <button

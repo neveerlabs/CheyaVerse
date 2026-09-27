@@ -93,12 +93,14 @@ export function ChatMessageBubble({
               dangerouslySetInnerHTML={{ __html: content }}
             />
           ) : (
-            <span className={`inline whitespace-pre-wrap break-words text-[13.5px] leading-[1.4] ${deleted ? "italic opacity-65" : ""}`}>
+            <span
+              className={`inline whitespace-pre-wrap break-words text-[13.5px] leading-[1.4] ${deleted ? "italic opacity-65" : ""}`}
+            >
               {content}
             </span>
           )}
           <span
-            className={`float-right ml-2 mt-1 inline-flex items-center gap-1 whitespace-nowrap text-[10px] ${
+            className={`float-right ml-2 -mb-0.5 mt-0.5 inline-flex items-center gap-1 whitespace-nowrap text-[10px] ${
               outgoing ? "text-white/70" : "text-ink-mute"
             }`}
           >
