@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ArrowDown,
   ArrowLeft,
   Check,
   CheckCheck,
@@ -45,6 +46,9 @@ type ViewportState = {
   keyboardInset: number;
 };
 
+const SWIPE_TRIGGER = 55;
+const SWIPE_MAX = 88;
+
 function userName(user: ChatContact): string {
   const fullName = [user.first_name, user.last_name].filter(Boolean).join(" ").trim();
   return fullName || (user.username ? `@${user.username}` : `Telegram ${user.uid}`);
@@ -79,15 +83,25 @@ function StatusIcon({
   return <Check size={14} className="text-sky-200" />;
 }
 
+const clampStyle: React.CSSProperties = {
+  display: "-webkit-box",
+  WebkitLineClamp: 2,
+  WebkitBoxOrient: "vertical",
+  overflow: "hidden",
+  wordBreak: "break-word",
+};
+
 export function DirectChatRoomClient({
   uid,
   contact,
   ownPhotoUrl,
+  ownName,
   initialMessages,
 }: {
   uid: string;
   contact: ChatContact;
   ownPhotoUrl: string | null;
+  ownName: string;
   initialMessages: DirectMessage[];
 }) {
   const myUid = Number(uid);
@@ -115,6 +129,9 @@ export function DirectChatRoomClient({
   const [muted, setMuted] = useState(false);
   const [contactLastSeen, setContactLastSeen] = useState<number | null>(null);
   const [contactTyping, setContactTyping] = useState(false);
+  const [showScrollButton, setShowScrollButton] = useState(false);
+  const [swipe, setSwipe] = useState<{ id: string; offset: number } | null>(null);
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [, setPresenceClock] = useState(0);
   const presenceLabel = contactTyping ? "mengetik..." : formatPresence(contactLastSeen);
   const [viewport, setViewport] = useState<ViewportState>({
@@ -125,11 +142,13 @@ export function DirectChatRoomClient({
   });
   const [vvOffset, setVvOffset] = useState(0);
   const messageBoxRef = useRef<HTMLDivElement | null>(null);
+  const hasScrolledRef = useRef(false);
   const menuRootRef = useRef<HTMLElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const refreshBusyRef = useRef(false);
   const pendingIdsRef = useRef(new Set<string>());
   const toastTimerRef = useRef<number | null>(null);
+  const highlightTimerRef = useRef<number | null>(null);
   const previousTitleRef = useRef("");
   const typingActiveRef = useRef(false);
   const typingLastSentAtRef = useRef(0);
@@ -138,8 +157,24 @@ export function DirectChatRoomClient({
   const longPressTimerRef = useRef<number | null>(null);
   const longPressTriggeredAtRef = useRef(0);
   const pressOriginRef = useRef({ x: 0, y: 0 });
+  const swipeRef = useRef<{
+    id: string;
+    mine: boolean;
+    startX: number;
+    startY: number;
+    active: boolean;
+    offset: number;
+  } | null>(null);
   const DRAFT_KEY = `cheya-draft:${uid}:${contact.uid}`;
   const draftReadyRef = useRef(false);
+
+  const repliedSenderName = useCallback(
+    (msg: DirectMessage | null): string => {
+      if (!msg) return "";
+      return msg.sender_uid === myUid ? ownName : name;
+    },
+    [myUid, name, ownName],
+  );
 
   const showToast = useCallback((message: string) => {
     setToast(message);
@@ -147,12 +182,30 @@ export function DirectChatRoomClient({
     toastTimerRef.current = window.setTimeout(() => setToast(""), 2600);
   }, []);
 
+  const scrollToMessage = useCallback((messageId: string) => {
+    const el = document.getElementById(`direct-message-${messageId}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    setHighlightedId(messageId);
+    if (highlightTimerRef.current !== null) window.clearTimeout(highlightTimerRef.current);
+    highlightTimerRef.current = window.setTimeout(() => setHighlightedId(null), 1600);
+  }, []);
+
   function startMessagePress(event: React.PointerEvent, message: DirectMessage) {
-    if (
-      event.pointerType !== "touch" ||
-      pendingIdsRef.current.has(message.id)
-    ) return;
+    if (pendingIdsRef.current.has(message.id)) return;
+    try {
+      (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+    } catch {}
     pressOriginRef.current = { x: event.clientX, y: event.clientY };
+    swipeRef.current = {
+      id: message.id,
+      mine: message.sender_uid === myUid,
+      startX: event.clientX,
+      startY: event.clientY,
+      active: false,
+      offset: 0,
+    };
+    if (event.pointerType !== "touch") return;
     if (longPressTimerRef.current !== null) {
       window.clearTimeout(longPressTimerRef.current);
     }
@@ -163,19 +216,60 @@ export function DirectChatRoomClient({
     }, 450);
   }
 
-  function stopMessagePress() {
+  function stopMessagePress(event?: React.PointerEvent) {
     if (longPressTimerRef.current !== null) {
       window.clearTimeout(longPressTimerRef.current);
       longPressTimerRef.current = null;
     }
+    if (event) {
+      try {
+        (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
+      } catch {}
+    }
+    const s = swipeRef.current;
+    if (!s) return;
+    swipeRef.current = null;
+    if (s.active && Math.abs(s.offset) >= SWIPE_TRIGGER) {
+      const target = messagesRef.current.find((m) => m.id === s.id);
+      if (target) beginReply(target);
+    }
+    setSwipe(null);
   }
 
   function moveMessagePress(event: React.PointerEvent) {
-    const distance = Math.hypot(
-      event.clientX - pressOriginRef.current.x,
-      event.clientY - pressOriginRef.current.y,
-    );
-    if (distance > 10) stopMessagePress();
+    const s = swipeRef.current;
+    if (!s) return;
+    const dx = event.clientX - s.startX;
+    const dy = event.clientY - s.startY;
+    if (!s.active) {
+      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+      if (Math.abs(dx) < Math.abs(dy)) {
+        stopMessagePress(event);
+        return;
+      }
+      if (s.mine && dx > 0) {
+        stopMessagePress(event);
+        return;
+      }
+      if (!s.mine && dx < 0) {
+        stopMessagePress(event);
+        return;
+      }
+      s.active = true;
+      if (longPressTimerRef.current !== null) {
+        window.clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
+    }
+    let offset = s.mine ? Math.min(0, dx) : Math.max(0, dx);
+    const absOffset = Math.abs(offset);
+    if (absOffset > SWIPE_TRIGGER) {
+      const excess = absOffset - SWIPE_TRIGGER;
+      offset = Math.sign(offset) * (SWIPE_TRIGGER + excess * 0.3);
+    }
+    offset = Math.max(-SWIPE_MAX, Math.min(SWIPE_MAX, offset));
+    s.offset = offset;
+    setSwipe({ id: s.id, offset });
   }
 
   async function sendTypingState(typing: boolean) {
@@ -254,6 +348,19 @@ export function DirectChatRoomClient({
     setMenuOpen(false);
     requestAnimationFrame(() => textareaRef.current?.focus());
   }
+
+  const scrollToBottom = useCallback(() => {
+    const el = messageBoxRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+  }, []);
+
+  const handleMessageScroll = useCallback(() => {
+    const el = messageBoxRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    setShowScrollButton(distanceFromBottom > 200);
+  }, []);
 
   const refreshMessages = useCallback(async () => {
     if (refreshBusyRef.current) return;
@@ -434,6 +541,7 @@ export function DirectChatRoomClient({
   useEffect(() => {
     return () => {
       if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
+      if (highlightTimerRef.current !== null) window.clearTimeout(highlightTimerRef.current);
       if (longPressTimerRef.current !== null) window.clearTimeout(longPressTimerRef.current);
       if (typingTimeoutRef.current !== null) window.clearTimeout(typingTimeoutRef.current);
       if (contactTypingTimeoutRef.current !== null) {
@@ -490,8 +598,28 @@ export function DirectChatRoomClient({
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
-      const value = window.localStorage.getItem(DRAFT_KEY);
-      if (value) setText(value);
+      const raw = window.localStorage.getItem(DRAFT_KEY);
+      if (!raw) return;
+      const trimmed = raw.trim();
+      let parsedText = "";
+      let parsedReplyId: string | null = null;
+      if (trimmed.startsWith("{")) {
+        try {
+          const parsed = JSON.parse(trimmed) as {
+            text?: unknown;
+            replyToId?: unknown;
+          };
+          if (typeof parsed?.text === "string") parsedText = parsed.text;
+          if (typeof parsed?.replyToId === "string") parsedReplyId = parsed.replyToId;
+        } catch {}
+      } else {
+        parsedText = raw;
+      }
+      if (parsedText) setText(parsedText);
+      if (parsedReplyId) {
+        const target = messagesRef.current.find((m) => m.id === parsedReplyId);
+        if (target) setReplyingTo(target);
+      }
     } catch {}
   }, [DRAFT_KEY]);
 
@@ -503,13 +631,17 @@ export function DirectChatRoomClient({
     }
     try {
       if (text.trim()) {
-        window.localStorage.setItem(DRAFT_KEY, text);
+        const payload = {
+          text,
+          replyToId: replyingTo?.id ?? null,
+        };
+        window.localStorage.setItem(DRAFT_KEY, JSON.stringify(payload));
       } else {
         window.localStorage.removeItem(DRAFT_KEY);
       }
       window.dispatchEvent(new Event("cheya-draft-change"));
     } catch {}
-  }, [text, DRAFT_KEY]);
+  }, [text, replyingTo, DRAFT_KEY]);
 
   useRealtime(uid, (event) => {
     if (event.type === "direct-chat:typing" && event.senderUid === contact.uid) {
@@ -593,18 +725,22 @@ export function DirectChatRoomClient({
 
   useEffect(() => {
     if (!messageBoxRef.current) return;
+    const behavior: ScrollBehavior = hasScrolledRef.current ? "smooth" : "auto";
     messageBoxRef.current.scrollTo({
       top: messageBoxRef.current.scrollHeight,
-      behavior: "smooth",
+      behavior,
     });
+    hasScrolledRef.current = true;
   }, [messages.length]);
 
   async function sendMessage() {
     const content = text.trim();
     if (!content || sending) return;
     stopTyping();
+    const replySnapshot = replyingTo;
     setSending(true);
     setText("");
+    setReplyingTo(null);
     if (textareaRef.current) textareaRef.current.style.height = "auto";
     if (editingId) {
       const editId = editingId;
@@ -654,7 +790,7 @@ export function DirectChatRoomClient({
       media_message_id: null,
       media_content_type: null,
       media_duration_ms: null,
-      reply_to_id: replyingTo?.id ?? null,
+      reply_to_id: replySnapshot?.id ?? null,
     };
     pendingIdsRef.current.add(tempId);
     setMessages((current) => [...current, optimistic]);
@@ -662,7 +798,7 @@ export function DirectChatRoomClient({
       const response = await fetch(`/api/chats/${contact.uid}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content, replyToId: replyingTo?.id ?? null }),
+        body: JSON.stringify({ content, replyToId: replySnapshot?.id ?? null }),
       });
       const result = await response.json();
       if (!response.ok || result.ok !== true || !result.message) {
@@ -670,7 +806,6 @@ export function DirectChatRoomClient({
       }
       pendingIdsRef.current.delete(tempId);
       const saved = result.message as DirectMessage;
-      setReplyingTo(null);
       setMessages((current) => {
         const withoutTemporaryOrDuplicate = current.filter(
           (message) => message.id !== tempId && message.id !== saved.id,
@@ -683,6 +818,7 @@ export function DirectChatRoomClient({
       pendingIdsRef.current.delete(tempId);
       setMessages((current) => current.filter((message) => message.id !== tempId));
       setText(content);
+      setReplyingTo(replySnapshot);
       showToast(error instanceof Error ? error.message : "Pesan gagal dikirim.");
     } finally {
       setSending(false);
@@ -892,6 +1028,18 @@ export function DirectChatRoomClient({
       className="chat-footer pointer-events-none fixed left-0 right-0 z-30 bg-transparent"
       style={{ bottom: footerBottom }}
     >
+      {showScrollButton && (
+        <div className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-3">
+          <button
+            type="button"
+            onClick={scrollToBottom}
+            aria-label="Ke pesan terbaru"
+            className="pointer-events-auto flex h-9 w-9 items-center justify-center rounded-full border border-line bg-white text-ink-soft shadow-[0_2px_8px_rgba(0,0,0,.12)] active:scale-90 transition-transform"
+          >
+            <ArrowDown size={18} strokeWidth={2.2} />
+          </button>
+        </div>
+      )}
       <ChatComposer
         value={text}
         sending={sending}
@@ -909,35 +1057,50 @@ export function DirectChatRoomClient({
             void sendMessage();
           }
         }}
-        above={
-          <>
-            {replyingTo && (
-              <div className="flex items-center gap-2 rounded-xl border border-line bg-white px-3 py-2 text-[11px] text-ink-soft">
-                <Reply size={14} className="shrink-0 text-ink-mute" />
-                <span className="min-w-0 flex-1 truncate">
-                  Membalas: {replyingTo.media_file_id ? "Pesan suara tidak didukung" : replyingTo.content}
+        reply={
+          replyingTo ? (
+            <div className="relative flex items-stretch gap-2.5 border-b border-line bg-gradient-to-r from-[#f6f6f6] to-[#fafafa] px-3 py-2 pr-10">
+              <span className="w-[3px] flex-shrink-0 rounded-full bg-ink" />
+              <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <span className="truncate text-[11.5px] font-semibold leading-none tracking-[-.005em] text-ink">
+                  Reply to {repliedSenderName(replyingTo)}
                 </span>
-                <button type="button" aria-label="Batal membalas" onClick={() => setReplyingTo(null)}>
-                  <X size={14} />
-                </button>
-              </div>
-            )}
-            {editingId && (
-              <div className="flex items-center justify-between rounded-lg bg-[#f5f5f5] px-3 py-1.5 text-[11px] text-ink-soft">
-                <span>Mengedit pesan</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditingId(null);
-                    setText("");
-                  }}
-                  aria-label="Batalkan edit"
+                <span
+                  className="text-[13px] leading-snug text-ink-soft"
+                  style={clampStyle}
                 >
-                  <X size={14} />
-                </button>
+                  {replyingTo.media_file_id
+                    ? "Pesan suara tidak didukung"
+                    : replyingTo.content}
+                </span>
               </div>
-            )}
-          </>
+              <button
+                type="button"
+                aria-label="Batal membalas"
+                onClick={() => setReplyingTo(null)}
+                className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full bg-black/[.05] text-ink-mute transition-colors active:bg-black/10"
+              >
+                <X size={13} strokeWidth={2.4} />
+              </button>
+            </div>
+          ) : undefined
+        }
+        above={
+          editingId ? (
+            <div className="flex items-center justify-between rounded-lg bg-[#f5f5f5] px-3 py-1.5 text-[11px] text-ink-soft">
+              <span>Mengedit pesan</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingId(null);
+                  setText("");
+                }}
+                aria-label="Batalkan edit"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          ) : undefined
         }
         className="mx-auto max-w-[600px] pointer-events-auto"
         style={{
@@ -954,6 +1117,7 @@ export function DirectChatRoomClient({
       {mounted && createPortal(header, document.body)}
       <section
         ref={messageBoxRef}
+        onScroll={handleMessageScroll}
         className="fixed left-0 right-0 z-10 mx-auto max-w-[600px] overflow-x-hidden overflow-y-auto overscroll-contain pt-[calc(80px+env(safe-area-inset-top))] pb-[calc(96px+env(safe-area-inset-bottom))]"
         style={{
           top: vvApplied,
@@ -1018,20 +1182,70 @@ export function DirectChatRoomClient({
               const reply = message.reply_to_id
                 ? messages.find((item) => item.id === message.reply_to_id)
                 : null;
+              const repliedName = repliedSenderName(reply);
+              const replyPreview = reply?.media_file_id
+                ? "Pesan suara tidak didukung"
+                : reply?.content ?? "Balasan";
               const prefix = (message.forwarded_from_uid || message.reply_to_id) ? (
                 <>
                   {message.forwarded_from_uid && (
-                    <span className={`mb-1 block text-[10px] italic ${mine ? "text-white/60" : "text-ink-mute"}`}>
+                    <span className={`mb-1.5 block text-[10px] font-medium italic ${mine ? "text-white/65" : "text-ink-mute"}`}>
                       Diteruskan
                     </span>
                   )}
-                  {message.reply_to_id && (
-                    <span className={`mb-1 block max-w-full truncate border-l-2 pl-2 text-[10px] ${
-                      mine ? "border-white/50 text-white/70" : "border-ink/30 text-ink-mute"
-                    }`}>
-                      {reply?.media_file_id
-                        ? "Pesan suara tidak didukung"
-                        : reply?.content ?? "Balasan"}
+                  {message.reply_to_id && reply && (
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        scrollToMessage(reply.id);
+                      }}
+                      className={`mb-1.5 block w-full max-w-full overflow-hidden rounded-lg border-l-[3px] px-2 py-1 text-left transition-colors ${
+                        mine
+                          ? "border-white/50 bg-white/[.12] active:bg-white/[.22]"
+                          : "border-ink/40 bg-black/[.04] active:bg-black/[.09]"
+                      }`}
+                    >
+                      <span
+                        className={`block truncate text-[11px] font-semibold leading-none ${
+                          mine ? "text-white/95" : "text-ink"
+                        }`}
+                      >
+                        {repliedName}
+                      </span>
+                      <span
+                        className={`mt-0.5 block text-[12.5px] leading-tight ${
+                          mine ? "text-white/80" : "text-ink-soft"
+                        }`}
+                        style={clampStyle}
+                      >
+                        {replyPreview}
+                      </span>
+                    </button>
+                  )}
+                  {message.reply_to_id && !reply && (
+                    <span
+                      className={`mb-1.5 block max-w-full overflow-hidden rounded-lg border-l-[3px] px-2 py-1 ${
+                        mine
+                          ? "border-white/50 bg-white/[.12]"
+                          : "border-ink/40 bg-black/[.04]"
+                      }`}
+                    >
+                      <span
+                        className={`block truncate text-[11px] font-semibold leading-none ${
+                          mine ? "text-white/95" : "text-ink"
+                        }`}
+                      >
+                        Pesan
+                      </span>
+                      <span
+                        className={`mt-0.5 block text-[12.5px] leading-tight ${
+                          mine ? "text-white/80" : "text-ink-soft"
+                        }`}
+                        style={clampStyle}
+                      >
+                        Balasan
+                      </span>
                     </span>
                   )}
                 </>
@@ -1041,40 +1255,65 @@ export function DirectChatRoomClient({
                 : message.media_file_id
                   ? "Pesan suara tidak didukung"
                   : message.content;
+              const isSwiping = swipe?.id === message.id;
+              const swipeOffset = isSwiping ? swipe!.offset : 0;
+              const swipeProgress = Math.min(1, Math.abs(swipeOffset) / SWIPE_TRIGGER);
               return (
                 <div
                   key={message.id}
                   id={`direct-message-${message.id}`}
-                  className="w-full min-w-0"
+                  className="relative w-full min-w-0"
+                  style={{ touchAction: "pan-y" }}
                 >
-                  <ChatMessageBubble
-                    outgoing={mine}
-                    avatarUrl={
-                      mine
-                        ? ownPhotoUrl || `/api/avatar/${myUid}`
-                        : contact.photo_url || `/api/avatar/${contact.uid}`
-                    }
-                    content={content}
-                    timestamp={chatMessageTime(message.created_at)}
-                    status={<StatusIcon message={message} pending={isPending} />}
-                    prefix={prefix}
-                    edited={Boolean(message.edited_at && !message.deleted_at)}
-                    pinned={Boolean(message.is_pinned)}
-                    deleted={Boolean(message.deleted_at)}
-                    pending={isPending}
-                    label={`Pesan dari ${mine ? "Anda" : name}`}
-                    onPointerDown={(event) => startMessagePress(event, message)}
-                    onPointerMove={moveMessagePress}
-                    onPointerUp={stopMessagePress}
-                    onPointerLeave={stopMessagePress}
-                    onPointerCancel={stopMessagePress}
-                    onContextMenu={(event) => {
-                      event.preventDefault();
-                      if (isPending) return;
-                      longPressTriggeredAtRef.current = Date.now();
-                      setSelectedMessage(message);
+                  {isSwiping && (
+                    <span
+                      className="pointer-events-none absolute top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-ink text-white shadow-[0_2px_8px_rgba(0,0,0,.15)]"
+                      style={{
+                        left: swipeOffset > 0 ? 6 : undefined,
+                        right: swipeOffset < 0 ? 6 : undefined,
+                        opacity: swipeProgress,
+                        transform: `translateY(-50%) scale(${0.75 + swipeProgress * 0.25})`,
+                      }}
+                    >
+                      <Reply size={15} strokeWidth={2.4} />
+                    </span>
+                  )}
+                  <div
+                    style={{
+                      transform: isSwiping ? `translate3d(${swipeOffset}px, 0, 0)` : undefined,
+                      transition: isSwiping ? "none" : "transform 200ms cubic-bezier(.2,.8,.2,1)",
+                      willChange: "transform",
                     }}
-                  />
+                  >
+                    <ChatMessageBubble
+                      outgoing={mine}
+                      avatarUrl={
+                        mine
+                          ? ownPhotoUrl || `/api/avatar/${myUid}`
+                          : contact.photo_url || `/api/avatar/${contact.uid}`
+                      }
+                      content={content}
+                      timestamp={chatMessageTime(message.created_at)}
+                      status={<StatusIcon message={message} pending={isPending} />}
+                      prefix={prefix}
+                      edited={Boolean(message.edited_at && !message.deleted_at)}
+                      pinned={Boolean(message.is_pinned)}
+                      deleted={Boolean(message.deleted_at)}
+                      pending={isPending}
+                      highlight={highlightedId === message.id}
+                      label={`Pesan dari ${mine ? "Anda" : name}`}
+                      onPointerDown={(event) => startMessagePress(event, message)}
+                      onPointerMove={moveMessagePress}
+                      onPointerUp={(event) => stopMessagePress(event)}
+                      onPointerCancel={(event) => stopMessagePress(event)}
+                      onContextMenu={(event) => {
+                        event.preventDefault();
+                        if (isPending) return;
+                        longPressTriggeredAtRef.current = Date.now();
+                        setSelectedMessage(message);
+                      }}
+                    />
+                  </div>
                 </div>
               );
             })

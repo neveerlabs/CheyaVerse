@@ -23,6 +23,7 @@ type ChatComposerProps = {
   onToggleDictation?: () => void;
   dictating?: boolean;
   above?: ReactNode;
+  reply?: ReactNode;
   className?: string;
   style?: CSSProperties;
 };
@@ -40,6 +41,7 @@ export function ChatComposer({
   onToggleDictation,
   dictating = false,
   above,
+  reply,
   className = "",
   style,
 }: ChatComposerProps) {
@@ -58,35 +60,38 @@ export function ChatComposer({
     >
       {above}
       <div className="flex w-full min-w-0 items-end gap-2">
-        <div className="flex min-h-11 min-w-0 flex-1 items-end overflow-hidden rounded-[22px] border border-line bg-white px-3 py-1.5">
-          <textarea
-            ref={inputRef}
-            rows={1}
-            placeholder={placeholder}
-            enterKeyHint="send"
-            value={value}
-            onChange={(event) => onChange(event.target.value)}
-            onInput={onInput}
-            onKeyDown={onKeyDown}
-            className="min-h-7 min-w-0 flex-1 resize-none overflow-y-auto bg-transparent p-0 text-[14px] leading-[22px] tracking-[-.005em] text-ink outline-none placeholder:text-ink-mute [overflow-wrap:anywhere]"
-            style={{
-              maxHeight: 120,
-              fontFamily: "inherit",
-              touchAction: "auto",
-              overscrollBehavior: "contain",
-            }}
-          />
-          {onToggleDictation && (
-            <button
-              type="button"
-              aria-label={dictating ? "Hentikan dikte" : "Dikte suara"}
-              aria-pressed={dictating}
-              onClick={onToggleDictation}
-              className="ml-2 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-ink-soft active:bg-[#f2f3f5]"
-            >
-              <Mic size={17} strokeWidth={2.2} className={dictating ? "text-danger" : ""} />
-            </button>
-          )}
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-[22px] border border-line bg-white">
+          {reply}
+          <div className="flex min-h-11 w-full items-end px-3 py-1.5">
+            <textarea
+              ref={inputRef}
+              rows={1}
+              placeholder={placeholder}
+              enterKeyHint="send"
+              value={value}
+              onChange={(event) => onChange(event.target.value)}
+              onInput={onInput}
+              onKeyDown={onKeyDown}
+              className="min-h-7 min-w-0 flex-1 resize-none overflow-y-auto bg-transparent p-0 text-[14px] leading-[22px] tracking-[-.005em] text-ink outline-none placeholder:text-ink-mute [overflow-wrap:anywhere]"
+              style={{
+                maxHeight: 120,
+                fontFamily: "inherit",
+                touchAction: "auto",
+                overscrollBehavior: "contain",
+              }}
+            />
+            {onToggleDictation && (
+              <button
+                type="button"
+                aria-label={dictating ? "Hentikan dikte" : "Dikte suara"}
+                aria-pressed={dictating}
+                onClick={onToggleDictation}
+                className="ml-2 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-ink-soft active:bg-[#f2f3f5]"
+              >
+                <Mic size={17} strokeWidth={2.2} className={dictating ? "text-danger" : ""} />
+              </button>
+            )}
+          </div>
         </div>
         <button
           type="submit"

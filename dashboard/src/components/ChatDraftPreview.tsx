@@ -3,6 +3,22 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
+function parseDraftValue(raw: string | null): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(trimmed) as { text?: unknown; replyToId?: unknown };
+      if (typeof parsed?.text === "string" && parsed.text.trim()) {
+        return parsed.text;
+      }
+    } catch {}
+    return null;
+  }
+  return trimmed;
+}
+
 export function ChatDraftPreview({
   uid,
   contactId,
@@ -18,8 +34,7 @@ export function ChatDraftPreview({
   useEffect(() => {
     const read = () => {
       try {
-        const value = window.localStorage.getItem(key);
-        setDraft(value && value.trim() ? value : null);
+        setDraft(parseDraftValue(window.localStorage.getItem(key)));
       } catch {
         setDraft(null);
       }

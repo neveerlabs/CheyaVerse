@@ -26,11 +26,11 @@ type ChatMessageBubbleProps = {
   deleted?: boolean;
   richText?: boolean;
   pending?: boolean;
+  highlight?: boolean;
   label: string;
   onPointerDown?: PointerEventHandler<HTMLDivElement>;
   onPointerMove?: PointerEventHandler<HTMLDivElement>;
   onPointerUp?: PointerEventHandler<HTMLDivElement>;
-  onPointerLeave?: PointerEventHandler<HTMLDivElement>;
   onPointerCancel?: PointerEventHandler<HTMLDivElement>;
   onContextMenu?: MouseEventHandler<HTMLDivElement>;
 };
@@ -47,11 +47,11 @@ export function ChatMessageBubble({
   deleted = false,
   richText = false,
   pending = false,
+  highlight = false,
   label,
   onPointerDown,
   onPointerMove,
   onPointerUp,
-  onPointerLeave,
   onPointerCancel,
   onContextMenu,
 }: ChatMessageBubbleProps) {
@@ -80,14 +80,17 @@ export function ChatMessageBubble({
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
-          onPointerLeave={onPointerLeave}
           onPointerCancel={onPointerCancel}
           onContextMenu={onContextMenu}
-          className={`inline-block max-w-full touch-pan-y break-words rounded-2xl px-2.5 py-[5px] shadow-[0_1px_2px_rgba(0,0,0,.06)] transition-transform duration-150 active:scale-[.99] [overflow-wrap:anywhere] ${
+          className={`inline-block max-w-full touch-pan-y break-words rounded-2xl px-2.5 py-[5px] shadow-[0_1px_2px_rgba(0,0,0,.06)] transition-[transform,box-shadow] duration-300 ease-out active:scale-[.99] [overflow-wrap:anywhere] ${
             outgoing
               ? "rounded-tr-md bg-ink text-white"
               : "rounded-tl-md bg-[#f2f2f2] text-ink"
-          } ${pending ? "opacity-70" : ""}`}
+          } ${pending ? "opacity-70" : ""} ${
+            highlight
+              ? "ring-[3px] ring-amber-400 shadow-[0_0_18px_rgba(251,191,36,.55)] scale-[1.01]"
+              : ""
+          }`}
         >
           {prefix}
           <span className="relative inline-block w-full align-top">

@@ -35,6 +35,14 @@ export default async function ChatRoomPage({
       listDirectMessages(uid, contactUid),
       getTelegramUser(uid),
     ]);
+    const ownName = currentUser
+      ? [currentUser.first_name, currentUser.last_name]
+          .filter(Boolean)
+          .join(" ")
+          .trim() ||
+        currentUser.username ||
+        "Anda"
+      : "Anda";
     const readAt = await markDirectMessagesRead(uid, contactUid);
     if (readAt) {
       broadcastToUid(contactUid, {
@@ -54,6 +62,7 @@ export default async function ChatRoomPage({
           photo_url: contact.photo_url,
         }}
         ownPhotoUrl={currentUser?.photo_url ?? null}
+        ownName={ownName}
         initialMessages={messages}
       />
     );
