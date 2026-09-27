@@ -412,6 +412,18 @@ export function ChatRoomClient({
     };
   }, [uid, router]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.history.pushState({ chatRoom: true }, "", window.location.href);
+    const onPopState = () => {
+      router.replace(`/${uid}/chat`);
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => {
+      window.removeEventListener("popstate", onPopState);
+    };
+  }, [uid, router]);
+
   useRealtime(uid, (event) => {
     if (event.type === "message:new") {
       const incoming = event.message as ChatMessage | undefined;

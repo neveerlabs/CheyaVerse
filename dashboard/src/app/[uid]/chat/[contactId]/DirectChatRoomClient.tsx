@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -90,6 +91,7 @@ export function DirectChatRoomClient({
   initialMessages: DirectMessage[];
 }) {
   const myUid = Number(uid);
+  const router = useRouter();
   const name = userName(contact);
   const headerName = contact.username || name;
   const [messages, setMessages] = useState(initialMessages);
@@ -470,6 +472,18 @@ export function DirectChatRoomClient({
       controller.abort();
     };
   }, [forwardOpen, forwardQuery]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.history.pushState({ chatRoom: true }, "", window.location.href);
+    const onPopState = () => {
+      router.replace(`/${uid}/chat`);
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => {
+      window.removeEventListener("popstate", onPopState);
+    };
+  }, [uid, router]);
 
   useRealtime(uid, (event) => {
     if (event.type === "direct-chat:typing" && event.senderUid === contact.uid) {

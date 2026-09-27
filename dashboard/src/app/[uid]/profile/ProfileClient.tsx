@@ -173,23 +173,15 @@ export function ProfileClient({
 
   useEffect(() => {
     if (!menuOpen) return;
-    function onAny(e: MouseEvent) {
-      const t = e.target as HTMLElement | null;
-      if (!t) return;
-      if (t.closest("[data-profile-menu]") || t.closest("[data-profile-menu-trigger]")) return;
-      closeMenu();
-    }
     function onEsc(e: KeyboardEvent) {
       if (e.key === "Escape") closeMenu();
     }
     function onScroll() {
       closeMenu();
     }
-    document.addEventListener("mousedown", onAny);
     document.addEventListener("keydown", onEsc);
     document.addEventListener("scroll", onScroll, true);
     return () => {
-      document.removeEventListener("mousedown", onAny);
       document.removeEventListener("keydown", onEsc);
       document.removeEventListener("scroll", onScroll, true);
     };
@@ -1118,6 +1110,14 @@ export function ProfileClient({
             </div>
           </div>
         </div>
+      )}
+
+      {menuOpen && (
+        <div
+          aria-hidden
+          onClick={closeMenu}
+          className="fixed inset-0 z-[99]"
+        />
       )}
 
       {menuOpen && menuAnchor && (

@@ -24,30 +24,9 @@ export function ChatSearch({ uid }: { uid: string }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [origin, setOrigin] = useState("");
+  const [focused, setFocused] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const queryRef = useRef(query);
-
-  useEffect(() => {
-    queryRef.current = query;
-  }, [query]);
-
-  useEffect(() => {
-    function onPointerDown(event: PointerEvent) {
-      const root = rootRef.current;
-      if (!root) return;
-      if (root.contains(event.target as Node)) return;
-      const input = inputRef.current;
-      if (input && document.activeElement === input) {
-        input.blur();
-      }
-      if (queryRef.current) {
-        setQuery("");
-      }
-    }
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, []);
 
   useEffect(() => {
     setOrigin(window.location.origin);
@@ -89,14 +68,32 @@ export function ChatSearch({ uid }: { uid: string }) {
     };
   }, [query]);
 
+  function closeSearch() {
+    inputRef.current?.blur();
+    setFocused(false);
+    setQuery("");
+  }
+
   const inviteText = `Gabung ke CheyaVerse untuk chat denganku: ${origin}/login`;
   const inviteHref = `https://t.me/share/url?url=${encodeURIComponent(
     `${origin}/login`,
   )}&text=${encodeURIComponent(inviteText)}`;
 
+  const active = focused || Boolean(query.trim());
+
   return (
     <div ref={rootRef} className="relative z-40 isolate">
-      <div className="flex h-12 items-center gap-3 rounded-full border border-line bg-white px-4 shadow-sm transition-colors focus-within:border-line-strong">
+      {active && (
+        <div
+          aria-hidden
+          onClick={closeSearch}
+          className="fixed inset-0 z-0"
+        />
+      )}
+      <div
+        onClick={() => inputRef.current?.focus()}
+        className="relative z-10 flex h-12 items-center gap-3 rounded-full border border-line bg-white px-4 shadow-sm transition-colors focus-within:border-line-strong"
+      >
         <Search size={18} className="flex-shrink-0 text-ink-mute" strokeWidth={2} />
         <input
           ref={inputRef}
@@ -106,6 +103,8 @@ export function ChatSearch({ uid }: { uid: string }) {
           placeholder="Cari kontak"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
           aria-label="Cari kontak Telegram"
           aria-expanded={Boolean(query.trim())}
           aria-controls="chat-search-results"
