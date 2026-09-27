@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import ReCAPTCHA from "react-google-recaptcha";
@@ -83,6 +84,8 @@ export function ProfileClient({
   const [avatarOpen, setAvatarOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [deviceId, setDeviceId] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
+  const [headerVisible, setHeaderVisible] = useState(false);
 
   const [localMedia, setLocalMedia] = useState<MediaItem[]>(media);
   const [menuItem, setMenuItem] = useState<MediaItem | null>(null);
@@ -93,6 +96,8 @@ export function ProfileClient({
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
 
   const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const pillTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const coverRef = useRef<HTMLDivElement | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const modalRef = useRef<HTMLDivElement | null>(null);
   const innerRef = useRef<HTMLDivElement | null>(null);
@@ -102,6 +107,27 @@ export function ProfileClient({
   const lpTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lpTriggered = useRef(false);
   const recaptchaRef = useRef<ReCAPTCHA>(null);
+
+  useEffect(() => {
+    setMounted(true);
+    return () => setMounted(false);
+  }, []);
+
+  useEffect(() => {
+    const el = coverRef.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(
+      ([entry]) => {
+        const past =
+          entry.boundingClientRect.bottom < 40 ||
+          !entry.isIntersecting;
+        setHeaderVisible(past);
+      },
+      { threshold: 0, rootMargin: "-40px 0px 0px 0px" },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
 
   useEffect(() => {
     setLocalMedia(media);
@@ -376,8 +402,9 @@ export function ProfileClient({
   }
 
   function openMenu() {
-    if (triggerRef.current) {
-      const rect = triggerRef.current.getBoundingClientRect();
+    const anchorEl = headerVisible ? pillTriggerRef.current : triggerRef.current;
+    if (anchorEl) {
+      const rect = anchorEl.getBoundingClientRect();
       const menuWidth = 240;
       const menuHeight = 320;
       let left = rect.right - menuWidth;
@@ -593,10 +620,64 @@ export function ProfileClient({
     },
   ];
 
+  const pillHeader = (
+    <header
+      aria-hidden={!headerVisible}
+      className={`fixed left-0 right-0 top-0 z-[60] pointer-events-none transition-all duration-300 ease-out ${
+        headerVisible
+          ? "opacity-100 translate-y-0"
+          : "opacity-0 -translate-y-full"
+      }`}
+    >
+      <div className="mx-auto max-w-[600px] px-5 pt-[calc(12px+env(safe-area-inset-top))]">
+        <div
+          className={`flex items-center gap-2.5 rounded-full border border-white/10 bg-black/60 backdrop-blur-xl pl-1.5 pr-1.5 py-1.5 shadow-[0_8px_24px_-8px_rgba(0,0,0,.5)] ${
+            headerVisible ? "pointer-events-auto" : ""
+          }`}
+        >
+          <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/15 bg-[#1a1a1a]">
+            {!avatarFailed && avatarSrc ? (
+              <img
+                src={avatarSrc}
+                alt=""
+                draggable={false}
+                onError={handleAvatarError}
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <UserIcon size={16} className="text-white/60" strokeWidth={1.6} />
+            )}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[13.5px] font-semibold text-white leading-tight">
+              Hi, {greetingName}
+            </span>
+          </span>
+          <button
+            ref={pillTriggerRef}
+            type="button"
+            data-profile-menu-trigger
+            onClick={(e) => {
+              e.stopPropagation();
+              if (menuOpen) closeMenu();
+              else openMenu();
+            }}
+            aria-label="Menu"
+            className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-white/85 transition-all active:scale-90 hover:text-white sm:hover:bg-white/10"
+          >
+            <MoreVertical size={18} strokeWidth={2} />
+          </button>
+        </div>
+      </div>
+    </header>
+  );
+
   return (
     <>
+      {mounted && createPortal(pillHeader, document.body)}
+
       <section className="-mx-5 animate-fade-up">
-        <div className="relative h-[180px] overflow-hidden">
+        <div ref={coverRef} className="relative h-[180px] overflow-hidden">
           {cover && (cover.type === "upload" || cover.type === "telegram") ? (
             <div
               className="absolute inset-0"
@@ -681,7 +762,11 @@ export function ProfileClient({
         <div className="px-5 flex items-end -mt-14 relative z-10">
           <div
             onClick={() => setAvatarOpen(true)}
-            className="w-[104px] h-[104px] flex-shrink-0 rounded-full border-4 border-white bg-[#f4f4f5] overflow-hidden shadow-[0_4px_16px_-6px_rgba(0,0,0,.18)] flex items-center justify-center cursor-pointer active:scale-95 transition-transform"
+            className={`w-[104px] h-[104px] flex-shrink-0 rounded-full border-4 border-white bg-[#f4f4f5] overflow-hidden shadow-[0_4px_16px_-6px_rgba(0,0,0,.18)] flex items-center justify-center cursor-pointer active:scale-95 transition-all duration-300 ease-out ${
+              headerVisible
+                ? "opacity-0 scale-75 pointer-events-none"
+                : "opacity-100 scale-100"
+            }`}
           >
             {!avatarFailed && avatarSrc ? (
               <img
