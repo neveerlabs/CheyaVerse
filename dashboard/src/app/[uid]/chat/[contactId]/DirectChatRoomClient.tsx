@@ -1236,8 +1236,8 @@ export function DirectChatRoomClient({
               const mine = message.sender_uid === myUid;
               const isPending = pendingIdsRef.current.has(message.id);
               const reply = message.reply_to_id
-                ? messages.find((item) => item.id === message.reply_to_id)
-                : null;
+              ? messages.find((item) => item.id === message.reply_to_id) ?? null
+              : null;
               const repliedName = repliedSenderName(reply);
               const replyPreview = reply?.media_file_id
                 ? "Pesan suara tidak didukung"
