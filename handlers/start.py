@@ -6,6 +6,7 @@ from aiogram.enums import ParseMode
 from aiogram.filters import CommandStart
 from aiogram.types import (
     CallbackQuery,
+    ForceReply,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     Message,
@@ -14,6 +15,7 @@ from aiogram.types import (
 
 from logger import logger
 from storage import (
+    attach_chat_reply_prompt,
     is_telegram_login_challenge_pending,
     respond_to_chat_notification,
     respond_to_telegram_login_challenge,
@@ -48,7 +50,7 @@ async def cmd_start(message: Message) -> None:
         challenge = payload.removeprefix("auth_")
         if message.chat.type != "private":
             await message.answer(
-                "Login harus disetujui lewat chat pribadi dengan bot.",
+                "Login harus disetujui lewat chat pribadi dengan bot!",
                 parse_mode=None,
             )
             return
@@ -57,7 +59,7 @@ async def cmd_start(message: Message) -> None:
         except Exception as exc:
             logger.error(f"Telegram web login challenge lookup failed for {label}: {exc}")
             await message.answer(
-                "Login belum dapat diproses. Coba lagi atau buat permintaan login baru di web.",
+                "Login belum dapat diproses. Coba lagi atau buat permintaan login baru didalam web.",
                 parse_mode=None,
             )
             return
@@ -68,7 +70,7 @@ async def cmd_start(message: Message) -> None:
                 f"Akun: <b>{html.escape(user.full_name)}</b>\n"
                 f"Username: {username}\n\n"
                 "Jika kamu menyetujui, akun Telegram ini akan masuk ke browser "
-                "yang meminta login. Jangan setujui jika kamu tidak memulainya.",
+                "yang meminta login. Jangan setujui jika ini memang bukan anda.",
                 parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup(
                     inline_keyboard=[
@@ -87,8 +89,8 @@ async def cmd_start(message: Message) -> None:
             )
         else:
             await message.answer(
-                "Permintaan login tidak ditemukan atau sudah kedaluwarsa. "
-                "Buat permintaan baru dari halaman login CheyaVerse.",
+                "Permintaan login tidak ditemukan atau sudah kedaluwarsa!"
+                "Buat permintaan login yg baru dari halaman login CheyaVerse.",
                 parse_mode=None,
             )
         return
@@ -116,10 +118,10 @@ async def handle_login_challenge_callback(callback: CallbackQuery) -> None:
     data = callback.data or ""
     parts = data.split(":", maxsplit=2)
     if len(parts) != 3 or parts[1] not in {"approve", "deny"}:
-        await callback.answer("Permintaan tidak valid.", show_alert=True)
+        await callback.answer("Permintaan tidak valid!", show_alert=True)
         return
     if not isinstance(callback.message, Message) or callback.message.chat.type != "private":
-        await callback.answer("Login hanya dapat diproses di chat pribadi.", show_alert=True)
+        await callback.answer("Login hanya dapat diproses di chat pribadi!", show_alert=True)
         return
 
     approve = parts[1] == "approve"
@@ -133,7 +135,7 @@ async def handle_login_challenge_callback(callback: CallbackQuery) -> None:
         )
     except Exception as exc:
         logger.error(f"Telegram web login decision failed for {label}: {exc}")
-        await callback.answer("Login belum dapat diproses. Coba lagi.", show_alert=True)
+        await callback.answer("Login belum dapat diproses. Silakan coba lagi", show_alert=True)
         return
 
     if not updated:
@@ -143,11 +145,11 @@ async def handle_login_challenge_callback(callback: CallbackQuery) -> None:
         )
         return
 
-    await callback.answer("Login disetujui." if approve else "Login ditolak.")
+    await callback.answer("Login disetujui!" if approve else "Login ditolak!")
     await callback.message.edit_text(
         "Login CheyaVerse disetujui. Kembali ke browser untuk melanjutkan."
         if approve
-        else "Permintaan login ditolak. Browser tidak akan masuk.",
+        else "Permintaan login ditolak!",
         parse_mode=None,
         reply_markup=None,
     )
@@ -161,47 +163,81 @@ async def handle_chat_notification_callback(callback: CallbackQuery) -> None:
     data = callback.data or ""
     parts = data.split(":", maxsplit=2)
     if len(parts) != 3 or parts[1] not in {"read", "reply"}:
-        await callback.answer("Aksi tidak valid.", show_alert=True)
+        await callback.answer("Aksi tidak valid!", show_alert=True)
         return
     if not isinstance(callback.message, Message) or callback.message.chat.type != "private":
-        await callback.answer("Aksi ini hanya tersedia di chat pribadi.", show_alert=True)
+        await callback.answer("Aksi ini hanya tersedia di chat pribadi!", show_alert=True)
         return
+
+    notification_message = callback.message
+    action = parts[1]
+    user = callback.from_user
+    label = user.username or user.full_name or str(user.id)
+
     try:
         peer_uid = int(parts[2])
-        if peer_uid <= 0 or peer_uid == callback.from_user.id:
+        if peer_uid <= 0 or peer_uid == user.id:
             raise ValueError("invalid peer")
         completed = await respond_to_chat_notification(
-            callback.from_user.id,
+            user.id,
             peer_uid,
-            parts[1],
+            action,
         )
     except Exception as exc:
-        logger.error(f"Telegram chat notification action failed: {exc}")
+        logger.error(f"Telegram chat notification action failed for {label}: {exc}")
         await callback.answer("Aksi gagal diproses.", show_alert=True)
         return
     if not completed:
-        await callback.answer("Aksi tidak valid.", show_alert=True)
+        await callback.answer("Aksi tidak valid!", show_alert=True)
         return
-    if parts[1] == "read":
+
+    try:
+        await notification_message.delete()
+    except Exception as exc:
+        logger.warning(f"Failed to delete notification message for {label}: {exc}")
+
+    if action == "read":
         await callback.answer("Pesan ditandai dibaca.")
-    else:
-        await callback.answer("Kirim balasan sebagai pesan berikutnya.")
-        await callback.message.answer(
-            "Ketik balasan untuk melanjutkan percakapan. Permintaan ini berlaku 10 menit.",
+        return
+
+    await callback.answer("Kirim balasan pesan berikutnya.")
+    try:
+        prompt = await callback.bot.send_message(
+            chat_id=user.id,
+            text=(
+                "Ketik balasan untuk melanjutkan percakapan."
+                "Permintaan ini berlaku 10 menit."
+            ),
             parse_mode=None,
+            reply_markup=ForceReply(selective=True),
         )
+        await attach_chat_reply_prompt(user.id, prompt.message_id)
+    except Exception as exc:
+        logger.error(f"Failed to send reply prompt to {label}: {exc}")
 
 
 @router.message(F.text & ~F.text.startswith("/"))
 async def handle_telegram_chat_reply(message: Message) -> None:
     if message.chat.type != "private" or not message.from_user or not message.text:
         raise SkipHandler
+    label = message.from_user.username or message.from_user.full_name or str(message.from_user.id)
     try:
-        peer_uid = await send_telegram_chat_reply(message.from_user.id, message.text)
+        result = await send_telegram_chat_reply(message.from_user.id, message.text)
     except Exception as exc:
-        logger.error(f"Failed to store Telegram chat reply: {exc}")
-        await message.answer("Balasan gagal dikirim. Coba lagi nanti.", parse_mode=None)
+        logger.error(f"Failed to store Telegram chat reply for {label}: {exc}")
+        await message.answer("Balasan gagal dikirim. Coba lagi nanti!", parse_mode=None)
         return
-    if peer_uid is None:
+    if result is None:
         raise SkipHandler
-    await message.answer("Balasan terkirim ke chat CheyaVerse.", parse_mode=None)
+
+    prompt_message_id = result.get("prompt_message_id")
+    if prompt_message_id:
+        try:
+            await message.bot.delete_message(
+                chat_id=message.from_user.id,
+                message_id=int(prompt_message_id),
+            )
+        except Exception as exc:
+            logger.warning(f"Failed to delete reply prompt for {label}: {exc}")
+
+    await message.answer("Balasan terkirim", parse_mode=None)

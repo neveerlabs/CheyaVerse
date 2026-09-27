@@ -10,9 +10,11 @@ function escapeHtml(value: string): string {
 
 function centeredSenderMarkup(senderName: string): string {
   const visualLength = [...senderName].length;
-  const padding = Math.max(0, Math.floor((32 - visualLength) / 2));
+  const padding = Math.max(0, Math.floor((30 - visualLength) / 2));
   return `${"&#160;".repeat(padding)}<b>${escapeHtml(senderName)}</b>`;
 }
+
+const DIVIDER = "─".repeat(26);
 
 async function sendTelegramNotification(
   recipientUid: number,
@@ -23,6 +25,7 @@ async function sendTelegramNotification(
   if (!config.telegram.botToken) {
     throw new Error("TELEGRAM_BOT_TOKEN is not configured");
   }
+  const text = `${centeredSenderMarkup(senderName)}\n${DIVIDER}\n${escapeHtml(content)}`;
   const response = await fetch(
     `https://api.telegram.org/bot${config.telegram.botToken}/sendMessage`,
     {
@@ -30,13 +33,13 @@ async function sendTelegramNotification(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         chat_id: recipientUid,
-        text: `${centeredSenderMarkup(senderName)}\n---\n${escapeHtml(content)}`,
+        text,
         parse_mode: "HTML",
         reply_markup: {
           inline_keyboard: [
             [
-              { text: "Dibaca", callback_data: `dm:read:${senderUid}` },
-              { text: "Balas", callback_data: `dm:reply:${senderUid}` },
+              { text: "Mark as read", callback_data: `dm:read:${senderUid}` },
+              { text: "Reply", callback_data: `dm:reply:${senderUid}` },
             ],
           ],
         },

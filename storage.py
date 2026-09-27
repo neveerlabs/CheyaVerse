@@ -170,11 +170,7 @@ async def respond_to_telegram_login_challenge(
     )
 
 
-async def respond_to_chat_notification(
-    telegram_uid: int,
-    peer_uid: int,
-    action: str,
-) -> bool:
+async def _ensure_direct_messages_table() -> None:
     await _execute(
         """
         CREATE TABLE IF NOT EXISTS direct_messages (
@@ -192,8 +188,40 @@ async def respond_to_chat_notification(
         """,
         [],
     )
+
+
+async def _ensure_telegram_chat_replies_table() -> None:
+    await _execute(
+        """
+        CREATE TABLE IF NOT EXISTS telegram_chat_replies (
+            telegram_uid INTEGER PRIMARY KEY,
+            peer_uid INTEGER NOT NULL,
+            prompt_message_id INTEGER,
+            expires_at INTEGER NOT NULL
+        )
+        """,
+        [],
+    )
+    _cols, columns = await _execute(
+        "PRAGMA table_info(telegram_chat_replies)", []
+    )
+    if not any(str(row[1]) == "prompt_message_id" for row in columns):
+        await _execute(
+            "ALTER TABLE telegram_chat_replies ADD COLUMN prompt_message_id INTEGER",
+            [],
+        )
+
+
+async def respond_to_chat_notification(
+    telegram_uid: int,
+    peer_uid: int,
+    action: str,
+) -> bool:
+    await _ensure_direct_messages_table()
+    now = datetime.now(timezone.utc).isoformat()
+    now_ts = int(datetime.now(timezone.utc).timestamp())
+
     if action == "read":
-        now = datetime.now(timezone.utc).isoformat()
         await _execute(
             """
             UPDATE direct_messages
@@ -207,78 +235,65 @@ async def respond_to_chat_notification(
     if action == "reply":
         await _execute(
             """
-            CREATE TABLE IF NOT EXISTS telegram_chat_replies (
-                telegram_uid INTEGER PRIMARY KEY,
-                peer_uid INTEGER NOT NULL,
-                expires_at INTEGER NOT NULL
-            )
+            UPDATE direct_messages
+            SET read_at = ?, delivered_at = COALESCE(delivered_at, ?)
+            WHERE sender_uid = ? AND recipient_uid = ? AND read_at IS NULL
             """,
-            [],
+            [now, now, peer_uid, telegram_uid],
         )
+        await _ensure_telegram_chat_replies_table()
         await _execute(
             """
-            INSERT INTO telegram_chat_replies (telegram_uid, peer_uid, expires_at)
-            VALUES (?, ?, ?)
+            INSERT INTO telegram_chat_replies (telegram_uid, peer_uid, prompt_message_id, expires_at)
+            VALUES (?, ?, NULL, ?)
             ON CONFLICT(telegram_uid) DO UPDATE SET
                 peer_uid = excluded.peer_uid,
+                prompt_message_id = NULL,
                 expires_at = excluded.expires_at
             """,
-            [
-                telegram_uid,
-                peer_uid,
-                int(datetime.now(timezone.utc).timestamp()) + 600,
-            ],
+            [telegram_uid, peer_uid, now_ts + 600],
         )
         return True
     return False
 
 
-async def send_telegram_chat_reply(telegram_uid: int, content: str) -> int | None:
+async def attach_chat_reply_prompt(
+    telegram_uid: int,
+    prompt_message_id: int,
+) -> None:
+    await _ensure_telegram_chat_replies_table()
+    await _execute(
+        "UPDATE telegram_chat_replies SET prompt_message_id = ? WHERE telegram_uid = ?",
+        [prompt_message_id, telegram_uid],
+    )
+
+
+async def send_telegram_chat_reply(
+    telegram_uid: int,
+    content: str,
+) -> dict | None:
     text = content.strip()[:2000]
     if not text:
         return None
-    await _execute(
+    await _ensure_telegram_chat_replies_table()
+    now_ts = int(datetime.now(timezone.utc).timestamp())
+    _cols, rows = await _execute(
         """
-        CREATE TABLE IF NOT EXISTS telegram_chat_replies (
-            telegram_uid INTEGER PRIMARY KEY,
-            peer_uid INTEGER NOT NULL,
-            expires_at INTEGER NOT NULL
-        )
-        """,
-        [],
-    )
-    now = int(datetime.now(timezone.utc).timestamp())
-    _cols, pending = await _execute(
-        """
-        SELECT peer_uid FROM telegram_chat_replies
+        SELECT peer_uid, prompt_message_id FROM telegram_chat_replies
         WHERE telegram_uid = ? AND expires_at > ? LIMIT 1
         """,
-        [telegram_uid, now],
+        [telegram_uid, now_ts],
     )
-    if not pending:
+    if not rows:
         return None
-    peer_uid = int(pending[0][0])
+    peer_uid = int(rows[0][0])
+    prompt_raw = rows[0][1]
+    prompt_message_id = int(prompt_raw) if prompt_raw is not None else None
     await _execute(
         "DELETE FROM telegram_chat_replies WHERE telegram_uid = ?",
         [telegram_uid],
     )
-    await _execute(
-        """
-        CREATE TABLE IF NOT EXISTS direct_messages (
-            id TEXT PRIMARY KEY,
-            sender_uid INTEGER NOT NULL,
-            recipient_uid INTEGER NOT NULL,
-            content TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            delivered_at TEXT,
-            read_at TEXT,
-            edited_at TEXT,
-            deleted_at TEXT,
-            forwarded_from_uid INTEGER
-        )
-        """,
-        [],
-    )
+    await _ensure_direct_messages_table()
     created_at = datetime.now(timezone.utc).isoformat()
     message_id = str(uuid.uuid4())
     await _execute(
@@ -289,7 +304,10 @@ async def send_telegram_chat_reply(telegram_uid: int, content: str) -> int | Non
         """,
         [message_id, telegram_uid, peer_uid, text, created_at],
     )
-    return peer_uid
+    return {
+        "peer_uid": peer_uid,
+        "prompt_message_id": prompt_message_id,
+    }
 
 
 def _http_url() -> str:
@@ -446,7 +464,7 @@ async def _notify_expired_media(
 
     payload = {
         "title": "CheyaVerse",
-        "body": f"Masa simpan media {filename[:60]} berakhir; data dihapus.",
+        "body": f"Masa expired media {filename[:60]} berakhir; data telah dihapus.",
         "icon": "/icon.png",
         "tag": f"cheya-system-expiry-{notification_id}",
         "renotify": True,
@@ -530,7 +548,7 @@ async def cleanup_expired(bot=None) -> int:
         created_at = datetime.now(timezone.utc).isoformat()
         message = (
             "Berkas media hasil generate barcode telah dihapus otomatis "
-            "karena masa simpannya berakhir.\n\n"
+            "karena masa simpan telah berakhir.\n\n"
             f"<b>ID Barcode:</b> <code>{html.escape(media_id)}</code>\n"
             f"<b>Nama berkas:</b> <code>{filename}</code>\n"
             f"<b>Waktu:</b> {created_at}"
