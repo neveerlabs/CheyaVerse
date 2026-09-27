@@ -20,6 +20,9 @@ import {
   Reply,
   Bell,
   BellOff,
+  Share2,
+  ListChecks,
+  Ban,
 } from "lucide-react";
 import { TelegramAvatar } from "@/components/TelegramAvatar";
 import { ChatComposer } from "@/components/ChatComposer";
@@ -118,6 +121,7 @@ export function DirectChatRoomClient({
     keyboard: false,
     keyboardInset: 0,
   });
+  const [vvOffset, setVvOffset] = useState(0);
   const messageBoxRef = useRef<HTMLDivElement | null>(null);
   const menuRootRef = useRef<HTMLElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -335,6 +339,9 @@ export function DirectChatRoomClient({
         const nextHeight = keyboard ? Math.max(1, viewportElement.height) : 0;
         const nextInset = keyboard ? Math.max(0, delta) : 0;
         setViewport((current) => {
+          if (current.keyboard === keyboard && keyboard) {
+            return current;
+          }
           if (
             current.keyboard === keyboard &&
             Math.abs(current.height - nextHeight) < 4 &&
@@ -366,6 +373,28 @@ export function DirectChatRoomClient({
       document.removeEventListener("focusout", update);
       window.removeEventListener("resize", update);
       window.removeEventListener("orientationchange", update);
+    };
+  }, []);
+
+  useEffect(() => {
+    const viewportElement = window.visualViewport;
+    if (!viewportElement) return;
+    let frame = 0;
+    const update = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        const next = viewportElement.offsetTop;
+        setVvOffset((prev) => (Math.abs(prev - next) < 1 ? prev : next));
+      });
+    };
+    update();
+    viewportElement.addEventListener("scroll", update);
+    viewportElement.addEventListener("resize", update);
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      viewportElement.removeEventListener("scroll", update);
+      viewportElement.removeEventListener("resize", update);
     };
   }, []);
 
@@ -722,11 +751,16 @@ export function DirectChatRoomClient({
     return () => setMounted(false);
   }, []);
 
+  const vvApplied = viewport.keyboard ? vvOffset : 0;
+  const footerBottom = viewport.keyboard
+    ? Math.max(0, viewport.keyboardInset - vvOffset)
+    : 0;
+
   const header = (
     <header
       ref={menuRootRef}
       className="fixed left-0 right-0 z-40 bg-transparent pt-[calc(12px+env(safe-area-inset-top))] pb-3"
-      style={{ top: 0 }}
+      style={{ top: vvApplied }}
     >
       <div className="relative mx-auto max-w-[600px] px-5">
         <div className="flex items-center gap-2 -mx-3">
@@ -764,55 +798,48 @@ export function DirectChatRoomClient({
         </div>
         {menuOpen && (
           <div className="absolute right-5 top-[calc(100%-4px)] z-50 w-56 overflow-hidden rounded-2xl border border-line bg-white py-1 shadow-xl animate-fade-up">
-            <Link
-              href={`/${uid}/profile/contact/${contact.uid}`}
+            <button
+              type="button"
               onClick={() => setMenuOpen(false)}
-              className="block px-4 py-3 text-left text-[13px] text-ink"
+              className="flex w-full items-center gap-2 px-4 py-3 text-left text-[13px] text-ink"
             >
-              Lihat profil
-            </Link>
+              <Share2 size={15} /> Bagikan kontak
+            </button>
+            <button
+              type="button"
+              onClick={() => setMenuOpen(false)}
+              className="flex w-full items-center gap-2 px-4 py-3 text-left text-[13px] text-ink"
+            >
+              <ListChecks size={15} /> Pilih pesan
+            </button>
+            <button
+              type="button"
+              onClick={() => setMenuOpen(false)}
+              className="flex w-full items-center gap-2 px-4 py-3 text-left text-[13px] text-ink"
+            >
+              <Trash2 size={15} /> Bersihkan untuk saya
+            </button>
+            <button
+              type="button"
+              onClick={() => setMenuOpen(false)}
+              className="flex w-full items-center gap-2 px-4 py-3 text-left text-[13px] text-danger"
+            >
+              <Trash2 size={15} /> Bersihkan untuk semua
+            </button>
+            <button
+              type="button"
+              onClick={() => setMenuOpen(false)}
+              className="flex w-full items-center gap-2 px-4 py-3 text-left text-[13px] text-danger"
+            >
+              <Ban size={15} /> Blokir kontak
+            </button>
             <button
               type="button"
               onClick={toggleMuted}
-              className="flex w-full items-center gap-2 px-4 py-3 text-left text-[13px] text-ink"
+              className="flex w-full items-center gap-2 border-t border-line px-4 py-3 text-left text-[13px] text-ink"
             >
               {muted ? <Bell size={15} /> : <BellOff size={15} />}
               {muted ? "Aktifkan notifikasi browser" : "Bisukan notifikasi browser"}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setSearchOpen((value) => !value);
-                setMenuOpen(false);
-              }}
-              className="flex w-full items-center gap-2 px-4 py-3 text-left text-[13px] text-ink"
-            >
-              <Search size={15} /> Cari di percakapan
-            </button>
-            {pinned && (
-              <button
-                type="button"
-                onClick={() => {
-                  document.getElementById(`direct-message-${pinned.id}`)?.scrollIntoView({
-                    behavior: "smooth",
-                    block: "center",
-                  });
-                  setMenuOpen(false);
-                }}
-                className="flex w-full items-center gap-2 px-4 py-3 text-left text-[13px] text-ink"
-              >
-                <Pin size={15} /> Pesan disematkan
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => {
-                void refreshMessages();
-                setMenuOpen(false);
-              }}
-              className="block w-full px-4 py-3 text-left text-[13px] text-ink"
-            >
-              Muat ulang pesan
             </button>
           </div>
         )}
@@ -823,7 +850,7 @@ export function DirectChatRoomClient({
   const footer = (
     <footer
       className="chat-footer pointer-events-none fixed left-0 right-0 z-30 bg-transparent"
-      style={{ bottom: viewport.keyboardInset }}
+      style={{ bottom: footerBottom }}
     >
       <ChatComposer
         value={text}
@@ -889,7 +916,7 @@ export function DirectChatRoomClient({
         ref={messageBoxRef}
         className="fixed left-0 right-0 z-10 mx-auto max-w-[600px] overflow-x-hidden overflow-y-auto overscroll-contain pt-[calc(80px+env(safe-area-inset-top))] pb-[calc(96px+env(safe-area-inset-bottom))]"
         style={{
-          top: 0,
+          top: vvApplied,
           height: viewport.keyboard ? viewport.height : "100dvh",
         }}
       >

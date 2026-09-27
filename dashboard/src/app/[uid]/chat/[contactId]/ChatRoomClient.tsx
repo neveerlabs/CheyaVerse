@@ -19,6 +19,8 @@ import {
   Reply,
   Trash2,
   UserRound,
+  Share2,
+  ListChecks,
 } from "lucide-react";
 import { useRealtime } from "@/lib/use-realtime";
 import { ChatComposer } from "@/components/ChatComposer";
@@ -197,6 +199,7 @@ export function ChatRoomClient({
     keyboard: false,
     keyboardInset: 0,
   });
+  const [vvOffset, setVvOffset] = useState(0);
 
   function showToast(message: string) {
     setToast(message);
@@ -313,6 +316,9 @@ export function ChatRoomClient({
         const nextHeight = keyboard ? Math.max(1, viewportElement.height) : 0;
         const nextInset = keyboard ? Math.max(0, delta) : 0;
         setViewport((current) => {
+          if (current.keyboard === keyboard && keyboard) {
+            return current;
+          }
           if (
             current.keyboard === keyboard &&
             Math.abs(current.height - nextHeight) < 4 &&
@@ -344,6 +350,28 @@ export function ChatRoomClient({
       document.removeEventListener("focusout", update);
       window.removeEventListener("resize", update);
       window.removeEventListener("orientationchange", update);
+    };
+  }, []);
+
+  useEffect(() => {
+    const viewportElement = window.visualViewport;
+    if (!viewportElement) return;
+    let frame = 0;
+    const update = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        const next = viewportElement.offsetTop;
+        setVvOffset((prev) => (Math.abs(prev - next) < 1 ? prev : next));
+      });
+    };
+    update();
+    viewportElement.addEventListener("scroll", update);
+    viewportElement.addEventListener("resize", update);
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      viewportElement.removeEventListener("scroll", update);
+      viewportElement.removeEventListener("resize", update);
     };
   }, []);
 
@@ -832,11 +860,16 @@ export function ChatRoomClient({
     }
   }
 
+  const vvApplied = viewport.keyboard ? vvOffset : 0;
+  const footerBottom = viewport.keyboard
+    ? Math.max(0, viewport.keyboardInset - vvOffset)
+    : 0;
+
   const header = (
     <header
       ref={menuRootRef}
       className="fixed left-0 right-0 z-40 bg-transparent pt-[calc(12px+env(safe-area-inset-top))] pb-3"
-      style={{ top: 0 }}
+      style={{ top: vvApplied }}
     >
       <div className="relative mx-auto max-w-[600px] px-5">
         <div className="flex items-center gap-2 -mx-3">
@@ -876,34 +909,31 @@ export function ChatRoomClient({
           <div className="absolute right-5 top-[calc(100%-4px)] z-50 w-56 overflow-hidden rounded-2xl border border-line bg-white py-1 shadow-xl animate-fade-up">
             <button
               type="button"
-              onClick={() => {
-                setSearchOpen((value) => !value);
-                setMenuOpen(false);
-              }}
+              onClick={() => setMenuOpen(false)}
               className="flex w-full items-center gap-2 px-4 py-3 text-left text-[13px] text-ink"
             >
-              <Search size={15} /> Cari di percakapan
+              <Share2 size={15} /> Bagikan kontak
             </button>
-            <Link
-              href={`/${uid}/profile`}
-              onClick={() => setMenuOpen(false)}
-              className="block px-4 py-3 text-left text-[13px] text-ink"
-            >
-              Profil akun
-            </Link>
             <button
               type="button"
-              onClick={() => {
-                void fetch(`/api/notifications/${encodeURIComponent(uid)}`, {
-                  method: "POST",
-                  cache: "no-store",
-                });
-                router.refresh();
-                setMenuOpen(false);
-              }}
-              className="block w-full px-4 py-3 text-left text-[13px] text-ink"
+              onClick={() => setMenuOpen(false)}
+              className="flex w-full items-center gap-2 px-4 py-3 text-left text-[13px] text-ink"
             >
-              Muat ulang pesan
+              <ListChecks size={15} /> Pilih pesan
+            </button>
+            <button
+              type="button"
+              onClick={() => setMenuOpen(false)}
+              className="flex w-full items-center gap-2 px-4 py-3 text-left text-[13px] text-ink"
+            >
+              <Trash2 size={15} /> Bersihkan untuk saya
+            </button>
+            <button
+              type="button"
+              onClick={() => setMenuOpen(false)}
+              className="flex w-full items-center gap-2 px-4 py-3 text-left text-[13px] text-danger"
+            >
+              <Trash2 size={15} /> Bersihkan untuk semua
             </button>
           </div>
         )}
@@ -914,7 +944,7 @@ export function ChatRoomClient({
   const footer = (
     <footer
       className="chat-footer pointer-events-none fixed left-0 right-0 z-30 bg-transparent"
-      style={{ bottom: viewport.keyboardInset }}
+      style={{ bottom: footerBottom }}
     >
       <ChatComposer
         value={text}
@@ -976,7 +1006,7 @@ export function ChatRoomClient({
         ref={messageBoxRef}
         className="fixed left-0 right-0 z-10 mx-auto max-w-[600px] overflow-x-hidden overflow-y-auto overscroll-contain pt-[calc(80px+env(safe-area-inset-top))] pb-[calc(96px+env(safe-area-inset-bottom))]"
         style={{
-          top: 0,
+          top: vvApplied,
           height: viewport.keyboard ? viewport.height : "100dvh",
         }}
       >

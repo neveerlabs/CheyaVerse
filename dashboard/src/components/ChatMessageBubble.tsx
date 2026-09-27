@@ -100,7 +100,7 @@ export function ChatMessageBubble({
             </span>
           )}
           <span
-            className={`float-right ml-2 -mb-0.5 mt-0.5 inline-flex items-center gap-1 whitespace-nowrap text-[10px] ${
+            className={`float-right ml-2 -mb-1 -mt-0.5 inline-flex items-center gap-1 whitespace-nowrap text-[10px] ${
               outgoing ? "text-white/70" : "text-ink-mute"
             }`}
           >
