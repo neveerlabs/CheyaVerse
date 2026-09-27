@@ -93,7 +93,7 @@ function playTone(c: AudioContext, spec: ToneSpec) {
   osc.stop(now + spec.duration + 0.05);
 }
 
-export function playSendSound() {
+function playSynthSend() {
   const c = getCtx();
   if (!c) return;
   ensureRunning(c);
@@ -114,7 +114,7 @@ export function playSendSound() {
   });
 }
 
-export function playReceiveSound() {
+function playSynthReceive() {
   const c = getCtx();
   if (!c) return;
   ensureRunning(c);
@@ -133,4 +133,72 @@ export function playReceiveSound() {
     gain: 0.38,
     delay: 0.11,
   });
+}
+
+type SoundKey = "sent" | "received" | "notification";
+
+const SOUND_URLS: Record<SoundKey, string> = {
+  sent: "/sounds/sent.mp3",
+  received: "/sounds/received.mp3",
+  notification: "/sounds/notification.mp3",
+};
+
+const audioCache = new Map<SoundKey, HTMLAudioElement>();
+const failedSounds = new Set<SoundKey>();
+
+function preloadSounds() {
+  if (typeof window === "undefined") return;
+  (Object.keys(SOUND_URLS) as SoundKey[]).forEach((key) => {
+    if (audioCache.has(key) || failedSounds.has(key)) return;
+    try {
+      const el = new Audio();
+      el.preload = "auto";
+      el.volume = 1;
+      el.addEventListener("error", () => {
+        failedSounds.add(key);
+      });
+      el.src = SOUND_URLS[key];
+      el.load();
+      audioCache.set(key, el);
+    } catch {
+      failedSounds.add(key);
+    }
+  });
+}
+
+if (typeof window !== "undefined") {
+  preloadSounds();
+}
+
+function tryPlayAudio(key: SoundKey): boolean {
+  if (failedSounds.has(key)) return false;
+  const el = audioCache.get(key);
+  if (!el) return false;
+  try {
+    el.currentTime = 0;
+  } catch {}
+  try {
+    const p = el.play();
+    if (p && typeof p.catch === "function") {
+      p.catch(() => {});
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function playSendSound() {
+  if (tryPlayAudio("sent")) return;
+  playSynthSend();
+}
+
+export function playReceiveSound() {
+  if (tryPlayAudio("received")) return;
+  playSynthReceive();
+}
+
+export function playReceiveSoundOutside() {
+  if (tryPlayAudio("notification")) return;
+  playSynthReceive();
 }
