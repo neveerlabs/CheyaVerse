@@ -1837,6 +1837,7 @@ export async function listDirectConversations(
       const unreadResult = await getTurso().execute({
         sql: `SELECT COUNT(*) AS c FROM direct_messages
               WHERE sender_uid = ? AND recipient_uid = ? AND read_at IS NULL
+                AND deleted_at IS NULL
                 AND NOT EXISTS (
                   SELECT 1 FROM direct_message_hides h
                   WHERE h.uid = ? AND h.message_id = direct_messages.id
@@ -1857,6 +1858,7 @@ export async function countUnreadDirectMessages(uid: number): Promise<number> {
   const result = await getTurso().execute({
     sql: `SELECT COUNT(*) AS count FROM direct_messages dm
           WHERE dm.recipient_uid = ? AND dm.read_at IS NULL
+            AND dm.deleted_at IS NULL
             AND NOT EXISTS (
               SELECT 1 FROM direct_message_hides h
               WHERE h.uid = ? AND h.message_id = dm.id

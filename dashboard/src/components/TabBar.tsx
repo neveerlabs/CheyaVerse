@@ -67,7 +67,8 @@ export function TabBar({ uid }: { uid: string }) {
     }
     if (
       event.type === "direct-message:new" ||
-      event.type === "direct-message:read"
+      event.type === "direct-message:read" ||
+      event.type === "direct-message:deleted"
     ) {
       throttledLoad();
     }
