@@ -5,7 +5,9 @@ import {
   listMessages,
   getTelegramUser,
   listDirectMessages,
+  markDirectMessagesRead,
 } from "@/lib/storage";
+import { broadcastToUid } from "@/lib/realtime";
 import { ChatRoomClient } from "./ChatRoomClient";
 import { DirectChatRoomClient } from "./DirectChatRoomClient";
 
@@ -33,6 +35,14 @@ export default async function ChatRoomPage({
       listDirectMessages(uid, contactUid),
       getTelegramUser(uid),
     ]);
+    const readAt = await markDirectMessagesRead(uid, contactUid);
+    if (readAt) {
+      broadcastToUid(contactUid, {
+        type: "direct-message:read",
+        uid,
+        read_at: readAt,
+      });
+    }
     return (
       <DirectChatRoomClient
         uid={params.uid}

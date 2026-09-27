@@ -55,6 +55,15 @@ export function ChatMessageBubble({
   onPointerCancel,
   onContextMenu,
 }: ChatMessageBubbleProps) {
+  const meta = (
+    <>
+      {edited && <span>diedit</span>}
+      {pinned && <Pin size={10} aria-label="Disematkan" />}
+      {timestamp}
+      {outgoing && status}
+    </>
+  );
+
   return (
     <div
       className={`flex w-full min-w-0 items-start gap-2 ${outgoing ? "justify-end" : "justify-start"}`}
@@ -81,33 +90,40 @@ export function ChatMessageBubble({
           } ${pending ? "opacity-70" : ""}`}
         >
           {prefix}
-          {richText ? (
+          <span className="relative inline-block w-full align-top">
+            {richText ? (
+              <span
+                className={`inline whitespace-pre-wrap break-words text-[13.5px] leading-[1.4] ${
+                  deleted
+                    ? "italic opacity-65"
+                    : outgoing
+                      ? "[&_b]:font-semibold [&_i]:italic [&_a]:underline"
+                      : "text-ink-soft [&_b]:font-semibold [&_b]:text-ink [&_i]:italic [&_a]:text-ink [&_a]:underline"
+                }`}
+                dangerouslySetInnerHTML={{ __html: content }}
+              />
+            ) : (
+              <span
+                className={`inline whitespace-pre-wrap break-words text-[13.5px] leading-[1.4] ${deleted ? "italic opacity-65" : ""}`}
+              >
+                {content}
+              </span>
+            )}
             <span
-              className={`inline whitespace-pre-wrap break-words text-[13.5px] leading-[1.4] ${
-                deleted
-                  ? "italic opacity-65"
-                  : outgoing
-                    ? "[&_b]:font-semibold [&_i]:italic [&_a]:underline"
-                    : "text-ink-soft [&_b]:font-semibold [&_b]:text-ink [&_i]:italic [&_a]:text-ink [&_a]:underline"
+              aria-hidden
+              className={`invisible ml-2 inline-flex items-center gap-1 whitespace-nowrap align-bottom text-[10px] ${
+                outgoing ? "text-white/70" : "text-ink-mute"
               }`}
-              dangerouslySetInnerHTML={{ __html: content }}
-            />
-          ) : (
-            <span
-              className={`inline whitespace-pre-wrap break-words text-[13.5px] leading-[1.4] ${deleted ? "italic opacity-65" : ""}`}
             >
-              {content}
+              {meta}
             </span>
-          )}
-          <span
-            className={`float-right ml-2 -mb-1 -mt-0.5 inline-flex items-center gap-1 whitespace-nowrap text-[10px] ${
-              outgoing ? "text-white/70" : "text-ink-mute"
-            }`}
-          >
-            {edited && <span>diedit</span>}
-            {pinned && <Pin size={10} aria-label="Disematkan" />}
-            {timestamp}
-            {outgoing && status}
+            <span
+              className={`absolute bottom-0 right-0 inline-flex items-center gap-1 whitespace-nowrap text-[10px] ${
+                outgoing ? "text-white/70" : "text-ink-mute"
+              }`}
+            >
+              {meta}
+            </span>
           </span>
         </div>
       </div>
