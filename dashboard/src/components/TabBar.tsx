@@ -93,6 +93,7 @@ export function TabBar({ uid }: { uid: string }) {
     <nav className="fixed bottom-0 left-0 right-0 z-50 pb-[env(safe-area-inset-bottom)] bg-white/95 backdrop-blur-xl border-t border-divider">
       <div className="relative flex h-[56px] max-w-[600px] mx-auto">
         <Link
+          prefetch
           href={base}
           className="flex-1 flex flex-col items-center justify-center gap-[3px] transition-opacity active:opacity-60"
         >
@@ -111,6 +112,7 @@ export function TabBar({ uid }: { uid: string }) {
         </Link>
 
         <Link
+          prefetch
           href={chatHref}
           className="flex-1 flex flex-col items-center justify-center gap-[3px] transition-opacity active:opacity-60 relative"
         >
@@ -156,6 +158,7 @@ export function TabBar({ uid }: { uid: string }) {
             />
           </div>
           <Link
+            prefetch
             href={mediaHref}
             aria-label="Media"
             className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 w-[50px] h-[50px] rounded-full bg-ink text-white flex items-center justify-center shadow-[0_8px_22px_-6px_rgba(0,0,0,.4)] active:scale-95 transition-transform"
@@ -172,6 +175,7 @@ export function TabBar({ uid }: { uid: string }) {
         </div>
 
         <Link
+          prefetch
           href={cartHref}
           className="flex-1 flex flex-col items-center justify-center gap-[3px] transition-opacity active:opacity-60"
         >
@@ -190,6 +194,7 @@ export function TabBar({ uid }: { uid: string }) {
         </Link>
 
         <Link
+          prefetch
           href={profileHref}
           className="flex-1 flex flex-col items-center justify-center gap-[3px] transition-opacity active:opacity-60"
         >

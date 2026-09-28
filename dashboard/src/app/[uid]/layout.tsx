@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { TabBar } from "@/components/TabBar";
 import { RealtimeSync } from "@/components/RealtimeSync";
 import { SessionInit } from "@/components/SessionInit";
@@ -6,13 +7,13 @@ import { PushRegister } from "@/components/PushRegister";
 import { ChatPresence } from "@/components/ChatPresence";
 import { cookies } from "next/headers";
 import { notFound, redirect } from "next/navigation";
-import {
-  isDeviceBlacklisted,
-  getTelegramUser,
-} from "@/lib/storage";
+import { isDeviceBlacklisted, getTelegramUser } from "@/lib/storage";
 import { readSessionToken, SESSION_COOKIE_NAME } from "@/lib/session-token";
 
 export const dynamic = "force-dynamic";
+
+const getUserCached = cache(getTelegramUser);
+const isBlacklistedCached = cache(isDeviceBlacklisted);
 
 export default async function UserLayout({
   children,
@@ -26,13 +27,16 @@ export default async function UserLayout({
   const session = readSessionToken(cookies().get(SESSION_COOKIE_NAME)?.value);
   if (!session) redirect("/login");
   if (session.uid !== uid) redirect(`/${session.uid}`);
-  if (!(await getTelegramUser(uid))) notFound();
-  if (
-    session.deviceId &&
-    (await isDeviceBlacklisted(session.deviceId, uid))
-  ) {
-    redirect("/blocked");
-  }
+
+  const [user, blocked] = await Promise.all([
+    getUserCached(uid),
+    session.deviceId
+      ? isBlacklistedCached(session.deviceId, uid)
+      : Promise.resolve(false),
+  ]);
+
+  if (!user) notFound();
+  if (blocked) redirect("/blocked");
 
   return (
     <>
