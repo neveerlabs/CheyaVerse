@@ -1,15 +1,49 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import {
-  getRealtimeClient,
-  type RealtimeEvent,
-} from "./realtime-client";
+import type { RealtimeEvent } from "./realtime";
+
+type MsgPayload = {
+  id: string;
+  uid: number;
+  sender: "user" | "bot";
+  sender_role: string;
+  title: string | null;
+  content: string;
+  created_at: string;
+  delivered_at: string | null;
+  read_at: string | null;
+};
+
+type Snapshot = {
+  notifCount: number;
+  unread: number;
+  msgCount: number;
+  mediaCount: number;
+  notifLastAt: string | null;
+  mediaLastId: string | null;
+  msgLast: MsgPayload | null;
+  directLast: {
+    id: string;
+    sender_uid: number;
+    recipient_uid: number;
+    content: string;
+    created_at: string;
+    delivered_at: string | null;
+    read_at: string | null;
+  } | null;
+};
+
+const VISIBLE_MS = 10000;
+const HIDDEN_MS = 30000;
+const BACKOFF_BASE_MS = 4000;
+const BACKOFF_MAX_MS = 30000;
+const MAX_ERR_LEVEL = 6;
 
 export function useRealtime(
   uid: string | number | null | undefined,
   onEvent: (event: RealtimeEvent) => void,
-): void {
+) {
   const cbRef = useRef(onEvent);
 
   useEffect(() => {
@@ -18,15 +52,181 @@ export function useRealtime(
 
   useEffect(() => {
     if (uid === null || uid === undefined || uid === "") return;
-    const numUid = Number(uid);
-    if (!Number.isInteger(numUid) || numUid <= 0) return;
-    const client = getRealtimeClient(numUid);
-    return client.onEvent((event) => {
+    const u = encodeURIComponent(String(uid));
+
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let prev: Snapshot | null = null;
+    let errCount = 0;
+    let inflight: AbortController | null = null;
+    let streamConnected = false;
+    let streamErrorLogged = false;
+    let source: EventSource | null = null;
+
+    const emit = (event: RealtimeEvent) => {
       try {
         cbRef.current(event);
       } catch (err) {
         console.error("[realtime] handler error:", err);
       }
-    });
+    };
+
+    const nextInterval = (): number => {
+      if (!streamConnected && errCount === 0) return 2500;
+      if (errCount > 0) {
+        return Math.min(
+          BACKOFF_MAX_MS,
+          BACKOFF_BASE_MS * Math.min(errCount, MAX_ERR_LEVEL),
+        );
+      }
+      if (typeof document !== "undefined" && document.visibilityState === "visible") {
+        return VISIBLE_MS;
+      }
+      return HIDDEN_MS;
+    };
+
+    const tick = async () => {
+      if (cancelled) return;
+
+      if (inflight) return;
+      inflight = new AbortController();
+      const ac = inflight;
+
+      try {
+        const res = await fetch(`/api/events/poll?uid=${u}`, {
+          cache: "no-store",
+          signal: ac.signal,
+        });
+        if (!res.ok) {
+          errCount++;
+          return;
+        }
+        const j = await res.json().catch(() => null);
+        if (!j || j.ok !== true || !j.snapshot) {
+          if (j && j.error === "invalid_uid") {
+            errCount = MAX_ERR_LEVEL;
+          } else {
+            errCount++;
+          }
+          return;
+        }
+
+        errCount = 0;
+        const cur = j.snapshot as Snapshot;
+
+        if (prev) {
+          const notifDelta =
+            cur.unread !== prev.unread || cur.notifCount !== prev.notifCount;
+          if (notifDelta) {
+            if (cur.unread > prev.unread || cur.notifCount > prev.notifCount) {
+              emit({ type: "notification:new" });
+            }
+            if (cur.unread < prev.unread) {
+              emit({ type: "notification:read" });
+            }
+          }
+
+          const lastId = cur.msgLast?.id ?? "";
+          const prevLastId = prev.msgLast?.id ?? "";
+          if (lastId && lastId !== prevLastId) {
+            emit({ type: "message:new", message: cur.msgLast });
+          }
+
+          const directLastId = cur.directLast?.id ?? "";
+          const prevDirectLastId = prev.directLast?.id ?? "";
+          if (directLastId && directLastId !== prevDirectLastId) {
+            emit({ type: "direct-message:new", message: cur.directLast });
+          }
+          if (
+            directLastId &&
+            directLastId === prevDirectLastId &&
+            cur.directLast?.read_at &&
+            cur.directLast.read_at !== prev.directLast?.read_at
+          ) {
+            emit({
+              type: "direct-message:read",
+              uid: cur.directLast.recipient_uid,
+              messageId: directLastId,
+              read_at: cur.directLast.read_at,
+            });
+          }
+
+          const mediaDelta =
+            cur.mediaCount !== prev.mediaCount ||
+            cur.mediaLastId !== prev.mediaLastId;
+          if (mediaDelta) {
+            emit({ type: "media:changed" });
+          }
+        }
+
+        if (!prev && cur.directLast) {
+          emit({ type: "direct-message:new", message: cur.directLast });
+        }
+        prev = cur;
+      } catch (err) {
+        const name = (err as { name?: string })?.name;
+        if (name === "AbortError") return;
+        errCount++;
+      } finally {
+        if (inflight === ac) inflight = null;
+        if (!cancelled) {
+          timer = setTimeout(tick, nextInterval());
+        }
+      }
+    };
+
+    const kick = () => {
+      if (cancelled) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(tick, 0);
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") kick();
+    };
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) kick();
+    };
+
+    if (typeof EventSource !== "undefined") {
+      source = new EventSource(`/api/events?uid=${u}`);
+      source.onopen = () => {
+        streamConnected = true;
+        streamErrorLogged = false;
+        errCount = 0;
+      };
+      source.onmessage = (message) => {
+        try {
+          const event = JSON.parse(message.data) as RealtimeEvent;
+          if (typeof event.type === "string" && event.type !== "ready") emit(event);
+        } catch (err) {
+          console.error("[realtime] invalid event payload:", err);
+        }
+      };
+      source.onerror = () => {
+        streamConnected = false;
+        if (!streamErrorLogged) {
+          console.warn("[realtime] event stream disconnected; using polling fallback");
+          streamErrorLogged = true;
+        }
+        kick();
+      };
+    }
+
+    window.addEventListener("pageshow", onPageShow);
+    document.addEventListener("visibilitychange", onVisibility);
+
+    kick();
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener("pageshow", onPageShow);
+      document.removeEventListener("visibilitychange", onVisibility);
+      if (timer) clearTimeout(timer);
+      source?.close();
+      if (inflight) {
+        try { inflight.abort(); } catch {}
+      }
+    };
   }, [uid]);
 }

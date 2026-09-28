@@ -1,14 +1,12 @@
 {
   "name": "cheyaverse",
-  "type": "module",
   "version": "1.4.8",
   "private": true,
   "scripts": {
     "dev": "next dev -p 8080",
     "build": "next build",
     "start": "next start -p 8080",
-    "lint": "next lint",
-    "ws": "node ws-server.js"
+    "lint": "next lint"
   },
   "dependencies": {
     "@libsql/client": "^0.14.0",
