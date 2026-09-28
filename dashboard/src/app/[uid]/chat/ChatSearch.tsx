@@ -106,7 +106,6 @@ export function ChatSearch({ uid }: { uid: string }) {
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
           aria-label="Cari kontak Telegram"
-          aria-expanded={Boolean(query.trim())}
           aria-controls="chat-search-results"
           className="min-w-0 flex-1 bg-transparent text-[14px] text-ink outline-none placeholder:text-ink-mute"
         />

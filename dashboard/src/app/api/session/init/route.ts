@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   ensureWelcomeNotification,
   getDeviceIdRow,
-  findDeviceIdByFingerprint,
   insertDeviceId,
   touchDeviceId,
   updateDeviceFingerprint,
@@ -14,7 +13,6 @@ import { parseDeviceInfo } from "@/lib/device";
 import { sendTelegramMessage } from "@/lib/telegram";
 import {
   computeFingerprint,
-  computeLegacyFingerprint,
 } from "@/lib/session-fingerprint";
 import { generateDeviceId } from "@/lib/device-id";
 import { broadcastToUid } from "@/lib/realtime";
@@ -118,7 +116,12 @@ export async function POST(req: NextRequest) {
   }
   const body = await req.json().catch(() => ({}));
   const uid = Number(body?.uid);
-  const rawDeviceId = session.deviceId ?? "";
+  const requestedDeviceId =
+    typeof body?.deviceId === "string" && DEVICE_ID_RE.test(body.deviceId)
+      ? body.deviceId
+      : "";
+  const rawDeviceId =
+    session.deviceId ?? (session.deviceLink ? "" : requestedDeviceId);
   const ua = String(body?.ua ?? "");
   const cpuCores =
     typeof body?.cpuCores === "number" && body.cpuCores > 0
@@ -170,9 +173,28 @@ export async function POST(req: NextRequest) {
   };
 
   const fingerprint = computeFingerprint(ident);
-  const legacyFingerprint = computeLegacyFingerprint(ident);
-
   let deviceId = rawDeviceId;
+
+  if (
+    session.deviceId &&
+    (typeof body?.deviceId !== "string" || body.deviceId !== session.deviceId)
+  ) {
+    const response = NextResponse.json(
+      { ok: false, error: "device_id_mismatch" },
+      { status: 401 },
+    );
+    response.cookies.set(SESSION_COOKIE_NAME, "", {
+      httpOnly: true,
+      secure:
+        process.env.NODE_ENV === "production" ||
+        req.headers.get("x-forwarded-proto")?.split(",")[0]?.trim() === "https" ||
+        req.nextUrl.protocol === "https:",
+      sameSite: "lax",
+      path: "/",
+      maxAge: 0,
+    });
+    return response;
+  }
 
   if (DEVICE_ID_RE.test(deviceId)) {
     const blocked = await isDeviceBlacklisted(deviceId, uid);
@@ -196,55 +218,25 @@ export async function POST(req: NextRequest) {
       });
       return withDeviceSession(req, uid, deviceId);
     }
-  }
 
-  const matchByFingerprint = await findDeviceIdByFingerprint(uid, fingerprint);
-  if (matchByFingerprint && DEVICE_ID_RE.test(matchByFingerprint.device_id)) {
-    const blocked = await isDeviceBlacklisted(matchByFingerprint.device_id, uid);
-    if (blocked) {
-      return NextResponse.json({ ok: false, error: "blocked" }, { status: 403 });
+    if (session.deviceId) {
+      const response = NextResponse.json(
+        { ok: false, error: "unknown_device" },
+        { status: 401 },
+      );
+      response.cookies.set(SESSION_COOKIE_NAME, "", {
+        httpOnly: true,
+        secure:
+          process.env.NODE_ENV === "production" ||
+          req.headers.get("x-forwarded-proto")?.split(",")[0]?.trim() === "https" ||
+          req.nextUrl.protocol === "https:",
+        sameSite: "lax",
+        path: "/",
+        maxAge: 0,
+      });
+      return response;
     }
-    await touchDeviceId(matchByFingerprint.device_id, uid);
-    await updateDeviceFingerprint(matchByFingerprint.device_id, uid, fingerprint, {
-      language,
-      timezone,
-      platform,
-      max_touch: maxTouch,
-      color_depth: colorDepth,
-      webgl_vendor: webglVendor,
-      webgl_renderer: webglRenderer,
-      screen_w: screenW,
-      screen_h: screenH,
-    });
-    return withDeviceSession(req, uid, matchByFingerprint.device_id, {
-      ok: true,
-      state: "known",
-      deviceId: matchByFingerprint.device_id,
-    });
-  }
-
-  const matchByLegacy = await findDeviceIdByFingerprint(uid, legacyFingerprint);
-  if (matchByLegacy && DEVICE_ID_RE.test(matchByLegacy.device_id)) {
-    const blocked = await isDeviceBlacklisted(matchByLegacy.device_id, uid);
-    if (blocked) {
-      return NextResponse.json({ ok: false, error: "blocked" }, { status: 403 });
-    }
-    await updateDeviceFingerprint(matchByLegacy.device_id, uid, fingerprint, {
-      language,
-      timezone,
-      platform,
-      max_touch: maxTouch,
-      color_depth: colorDepth,
-      webgl_vendor: webglVendor,
-      webgl_renderer: webglRenderer,
-      screen_w: screenW,
-      screen_h: screenH,
-    });
-    return withDeviceSession(req, uid, matchByLegacy.device_id, {
-      ok: true,
-      state: "known",
-      deviceId: matchByLegacy.device_id,
-    });
+    deviceId = "";
   }
 
   deviceId = generateDeviceId();

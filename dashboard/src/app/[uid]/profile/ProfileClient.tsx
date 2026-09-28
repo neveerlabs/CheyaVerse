@@ -20,6 +20,8 @@ import {
   Trash2,
   Copy,
   Download,
+  Smartphone,
+  LogOut,
 } from "lucide-react";
 import { VideoThumbnail } from "@/components/VideoThumbnail";
 import { config } from "@/lib/config";
@@ -92,6 +94,7 @@ export function ProfileClient({
   const [menuItemAnchor, setMenuItemAnchor] = useState<{ x: number; y: number } | null>(null);
   const [deleteItem, setDeleteItem] = useState<MediaItem | null>(null);
   const [busy, setBusy] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   const [captchaItem, setCaptchaItem] = useState<MediaItem | null>(null);
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
 
@@ -398,7 +401,7 @@ export function ProfileClient({
     if (anchorEl) {
       const rect = anchorEl.getBoundingClientRect();
       const menuWidth = 240;
-      const menuHeight = 320;
+      const menuHeight = 360;
       let left = rect.right - menuWidth;
       if (left < 12) left = 12;
       let top = rect.bottom + 8;
@@ -427,6 +430,7 @@ export function ProfileClient({
       showToast("DeviceID belum tersedia");
       return;
     }
+
     try {
       if (navigator.clipboard?.writeText && window.isSecureContext) {
         await navigator.clipboard.writeText(deviceId);
@@ -444,6 +448,30 @@ export function ProfileClient({
       }
     } catch {
       showToast("Gagal menyalin");
+    }
+  }
+
+  async function logOut() {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      const response = await fetch("/api/session/logout", {
+        method: "POST",
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        throw new Error(`Logout gagal (${response.status}).`);
+      }
+      try {
+        window.localStorage.removeItem(DEVICE_ID_KEY);
+      } catch (cause) {
+        console.warn("[profile] could not clear the device identifier:", cause);
+      }
+      window.location.replace("/login");
+    } catch (cause) {
+      console.error("[profile] logout failed:", cause);
+      showToast(cause instanceof Error ? cause.message : "Logout gagal");
+      setLoggingOut(false);
     }
   }
 
@@ -609,6 +637,11 @@ export function ProfileClient({
       href: `/${uid}/profile/support`,
       label: "Tech Support",
       icon: <LifeBuoy size={18} strokeWidth={1.8} />,
+    },
+    {
+      href: `/${uid}/profile/link-device`,
+      label: "Link a device",
+      icon: <Smartphone size={18} strokeWidth={1.8} />,
     },
   ];
 
@@ -1139,6 +1172,18 @@ export function ProfileClient({
               {label}
             </Link>
           ))}
+          <div className="my-1.5 border-t border-line" />
+          <button
+            type="button"
+            onClick={() => void logOut()}
+            disabled={loggingOut}
+            className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left text-[13.5px] font-medium text-danger hover:bg-red-50 disabled:opacity-60"
+          >
+            <span className="w-4 h-4 flex items-center justify-center flex-shrink-0">
+              <LogOut size={18} strokeWidth={1.8} />
+            </span>
+            {loggingOut ? "Logging out…" : "Log out"}
+          </button>
         </div>
       )}
     </>

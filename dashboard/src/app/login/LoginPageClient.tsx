@@ -1,0 +1,131 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import { Suspense } from "react";
+import { Bot } from "lucide-react";
+import { LoginApproval } from "./LoginApproval";
+
+const DEVICE_ID_KEY = "cheya_device_id";
+
+export function LoginPageClient({
+  botUsername,
+}: {
+  botUsername: string | null;
+}) {
+  const [ready, setReady] = useState(false);
+  const [checking, setChecking] = useState(true);
+  const [error, setError] = useState("");
+
+  const restoreSession = useCallback(async () => {
+    setChecking(true);
+    setError("");
+    try {
+      let deviceId: string | null = null;
+      try {
+        deviceId = window.localStorage.getItem(DEVICE_ID_KEY);
+      } catch (cause) {
+        throw new Error("Penyimpanan perangkat tidak dapat dibaca.");
+      }
+
+      const response = await fetch("/api/session/restore", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deviceId }),
+        cache: "no-store",
+      });
+      const result = (await response.json()) as {
+        ok?: boolean;
+        authenticated?: boolean;
+        uid?: number;
+        clearDeviceId?: boolean;
+      };
+      if (!response.ok || !result.ok) {
+        throw new Error("Sesi perangkat tidak dapat diperiksa. Coba lagi.");
+      }
+      if (result.clearDeviceId) {
+        window.localStorage.removeItem(DEVICE_ID_KEY);
+      }
+      if (
+        result.authenticated &&
+        Number.isSafeInteger(result.uid) &&
+        (result.uid ?? 0) > 0
+      ) {
+        window.location.replace(`/${result.uid}`);
+        return;
+      }
+      setReady(true);
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Sesi perangkat tidak dapat diperiksa. Coba lagi.",
+      );
+    } finally {
+      setChecking(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void restoreSession();
+  }, [restoreSession]);
+
+  return (
+    <main className="mx-auto flex min-h-screen max-w-[600px] items-center justify-center px-5 py-10">
+      <section className="w-full max-w-[400px] rounded-3xl border border-line bg-white p-7 text-center shadow-[0_16px_60px_-36px_rgba(0,0,0,.25)]">
+        <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-[#f5f5f5]">
+          <Bot size={30} className="text-ink" />
+        </div>
+        <h1 className="mb-2 text-[22px] font-bold tracking-[-.02em] text-ink">
+          Login / Register
+        </h1>
+        <p className="mb-7 text-[13.5px] leading-relaxed text-ink-soft">
+          Masuk dengan akun Telegram untuk membuka dashboard CheyaVerse.
+          Akun Telegram menjadi identitas akun web Anda.
+        </p>
+        {checking ? (
+          <div role="status" className="min-h-11 text-[13px] text-ink-mute">
+            Memeriksa sesi perangkat…
+          </div>
+        ) : ready ? (
+          botUsername ? (
+            <Suspense
+              fallback={
+                <div className="min-h-11 text-[13px] text-ink-mute">
+                  Memuat login Telegram…
+                </div>
+              }
+            >
+              <LoginApproval botUsername={botUsername} />
+            </Suspense>
+          ) : (
+            <p role="alert" className="text-[13px] text-danger">
+              BOT_USERNAME belum dikonfigurasi.
+            </p>
+          )
+        ) : error ? (
+          <div className="space-y-3" role="alert">
+            <p className="text-[13px] text-danger">{error}</p>
+            <button
+              type="button"
+              onClick={() => void restoreSession()}
+              className="w-full rounded-xl bg-ink px-4 py-3 text-[13px] font-semibold text-white"
+            >
+              Coba lagi
+            </button>
+            <button
+              type="button"
+              onClick={() => setReady(true)}
+              className="text-[12px] font-medium text-ink-soft underline"
+            >
+              Tetap masuk dengan Telegram
+            </button>
+          </div>
+        ) : null}
+        <p className="mt-6 text-[11.5px] leading-relaxed text-ink-mute">
+          Persetujuan dilakukan langsung lewat bot CheyaVerse. Jangan bagikan
+          link permintaan login ini kepada siapa pun.
+        </p>
+      </section>
+    </main>
+  );
+}

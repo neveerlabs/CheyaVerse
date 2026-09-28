@@ -7,10 +7,9 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type Snapshot = {
-  notifCount: number;
   unread: number;
-  msgCount: number;
   mediaCount: number;
+  notifLastId: string | null;
   notifLastAt: string | null;
   mediaLastId: string | null;
   msgLast: {
@@ -66,13 +65,12 @@ export async function GET(req: NextRequest) {
     const [countsRes, lastMsgRes, directLast] = await Promise.all([
       client.execute({
         sql: `SELECT
-                (SELECT COUNT(*) FROM notifications WHERE uid = ?) AS notif_count,
                 (SELECT COUNT(*) FROM notifications WHERE uid = ? AND read = 0) AS unread,
-                (SELECT COUNT(*) FROM messages WHERE uid = ?) AS msg_count,
                 (SELECT COUNT(*) FROM media WHERE owner_id = ?) AS media_count,
+                (SELECT id FROM notifications WHERE uid = ? ORDER BY created_at DESC LIMIT 1) AS notif_last_id,
                 (SELECT created_at FROM notifications WHERE uid = ? ORDER BY created_at DESC LIMIT 1) AS notif_last_at,
                 (SELECT id FROM media WHERE owner_id = ? ORDER BY expires_at DESC LIMIT 1) AS media_last_id`,
-        args: [uid, uid, uid, uid, uid, uid],
+        args: [uid, uid, uid, uid, uid],
       }),
       client.execute({
         sql: `SELECT id, uid, sender, sender_role, title, content, created_at, delivered_at, read_at
@@ -85,10 +83,9 @@ export async function GET(req: NextRequest) {
     const row = (countsRes.rows[0] ?? {}) as Record<string, unknown>;
 
     const snapshot: Snapshot = {
-      notifCount: n(row.notif_count),
       unread: n(row.unread),
-      msgCount: n(row.msg_count),
       mediaCount: n(row.media_count),
+      notifLastId: s(row.notif_last_id) || null,
       notifLastAt: s(row.notif_last_at) || null,
       mediaLastId: s(row.media_last_id) || null,
       msgLast: null,

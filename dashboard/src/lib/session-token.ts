@@ -6,6 +6,7 @@ export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 export type UserSession = {
   uid: number;
   deviceId: string | null;
+  deviceLink?: boolean;
   exp: number;
 };
 
@@ -26,11 +27,13 @@ function signature(payload: string): string {
 export function createSessionToken(
   uid: number,
   deviceId: string | null = null,
+  deviceLink = false,
 ): string {
   const payload = encode(
     JSON.stringify({
       uid,
       deviceId,
+      deviceLink,
       exp: Math.floor(Date.now() / 1000) + SESSION_MAX_AGE_SECONDS,
     } satisfies UserSession),
   );
@@ -64,6 +67,7 @@ export function readSessionToken(token: string | undefined): UserSession | null 
     return {
       uid: session.uid!,
       deviceId: session.deviceId ?? null,
+      deviceLink: session.deviceLink === true,
       exp: session.exp!,
     };
   } catch {

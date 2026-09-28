@@ -3,12 +3,15 @@ import { NextRequest, NextResponse } from "next/server";
 type SessionPayload = {
   uid: number;
   deviceId: string | null;
+  deviceLink?: boolean;
   exp: number;
 };
 
 const COOKIE_NAME = "cheya_session";
 const PUBLIC_API = [
   /^\/api\/auth\/telegram$/,
+  /^\/api\/session\/restore$/,
+  /^\/api\/device-links\/redeem$/,
   /^\/api\/media\/\d{7}\/content$/,
   /^\/api\/media\/\d{7}\/direct-download$/,
   /^\/api\/download\/\d{7}$/,
@@ -66,6 +69,7 @@ async function readEdgeSession(
     return {
       uid: session.uid!,
       deviceId: session.deviceId ?? null,
+      deviceLink: session.deviceLink === true,
       exp: session.exp!,
     };
   } catch {
@@ -116,6 +120,7 @@ export async function middleware(request: NextRequest) {
     pathname === "/" ||
     pathname === "/login" ||
     pathname === "/blocked" ||
+    pathname.startsWith("/device-link/") ||
     pathname.startsWith("/m/") ||
     pathname.startsWith("/download/") ||
     pathname.startsWith("/_next/") ||

@@ -6,7 +6,7 @@ import { useRealtime } from "@/lib/use-realtime";
 
 const DEVICE_ID_KEY = "cheya_device_id";
 const BLOCKED_PATH = "/blocked";
-const CHECK_INTERVAL_MS = 3000;
+const CHECK_INTERVAL_MS = 30000;
 
 function readDeviceId(): string | null {
   if (typeof window === "undefined") return null;
@@ -127,6 +127,15 @@ export function SessionInit({ uid }: { uid: string }) {
           redirectToBlocked();
           return;
         }
+        if (res.status === 401) {
+          try {
+            window.localStorage.removeItem(DEVICE_ID_KEY);
+          } catch (error) {
+            console.warn("[session] could not clear the invalid device identifier:", error);
+          }
+          window.location.replace("/login");
+          return;
+        }
         const j = await res.json();
         if (!res.ok || !j?.ok || typeof j?.deviceId !== "string") {
           throw new Error(`Device initialization failed (${res.status}).`);
@@ -145,7 +154,7 @@ export function SessionInit({ uid }: { uid: string }) {
         console.error("[session] device initialization failed:", error);
         setInitError("Device gagal didaftarkan. Muat ulang halaman untuk mencoba lagi.");
       });
-  }, [uid]);
+  }, [router, uid]);
 
   useRealtime(uid, (event) => {
     if (blockedRef.current) return;
@@ -162,12 +171,15 @@ export function SessionInit({ uid }: { uid: string }) {
     if (typeof window === "undefined") return;
 
     let cancelled = false;
+    let checkInFlight = false;
 
     const checkNow = async () => {
+      if (checkInFlight) return;
       if (blockedRef.current) return;
       if (window.location.pathname === BLOCKED_PATH) return;
       if (document.visibilityState === "hidden") return;
 
+      checkInFlight = true;
       try {
         const res = await fetch("/api/session/check", {
           method: "POST",
@@ -180,12 +192,20 @@ export function SessionInit({ uid }: { uid: string }) {
           window.location.replace("/login");
           return;
         }
+        if (!res.ok) {
+          console.error("[session] device status check failed:", res.status);
+          return;
+        }
         const j = await res.json().catch(() => ({}));
         if (j?.blocked === true) {
           blockedRef.current = true;
           redirectToBlocked();
         }
-      } catch {}
+      } catch (error) {
+        console.error("[session] device status check failed:", error);
+      } finally {
+        checkInFlight = false;
+      }
     };
 
     checkRef.current = () => {

@@ -8,18 +8,22 @@ import {
 } from "lucide-react";
 import { useRealtime } from "@/lib/use-realtime";
 
-const MIN_LOAD_INTERVAL_MS = 1500;
-
 export function TabBar({ uid }: { uid: string }) {
   const pathname = usePathname();
   const [unread, setUnread] = useState(0);
-  const lastLoadAtRef = useRef(0);
   const inflightRef = useRef(false);
+  const refreshRequestedRef = useRef(false);
+  const refreshTimerRef = useRef<number | null>(null);
+  const loadRef = useRef<() => Promise<void>>(async () => {});
 
   const load = useCallback(async () => {
     if (!uid || uid === "undefined") return;
-    if (inflightRef.current) return;
+    if (inflightRef.current) {
+      refreshRequestedRef.current = true;
+      return;
+    }
     inflightRef.current = true;
+    let retry = false;
     try {
       const [notificationResponse, chatResponse] = await Promise.all([
         fetch(`/api/notifications/${encodeURIComponent(uid)}`, {
@@ -27,50 +31,75 @@ export function TabBar({ uid }: { uid: string }) {
         }),
         fetch("/api/chats/unread", { cache: "no-store" }),
       ]);
-      if (!notificationResponse.ok || !chatResponse.ok) return;
+      if (!notificationResponse.ok || !chatResponse.ok) {
+        console.error(
+          "[tab-bar] unread count request failed:",
+          notificationResponse.status,
+          chatResponse.status,
+        );
+        retry = true;
+        return;
+      }
       const [notifications, chats] = await Promise.all([
         notificationResponse.json(),
         chatResponse.json(),
       ]);
       setUnread(Number(notifications?.unread ?? 0) + Number(chats?.unread ?? 0));
-    } catch {
+    } catch (error) {
+      console.error("[tab-bar] failed to load unread counts:", error);
+      retry = true;
     } finally {
       inflightRef.current = false;
+      if (refreshRequestedRef.current || retry) {
+        refreshRequestedRef.current = false;
+        if (refreshTimerRef.current !== null) {
+          window.clearTimeout(refreshTimerRef.current);
+        }
+        refreshTimerRef.current = window.setTimeout(() => {
+          refreshTimerRef.current = null;
+          void loadRef.current();
+        }, retry ? 5000 : 0);
+      }
     }
   }, [uid]);
+  loadRef.current = load;
 
-  const throttledLoad = useCallback(() => {
-    const now = Date.now();
-    if (now - lastLoadAtRef.current < MIN_LOAD_INTERVAL_MS) return;
-    lastLoadAtRef.current = now;
-    void load();
-  }, [load]);
+  const scheduleLoad = useCallback(() => {
+    if (refreshTimerRef.current !== null) {
+      window.clearTimeout(refreshTimerRef.current);
+    }
+    refreshTimerRef.current = window.setTimeout(() => {
+      refreshTimerRef.current = null;
+      void loadRef.current();
+    }, 200);
+  }, []);
 
   useEffect(() => {
     void load();
   }, [load, pathname]);
 
-  useEffect(() => {
-    if (!uid || uid === "undefined") return;
-    const iv = setInterval(() => {
-      void load();
-    }, 5000);
-    return () => clearInterval(iv);
-  }, [uid, load]);
+  useEffect(
+    () => () => {
+      if (refreshTimerRef.current !== null) {
+        window.clearTimeout(refreshTimerRef.current);
+      }
+    },
+    [],
+  );
 
   useRealtime(uid, (event) => {
     if (event.type === "notification:new") {
-      throttledLoad();
+      scheduleLoad();
     }
     if (event.type === "notification:read") {
-      throttledLoad();
+      scheduleLoad();
     }
     if (
       event.type === "direct-message:new" ||
       event.type === "direct-message:read" ||
       event.type === "direct-message:deleted"
     ) {
-      throttledLoad();
+      scheduleLoad();
     }
   });
 

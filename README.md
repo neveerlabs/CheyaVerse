@@ -87,6 +87,8 @@ VAPID_SUBJECT=mailto:admin@example.com
 
 Setiap permintaan login berlaku selama lima menit, hanya dapat digunakan sekali, dan bot mengambil ID Telegram dari update resmi Telegram—bukan dari browser. Setelah disetujui, session web ditandatangani dengan `TELEGRAM_BOT_TOKEN`; jangan membagikan token dan segera rotasi token jika pernah terekspos. Device ID dibuat setelah identitas Telegram berhasil diverifikasi. Tabel `telegram_login_challenges` dibuat otomatis; tidak perlu menghapus atau membuat ulang tabel database.
 
+Halaman login memulihkan sesi hanya jika cookie sesi, Device ID di browser, dan data perangkat di database masih cocok. Sesi yang tidak valid harus melewati login Telegram kembali. Dari menu profil, **Link a device** membuat QR atau link undangan sekali pakai yang kedaluwarsa dalam 60 detik; perangkat baru akan masuk otomatis setelah membuka undangan. Token undangan hanya disimpan sebagai hash di tabel `device_link_tokens`, yang dibuat otomatis. **Log out** menghapus sesi pada browser saat ini.
+
 Untuk push saat bot menghapus media yang kedaluwarsa, isi `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, dan `VAPID_SUBJECT` di `.env` bot dengan pasangan yang sama seperti `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, dan `VAPID_SUBJECT` di `.env` web.
 
 ### 4. Buat tabel di Turso
@@ -241,7 +243,16 @@ Chat langsung menyinkronkan pesan dan tanda dibaca saat room terbuka. Status onl
 
 Pesan suara direkam di browser, dapat diputar ulang sebelum dikirim, lalu disimpan ke chat penyimpanan Telegram yang dikonfigurasi oleh `TELEGRAM_STORAGE_CHAT_ID`. Room membatasi rekaman hingga dua menit dan unggahan hingga 3 MiB. Kolom media dan balasan pada `direct_messages` dimigrasikan otomatis; tidak perlu menjalankan `DROP TABLE` atau mengubah secret environment baru.
 
-### 5. Running server
+### 5. Periksa kualitas dan build
+
+```bash
+npm run lint
+npm run build
+```
+
+ESLint memeriksa pola Next.js, React, dan aksesibilitas tanpa mengubah kode aplikasi.
+
+### 6. Running server
 
 ```bash
 npm run dev

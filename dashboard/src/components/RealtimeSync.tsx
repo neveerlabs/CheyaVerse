@@ -20,6 +20,7 @@ export function RealtimeSync({ uid }: { uid: string }) {
     if (!inChatRoom) {
       if (
         event.type === "media:changed" ||
+        event.type === "message:new" ||
         event.type === "notification:new" ||
         event.type === "notification:read" ||
         event.type === "direct-message:new" ||
