@@ -109,19 +109,19 @@ export function ChatMessageBubble({
 
   return (
     <div
-      className={`flex w-full min-w-0 items-end gap-2 ${
+      className={`flex w-full min-w-0 items-start gap-2 select-none [-webkit-user-select:none] [-webkit-touch-callout:none] ${
         selectMode ? "justify-start" : outgoing ? "justify-end" : "justify-start"
       }`}
     >
-      {selectMode && <span className="mb-0.5 flex-shrink-0">{selectIndicator}</span>}
+      {selectMode && <span className="flex-shrink-0">{selectIndicator}</span>}
       {!selectMode && !outgoing && (
-        <span className="mb-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-[#f0f0f0]">
+        <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-[#f0f0f0]">
           <TelegramAvatar src={avatarUrl} />
         </span>
       )}
       {selectMode && outgoing && <span aria-hidden className="flex-1" />}
       <div
-        className={`min-w-0 ${outgoing ? "max-w-[78%]" : "max-w-[calc(100%-40px)]"}`}
+        className={`min-w-0 ${outgoing ? "max-w-[82%]" : "max-w-[calc(100%-40px)]"}`}
       >
         <div
           role="group"

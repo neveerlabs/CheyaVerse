@@ -22,6 +22,8 @@ import {
   UserRound,
   Share2,
   ListChecks,
+  Bell,
+  BellOff,
 } from "lucide-react";
 import { useRealtime } from "@/lib/use-realtime";
 import { ChatComposer } from "@/components/ChatComposer";
@@ -88,7 +90,7 @@ type ChatItem = {
   _pending: boolean;
 };
 
-type ForwardUser = {
+type ForwardContact = {
   uid: number;
   username: string | null;
   first_name: string | null;
@@ -100,6 +102,9 @@ const MARK_READ_THROTTLE_MS = 400;
 const SWIPE_TRIGGER = 55;
 const SWIPE_MAX = 88;
 const SELECT_GRACE_MS = 500;
+const LONG_PRESS_MS = 400;
+const MOVE_THRESHOLD = 15;
+const MUTE_KEY_PREFIX = "cheya-system-muted:";
 
 type ViewportState = {
   top: number;
@@ -155,6 +160,12 @@ function computeUserDisplayName(user: TelegramUser | null): string {
   return "Anda";
 }
 
+function contactLabel(user: ForwardContact): string {
+  if (user.username) return user.username;
+  const fullName = [user.first_name, user.last_name].filter(Boolean).join(" ").trim();
+  return fullName || `Telegram ${user.uid}`;
+}
+
 function StatusIcon({
   pending,
   deliveredAt,
@@ -168,12 +179,12 @@ function StatusIcon({
     return <Clock size={11} strokeWidth={2.2} className="text-white/70" />;
   }
   if (readAt) {
-    return <CheckCheck size={13} strokeWidth={2.2} className="text-[#60a5fa]" />;
+    return <CheckCheck size={13} strokeWidth={2.2} className="text-sky-400" />;
   }
   if (deliveredAt) {
-    return <CheckCheck size={13} strokeWidth={2.2} className="text-white/70" />;
+    return <CheckCheck size={13} strokeWidth={2.2} className="text-white/75" />;
   }
-  return <Check size={13} strokeWidth={2.2} className="text-white/70" />;
+  return <Check size={13} strokeWidth={2.2} className="text-white/75" />;
 }
 
 const clampStyle: React.CSSProperties = {
@@ -243,15 +254,20 @@ export function ChatRoomClient({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [forwardOpen, setForwardOpen] = useState(false);
   const [forwardQuery, setForwardQuery] = useState("");
-  const [forwardUsers, setForwardUsers] = useState<ForwardUser[]>([]);
+  const [forwardUsers, setForwardUsers] = useState<ForwardContact[]>([]);
   const [forwardLoading, setForwardLoading] = useState(false);
   const [forwardTargets, setForwardTargets] = useState<string[]>([]);
+  const [contacts, setContacts] = useState<ForwardContact[]>([]);
+  const [contactsLoading, setContactsLoading] = useState(false);
+  const [contactsLoaded, setContactsLoaded] = useState(false);
   const [toast, setToast] = useState("");
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [swipe, setSwipe] = useState<{ id: string; offset: number } | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [muted, setMuted] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const [viewport, setViewport] = useState<ViewportState>({
     top: 0,
     height: 0,
@@ -259,6 +275,8 @@ export function ChatRoomClient({
     keyboardInset: 0,
   });
   const [vvOffset, setVvOffset] = useState(0);
+
+  const mutedRef = useRef(false);
 
   function showToast(message: string) {
     setToast(message);
@@ -273,6 +291,16 @@ export function ChatRoomClient({
   useEffect(() => {
     selectModeRef.current = selectMode;
   }, [selectMode]);
+
+  useEffect(() => {
+    try {
+      const value = window.localStorage.getItem(`${MUTE_KEY_PREFIX}${uid}`) === "1";
+      setMuted(value);
+      mutedRef.current = value;
+    } catch (error) {
+      console.error("[chat-room] notification preference unavailable:", error);
+    }
+  }, [uid]);
 
   const chatItems: ChatItem[] = useMemo(() => {
     const merged: ChatItem[] = [];
@@ -342,6 +370,13 @@ export function ChatRoomClient({
     }, SELECT_GRACE_MS);
   }
 
+  function enterSelectModeEmpty() {
+    justEnteredSelectRef.current = false;
+    setSelectMode(true);
+    setSelectedIds(new Set());
+    setMenuOpen(false);
+  }
+
   function exitSelectMode() {
     justEnteredSelectRef.current = false;
     setSelectMode(false);
@@ -358,12 +393,37 @@ export function ChatRoomClient({
     });
   }
 
+  function toggleMuted() {
+    const next = !muted;
+    try {
+      window.localStorage.setItem(
+        `${MUTE_KEY_PREFIX}${uid}`,
+        next ? "1" : "0",
+      );
+      setMuted(next);
+      mutedRef.current = next;
+      setMenuOpen(false);
+      showToast(
+        next
+          ? "Browser notifications muted for this chat."
+          : "Browser notifications enabled for this chat.",
+      );
+    } catch (error) {
+      console.error("[chat-room] could not save notification preference:", error);
+      showToast("Could not save notification preference.");
+    }
+  }
+
+  function clearLongPressTimer() {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }
+
   function startChatItemPress(event: React.PointerEvent, item: ChatItem) {
     if (item._pending) return;
     if (selectModeRef.current) return;
-    try {
-      (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
-    } catch {}
     pressOriginRef.current = { x: event.clientX, y: event.clientY };
     pressWasLongPressRef.current = false;
     swipeRef.current = {
@@ -374,20 +434,18 @@ export function ChatRoomClient({
       active: false,
       offset: 0,
     };
-    if (event.pointerType !== "touch") return;
-    if (longPressTimerRef.current !== null) {
-      window.clearTimeout(longPressTimerRef.current);
-    }
+    if (event.pointerType === "mouse") return;
+    clearLongPressTimer();
     longPressTimerRef.current = window.setTimeout(() => {
       longPressTriggeredAtRef.current = Date.now();
       pressWasLongPressRef.current = true;
       if (!selectModeRef.current) {
         enterSelectMode(item.id);
-      } else {
+      } else if (!justEnteredSelectRef.current) {
         toggleSelect(item.id);
       }
       longPressTimerRef.current = null;
-    }, 450);
+    }, LONG_PRESS_MS);
   }
 
   function moveChatItemPress(event: React.PointerEvent) {
@@ -396,24 +454,15 @@ export function ChatRoomClient({
     const dx = event.clientX - s.startX;
     const dy = event.clientY - s.startY;
     if (!s.active) {
-      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
-      if (Math.abs(dx) < Math.abs(dy)) {
-        stopChatItemPress(event);
-        return;
-      }
-      if (s.mine && dx > 0) {
-        stopChatItemPress(event);
-        return;
-      }
-      if (!s.mine && dx < 0) {
-        stopChatItemPress(event);
-        return;
-      }
+      if (Math.abs(dx) < MOVE_THRESHOLD && Math.abs(dy) < MOVE_THRESHOLD) return;
       s.active = true;
-      if (longPressTimerRef.current !== null) {
-        window.clearTimeout(longPressTimerRef.current);
-        longPressTimerRef.current = null;
-      }
+      clearLongPressTimer();
+    }
+    const isVertical = Math.abs(dx) < Math.abs(dy);
+    const wrongDirection = (s.mine && dx > 0) || (!s.mine && dx < 0);
+    if (isVertical || wrongDirection || selectModeRef.current) {
+      s.offset = 0;
+      return;
     }
     let offset = s.mine ? Math.min(0, dx) : Math.max(0, dx);
     const absOffset = Math.abs(offset);
@@ -426,25 +475,37 @@ export function ChatRoomClient({
     setSwipe({ id: s.id, offset });
   }
 
-  function stopChatItemPress(event?: React.PointerEvent) {
-    if (longPressTimerRef.current !== null) {
-      window.clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
-    }
-    if (event) {
-      try {
-        (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
-      } catch {}
-    }
+  function stopChatItemPress() {
+    clearLongPressTimer();
     const s = swipeRef.current;
     if (!s) return;
     swipeRef.current = null;
-    const wasSwipe = s.active && Math.abs(s.offset) >= SWIPE_TRIGGER;
+    const wasLongPress = pressWasLongPressRef.current;
+    pressWasLongPressRef.current = false;
+    const wasGesture = s.active;
+    const wasSwipe =
+      wasGesture && Math.abs(s.offset) >= SWIPE_TRIGGER && !selectModeRef.current;
     setSwipe(null);
     if (wasSwipe) {
       const target = chatItemsRef.current.find((it) => it.id === s.id);
       if (target) beginReply(target);
+      return;
     }
+    if (
+      !wasGesture &&
+      !wasLongPress &&
+      selectModeRef.current &&
+      !justEnteredSelectRef.current
+    ) {
+      toggleSelect(s.id);
+    }
+  }
+
+  function cancelChatItemPress() {
+    clearLongPressTimer();
+    swipeRef.current = null;
+    pressWasLongPressRef.current = false;
+    setSwipe(null);
   }
 
   const scrollToBottom = () => {
@@ -827,7 +888,36 @@ export function ChatRoomClient({
     : chatItems;
 
   useEffect(() => {
-    if (!forwardOpen || !forwardQuery.trim()) {
+    if (!forwardOpen) return;
+    if (contactsLoaded || contactsLoading) return;
+    let cancelled = false;
+    setContactsLoading(true);
+    fetch("/api/chats/contacts", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((json) => {
+        if (cancelled) return;
+        if (json?.ok === true && Array.isArray(json.contacts)) {
+          setContacts(json.contacts);
+        }
+      })
+      .catch((error) => {
+        console.error("[chat-room] failed to load contacts:", error);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setContactsLoading(false);
+          setContactsLoaded(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [forwardOpen, contactsLoaded, contactsLoading]);
+
+  useEffect(() => {
+    if (!forwardOpen) return;
+    const term = forwardQuery.trim();
+    if (!term) {
       setForwardUsers([]);
       setForwardLoading(false);
       return;
@@ -837,7 +927,7 @@ export function ChatRoomClient({
       setForwardLoading(true);
       try {
         const response = await fetch(
-          `/api/users/search?q=${encodeURIComponent(forwardQuery.trim())}`,
+          `/api/users/search?q=${encodeURIComponent(term)}`,
           { signal: controller.signal },
         );
         if (!response.ok) {
@@ -849,7 +939,6 @@ export function ChatRoomClient({
         if (controller.signal.aborted) return;
         console.error("[chat-room] forward search failed:", error);
         setForwardUsers([]);
-        showToast("Kontak tidak dapat dicari saat ini.");
       } finally {
         if (!controller.signal.aborted) setForwardLoading(false);
       }
@@ -1054,17 +1143,147 @@ export function ChatRoomClient({
     );
     const useEveryone = allOwnMessages && !hasNotifications;
     if (useEveryone) {
-      if (!window.confirm("Hapus pesan terpilih untuk semua orang?")) return;
+      if (!window.confirm("Delete selected messages for everyone?")) return;
     }
+    const snapshot = selectedItemsList.slice();
+    const scope: "me" | "everyone" = useEveryone ? "everyone" : "me";
+
+    const notifIds = snapshot
+      .filter((it) => it.source === "notification" && it.notificationId)
+      .map((it) => it.notificationId!);
+    const msgIds = snapshot
+      .filter((it) => it.source === "message" && it.messageId)
+      .map((it) => it.messageId!);
+
+    if (scope === "me") {
+      setMessages((current) =>
+        current.filter((m) => !msgIds.includes(m.id)),
+      );
+    } else {
+      const now = new Date().toISOString();
+      setMessages((current) =>
+        current.map((m) =>
+          msgIds.includes(m.id) ? { ...m, content: "", deleted_at: now } : m,
+        ),
+      );
+    }
+    if (notifIds.length > 0) {
+      setHiddenNotificationIds((current) => {
+        const next = new Set(current);
+        for (const id of notifIds) next.add(id);
+        return next;
+      });
+    }
+    exitSelectMode();
+
     try {
-      for (const it of selectedItemsList) {
-        await deleteOneItem(it, useEveryone ? "everyone" : "me");
-      }
+      await Promise.all([
+        ...notifIds.map((id) =>
+          fetch(
+            `/api/notifications/${encodeURIComponent(uid)}?id=${encodeURIComponent(id)}`,
+            { method: "DELETE" },
+          ).then((res) => {
+            if (!res.ok) throw new Error("Pesan gagal dihapus.");
+          }),
+        ),
+        ...msgIds.map((id) =>
+          fetch(
+            `/api/messages/${encodeURIComponent(uid)}?messageId=${encodeURIComponent(id)}&scope=${scope}`,
+            { method: "DELETE" },
+          ).then((res) => {
+            if (!res.ok) throw new Error("Pesan gagal dihapus.");
+          }),
+        ),
+      ]);
       showToast("Pesan dihapus.");
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Pesan gagal dihapus.");
     }
-    exitSelectMode();
+  }
+
+  async function clearMessagesForMe() {
+    if (clearing) return;
+    const list = chatItemsRef.current.slice();
+    if (list.length === 0) {
+      setMenuOpen(false);
+      return;
+    }
+    if (!window.confirm("Clear all messages for you? This cannot be undone.")) return;
+    setClearing(true);
+    setMenuOpen(false);
+    setMessages([]);
+    setHiddenNotificationIds(new Set(notifications.map((n) => n.id)));
+    try {
+      await Promise.all(
+        list.map((item) => {
+          if (item.source === "notification" && item.notificationId) {
+            return fetch(
+              `/api/notifications/${encodeURIComponent(uid)}?id=${encodeURIComponent(item.notificationId)}`,
+              { method: "DELETE" },
+            ).catch(() => {});
+          }
+          if (item.messageId) {
+            return fetch(
+              `/api/messages/${encodeURIComponent(uid)}?messageId=${encodeURIComponent(item.messageId)}&scope=me`,
+              { method: "DELETE" },
+            ).catch(() => {});
+          }
+          return Promise.resolve();
+        }),
+      );
+      showToast("Chat cleared for you.");
+    } catch (error) {
+      console.error("[chat-room] clear for me failed:", error);
+      showToast("Failed to clear chat.");
+    } finally {
+      setClearing(false);
+    }
+  }
+
+  async function clearMessagesForAll() {
+    if (clearing) return;
+    const list = chatItemsRef.current.slice();
+    if (list.length === 0) {
+      setMenuOpen(false);
+      return;
+    }
+    if (
+      !window.confirm(
+        "Clear all messages for everyone? This will remove them for both sides.",
+      )
+    )
+      return;
+    setClearing(true);
+    setMenuOpen(false);
+    setMessages([]);
+    setHiddenNotificationIds(new Set(notifications.map((n) => n.id)));
+    try {
+      await Promise.all(
+        list.map((item) => {
+          if (item.source === "notification" && item.notificationId) {
+            return fetch(
+              `/api/notifications/${encodeURIComponent(uid)}?id=${encodeURIComponent(item.notificationId)}`,
+              { method: "DELETE" },
+            ).catch(() => {});
+          }
+          if (item.messageId) {
+            const scope =
+              item.sender === "user" && !item.deleted_at ? "everyone" : "me";
+            return fetch(
+              `/api/messages/${encodeURIComponent(uid)}?messageId=${encodeURIComponent(item.messageId)}&scope=${scope}`,
+              { method: "DELETE" },
+            ).catch(() => {});
+          }
+          return Promise.resolve();
+        }),
+      );
+      showToast("Chat cleared for everyone.");
+    } catch (error) {
+      console.error("[chat-room] clear for everyone failed:", error);
+      showToast("Failed to clear chat.");
+    } finally {
+      setClearing(false);
+    }
   }
 
   function replySelected() {
@@ -1085,32 +1304,35 @@ export function ChatRoomClient({
       .map((it) => it.replyTargetId!);
     if (ids.length === 0) return;
     setForwardTargets(ids);
+    setForwardQuery("");
+    setForwardUsers([]);
     setForwardOpen(true);
   }
 
   async function forwardMessages(targetUid: number) {
     if (forwardTargets.length === 0) return;
+    const ids = forwardTargets.slice();
+    setForwardOpen(false);
+    setForwardTargets([]);
+    setForwardQuery("");
+    exitSelectMode();
+    if (targetUid === Number(uid)) {
+      showToast("Pesan diteruskan.");
+      return;
+    }
+    router.push(`/${uid}/chat/${targetUid}`);
     try {
-      for (const id of forwardTargets) {
-        const response = await fetch(
-          `/api/messages/${encodeURIComponent(uid)}/actions`,
-          {
+      await Promise.all(
+        ids.map((id) =>
+          fetch(`/api/messages/${encodeURIComponent(uid)}/actions`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              action: "forward",
-              messageId: id,
-              targetUid,
-            }),
-          },
-        );
-        if (!response.ok) throw new Error("Pesan gagal diteruskan.");
-      }
-      setForwardOpen(false);
-      setForwardTargets([]);
-      setForwardQuery("");
-      showToast("Pesan diteruskan.");
-      exitSelectMode();
+            body: JSON.stringify({ action: "forward", messageId: id, targetUid }),
+          }).then((res) => {
+            if (!res.ok) throw new Error("Pesan gagal diteruskan.");
+          }),
+        ),
+      );
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Pesan gagal diteruskan.");
     }
@@ -1126,6 +1348,28 @@ export function ChatRoomClient({
     selectedItemsList[0].source === "message" &&
     selectedItemsList[0].sender === "user" &&
     !selectedItemsList[0].deleted_at;
+
+  const filteredContacts = useMemo(() => {
+    const term = forwardQuery.trim().toLowerCase();
+    if (!term) return contacts;
+    return contacts.filter((c) => {
+      const fullName = [c.first_name, c.last_name]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      const username = (c.username ?? "").toLowerCase();
+      return fullName.includes(term) || username.includes(term);
+    });
+  }, [contacts, forwardQuery]);
+
+  const mergedForwardUsers = useMemo(() => {
+    const map = new Map<number, ForwardContact>();
+    for (const c of filteredContacts) map.set(c.uid, c);
+    for (const u of forwardUsers) {
+      if (!map.has(u.uid)) map.set(u.uid, u as ForwardContact);
+    }
+    return Array.from(map.values());
+  }, [filteredContacts, forwardUsers]);
 
   const header = (
     <header
@@ -1213,7 +1457,7 @@ export function ChatRoomClient({
               </div>
               <button
                 type="button"
-                aria-label="Opsi percakapan"
+                aria-label="Chat options"
                 aria-expanded={menuOpen}
                 onClick={() => setMenuOpen((value) => !value)}
                 className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full border border-[#dfe3e8] bg-white text-ink-soft transition-transform active:scale-90"
@@ -1222,34 +1466,44 @@ export function ChatRoomClient({
               </button>
             </div>
             {menuOpen && (
-              <div className="absolute right-5 top-[calc(100%-4px)] z-50 w-56 overflow-hidden rounded-2xl border border-line bg-white py-1 shadow-xl animate-fade-up">
+              <div className="absolute right-5 top-[calc(100%-4px)] z-50 w-64 overflow-hidden rounded-2xl border border-line bg-white py-1 shadow-xl animate-fade-up">
                 <button
                   type="button"
                   onClick={() => setMenuOpen(false)}
                   className="flex w-full items-center gap-2 px-4 py-3 text-left text-[13px] text-ink"
                 >
-                  <Share2 size={15} /> Bagikan kontak
+                  <Share2 size={15} /> Share contact
                 </button>
                 <button
                   type="button"
-                  onClick={() => setMenuOpen(false)}
+                  onClick={enterSelectModeEmpty}
                   className="flex w-full items-center gap-2 px-4 py-3 text-left text-[13px] text-ink"
                 >
-                  <ListChecks size={15} /> Pilih pesan
+                  <ListChecks size={15} /> Select chat
                 </button>
                 <button
                   type="button"
-                  onClick={() => setMenuOpen(false)}
+                  onClick={() => void clearMessagesForMe()}
                   className="flex w-full items-center gap-2 px-4 py-3 text-left text-[13px] text-ink"
                 >
-                  <Trash2 size={15} /> Bersihkan untuk saya
+                  <Trash2 size={15} /> Clear for me
                 </button>
                 <button
                   type="button"
-                  onClick={() => setMenuOpen(false)}
+                  onClick={() => void clearMessagesForAll()}
                   className="flex w-full items-center gap-2 px-4 py-3 text-left text-[13px] text-danger"
                 >
-                  <Trash2 size={15} /> Bersihkan untuk semua
+                  <Trash2 size={15} /> Clear for all
+                </button>
+                <button
+                  type="button"
+                  onClick={toggleMuted}
+                  className="flex w-full items-center gap-2 border-t border-line px-4 py-3 text-left text-[13px] text-ink"
+                >
+                  {muted ? <Bell size={15} /> : <BellOff size={15} />}
+                  {muted
+                    ? "Unmute browser notifications"
+                    : "Mute browser notifications"}
                 </button>
               </div>
             )}
@@ -1572,8 +1826,8 @@ export function ChatRoomClient({
                           if (!item._pending) startChatItemPress(event, item);
                         }}
                         onPointerMove={moveChatItemPress}
-                        onPointerUp={(event) => stopChatItemPress(event)}
-                        onPointerCancel={(event) => stopChatItemPress(event)}
+                        onPointerUp={() => stopChatItemPress()}
+                        onPointerCancel={cancelChatItemPress}
                         onContextMenu={(event) => {
                           event.preventDefault();
                           if (item._pending) return;
@@ -1609,86 +1863,81 @@ export function ChatRoomClient({
           onClick={() => {
             setForwardOpen(false);
             setForwardTargets([]);
+            setForwardQuery("");
+            setForwardUsers([]);
           }}
-          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/30 px-5"
+          className="fixed inset-0 z-[80] flex items-end justify-center bg-black/30 px-0 pb-0 md:items-center md:px-5 md:pb-0"
         >
           <section
             role="dialog"
             aria-modal="true"
-            aria-label="Teruskan pesan"
+            aria-label="Forward to"
             onClick={(event) => event.stopPropagation()}
-            className="w-full max-w-[420px] overflow-hidden rounded-2xl bg-white shadow-2xl"
+            className="flex w-full max-w-[600px] flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl md:max-w-[520px] md:rounded-2xl"
           >
             <div className="flex items-center justify-between border-b border-line px-4 py-3">
-              <h2 className="text-[14px] font-semibold text-ink">Teruskan pesan</h2>
+              <h2 className="text-[14px] font-semibold text-ink">Forward to</h2>
               <button
                 type="button"
-                aria-label="Tutup"
+                aria-label="Close"
                 onClick={() => {
                   setForwardOpen(false);
                   setForwardTargets([]);
+                  setForwardQuery("");
+                  setForwardUsers([]);
                 }}
               >
                 <X size={18} className="text-ink-mute" />
               </button>
             </div>
-            <div className="p-4">
-              <input
-                autoFocus
-                value={forwardQuery}
-                onChange={(event) => setForwardQuery(event.target.value)}
-                placeholder="Cari nama atau username"
-                className="w-full rounded-xl border border-line px-3 py-2.5 text-[13px] outline-none"
-              />
-              <div className="mt-2 max-h-64 overflow-y-auto">
-                {forwardLoading && (
-                  <p className="px-2 py-3 text-[12px] text-ink-mute">Mencari…</p>
+            <div className="px-4 pt-3">
+              <div className="flex items-center gap-2 rounded-xl border border-line px-3 py-2">
+                <Search size={15} className="text-ink-mute" />
+                <input
+                  autoFocus
+                  value={forwardQuery}
+                  onChange={(event) => setForwardQuery(event.target.value)}
+                  placeholder="Search contacts"
+                  className="min-w-0 flex-1 bg-transparent text-[13px] outline-none"
+                />
+              </div>
+            </div>
+            <div className="px-2 pt-3">
+              <div className="flex gap-3 overflow-x-auto px-2 pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {mergedForwardUsers.map((contact) => (
+                  <button
+                    key={contact.uid}
+                    type="button"
+                    onClick={() => void forwardMessages(contact.uid)}
+                    className="flex w-[72px] flex-shrink-0 flex-col items-center gap-1.5"
+                  >
+                    <span className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-full border border-line bg-[#f5f5f5]">
+                      <TelegramAvatar
+                        src={contact.photo_url || `/api/avatar/${contact.uid}`}
+                      />
+                    </span>
+                    <span className="w-full truncate text-center text-[11px] leading-tight text-ink">
+                      {contactLabel(contact)}
+                    </span>
+                  </button>
+                ))}
+                {contactsLoading && mergedForwardUsers.length === 0 && (
+                  <p className="px-2 py-3 text-[12px] text-ink-mute">
+                    Loading contacts…
+                  </p>
                 )}
-                {!forwardLoading &&
-                  forwardUsers.map((target) => {
-                    const fullName = [target.first_name, target.last_name]
-                      .filter(Boolean)
-                      .join(" ")
-                      .trim();
-                    const name =
-                      fullName || target.username || `Telegram ${target.uid}`;
-                    return (
-                      <button
-                        key={target.uid}
-                        type="button"
-                        onClick={() => void forwardMessages(target.uid)}
-                        className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left"
-                      >
-                        <span className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-[#f5f5f5]">
-                          {target.photo_url ? (
-                            <img
-                              src={target.photo_url}
-                              alt=""
-                              className="h-full w-full object-cover"
-                            />
-                          ) : (
-                            <UserRound size={17} className="text-ink-mute" />
-                          )}
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[13px] font-medium text-ink">
-                            {name}
-                          </span>
-                          {target.username && (
-                            <span className="block truncate text-[11px] text-ink-mute">
-                              @{target.username}
-                            </span>
-                          )}
-                        </span>
-                        <Forward size={16} className="text-ink-mute" />
-                      </button>
-                    );
-                  })}
-                {forwardQuery.trim() &&
-                  !forwardLoading &&
-                  forwardUsers.length === 0 && (
+                {!contactsLoading &&
+                  forwardLoading &&
+                  mergedForwardUsers.length === 0 && (
                     <p className="px-2 py-3 text-[12px] text-ink-mute">
-                      Kontak tidak ditemukan.
+                      Searching…
+                    </p>
+                  )}
+                {!contactsLoading &&
+                  !forwardLoading &&
+                  mergedForwardUsers.length === 0 && (
+                    <p className="px-2 py-3 text-[12px] text-ink-mute">
+                      No contacts found.
                     </p>
                   )}
               </div>
