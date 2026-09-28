@@ -4,12 +4,14 @@ import { useEffect, useRef, useState } from "react";
 import { Image as ImageIcon } from "lucide-react";
 
 const CACHE_LIMIT = 3000;
-const THUMB_MAX_WIDTH = 480;
-const THUMB_QUALITY = 0.72;
+const THUMB_MAX_WIDTH = 320;
+const THUMB_QUALITY = 0.68;
 const MIN_BRIGHTNESS = 24;
 const MIN_PEAK = 64;
-const SAMPLE_SIZE = 24;
-const GENERATE_TIMEOUT_MS = 6000;
+const SAMPLE_SIZE = 16;
+const META_TIMEOUT_MS = 3500;
+const FRAME_TIMEOUT_MS = 2500;
+const FINAL_FRAME_TIMEOUT_MS = 1500;
 const MAX_CONCURRENT = 3;
 const DB_NAME = "cheya-vthumbs-v2";
 const STORE = "v1";
@@ -17,6 +19,7 @@ const STORE = "v1";
 type Format = "image/webp" | "image/jpeg";
 
 let detectedFormat: Format | null = null;
+let offscreenSupported: boolean | null = null;
 
 function getFormat(): Format {
   if (detectedFormat) return detectedFormat;
@@ -36,6 +39,35 @@ function getFormat(): Format {
     detectedFormat = "image/jpeg";
   }
   return detectedFormat;
+}
+
+function supportsOffscreen(): boolean {
+  if (offscreenSupported !== null) return offscreenSupported;
+  try {
+    offscreenSupported =
+      typeof OffscreenCanvas !== "undefined" &&
+      typeof createImageBitmap === "function" &&
+      typeof FileReader !== "undefined";
+  } catch {
+    offscreenSupported = false;
+  }
+  return offscreenSupported;
+}
+
+function blobToDataURL(blob: Blob): Promise<string | null> {
+  return new Promise((resolve) => {
+    try {
+      const reader = new FileReader();
+      reader.onload = () => {
+        resolve(typeof reader.result === "string" ? reader.result : null);
+      };
+      reader.onerror = () => resolve(null);
+      reader.onabort = () => resolve(null);
+      reader.readAsDataURL(blob);
+    } catch {
+      resolve(null);
+    }
+  });
 }
 
 const memory = new Map<string, string>();
@@ -173,21 +205,74 @@ function isFrameUsable(video: HTMLVideoElement): boolean {
   return avg >= MIN_BRIGHTNESS || peak >= MIN_PEAK;
 }
 
-function drawThumbnail(video: HTMLVideoElement): string | null {
+async function drawThumbnail(video: HTMLVideoElement): Promise<string | null> {
   const w = video.videoWidth;
   const h = video.videoHeight;
   if (!w || !h) return null;
   const ratio = Math.min(1, THUMB_MAX_WIDTH / w);
   const cw = Math.max(1, Math.round(w * ratio));
   const ch = Math.max(1, Math.round(h * ratio));
+  const format = getFormat();
+
+  if (supportsOffscreen()) {
+    let bitmap: ImageBitmap | null = null;
+    try {
+      bitmap = await createImageBitmap(video, {
+        resizeWidth: cw,
+        resizeHeight: ch,
+        resizeQuality: "low",
+      });
+    } catch {
+      bitmap = null;
+    }
+    if (bitmap) {
+      try {
+        const off = new OffscreenCanvas(cw, ch);
+        const octx = off.getContext("2d");
+        if (octx) {
+          octx.drawImage(bitmap, 0, 0, cw, ch);
+          let blob: Blob | null = null;
+          try {
+            blob = await off.convertToBlob({
+              type: format,
+              quality: THUMB_QUALITY,
+            });
+          } catch {
+            try {
+              blob = await off.convertToBlob({
+                type: "image/jpeg",
+                quality: THUMB_QUALITY,
+              });
+            } catch {
+              blob = null;
+            }
+          }
+          if (blob) {
+            const dataUrl = await blobToDataURL(blob);
+            if (dataUrl) return dataUrl;
+          }
+        }
+      } catch {
+      } finally {
+        try {
+          bitmap.close();
+        } catch {}
+      }
+    }
+  }
+
   const canvas = document.createElement("canvas");
   canvas.width = cw;
   canvas.height = ch;
   const ctx = canvas.getContext("2d");
   if (!ctx) return null;
-  ctx.drawImage(video, 0, 0, cw, ch);
   try {
-    return canvas.toDataURL(getFormat(), THUMB_QUALITY);
+    ctx.drawImage(video, 0, 0, cw, ch);
+  } catch {
+    return null;
+  }
+  try {
+    return canvas.toDataURL(format, THUMB_QUALITY);
   } catch {
     try {
       return canvas.toDataURL("image/jpeg", THUMB_QUALITY);
@@ -207,12 +292,12 @@ function computeCandidates(duration: number): number[] {
   };
   if (Number.isFinite(duration) && duration > 1.5) {
     add(Math.min(2, Math.max(0.5, duration * 0.05)));
-    add(duration * 0.25);
     add(duration * 0.5);
-    add(Math.min(duration - 0.5, 3));
+    add(duration * 0.25);
   }
   add(0.5);
   add(0.1);
+  add(0);
   return out;
 }
 
@@ -280,7 +365,7 @@ async function generateInner(src: string): Promise<string | null> {
   video.crossOrigin = "anonymous";
   video.muted = true;
   video.playsInline = true;
-  video.preload = "auto";
+  video.preload = "metadata";
   video.disablePictureInPicture = true;
   video.setAttribute("playsinline", "");
   video.setAttribute("webkit-playsinline", "");
@@ -305,7 +390,7 @@ async function generateInner(src: string): Promise<string | null> {
       };
       const onMeta = () => finish(true);
       const onError = () => finish(false);
-      const timer = window.setTimeout(() => finish(false), GENERATE_TIMEOUT_MS);
+      const timer = window.setTimeout(() => finish(false), META_TIMEOUT_MS);
       video.addEventListener("loadedmetadata", onMeta);
       video.addEventListener("error", onError);
       video.src = src;
@@ -327,10 +412,10 @@ async function generateInner(src: string): Promise<string | null> {
       } catch {
         continue;
       }
-      const ok = await waitForFrame(video, GENERATE_TIMEOUT_MS);
+      const ok = await waitForFrame(video, FRAME_TIMEOUT_MS);
       if (!ok) continue;
       if (!isFrameUsable(video)) continue;
-      const dataUrl = drawThumbnail(video);
+      const dataUrl = await drawThumbnail(video);
       if (dataUrl) {
         best = dataUrl;
         break;
@@ -341,9 +426,9 @@ async function generateInner(src: string): Promise<string | null> {
       try {
         video.currentTime = 0;
       } catch {}
-      const ok = await waitForFrame(video, 2000);
+      const ok = await waitForFrame(video, FINAL_FRAME_TIMEOUT_MS);
       if (ok) {
-        best = drawThumbnail(video);
+        best = await drawThumbnail(video);
       }
     }
 

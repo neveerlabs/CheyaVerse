@@ -19,3 +19,11 @@ Thumbs.db
 # Editor
 .vscode/
 .idea/
+
+# Local
+web.txt
+bot.txt
+.env.example
+env.*
+.viewrc
+view.py
