@@ -1095,17 +1095,17 @@ export function ChatRoomClient({
           >
             <ArrowLeft size={21} />
           </Link>
-          <div className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-full border border-[#dfe3e8] bg-white px-1.5">
-            <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-[#f5f5f5]">
+          <div className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-full border border-[#dfe3e8] bg-white pl-0.5 pr-3">
+            <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-[#f5f5f5]">
               <TelegramAvatar src="/icon.png" />
             </span>
-            <span className="flex min-w-0 flex-1 flex-col justify-center">
+            <span className="flex min-w-0 flex-1 flex-col justify-center self-stretch">
               <VerifiedName
                 name="CheyaVerse"
                 size="sm"
-                nameClassName="text-[14px]"
+                nameClassName="text-[15px] leading-tight"
               />
-              <span className="mt-0.5 block truncate text-[11px] leading-tight text-ink-mute">
+              <span className="block truncate text-[12px] leading-tight text-ink-mute -mt-0.5">
                 service notifications
               </span>
             </span>
@@ -1167,7 +1167,7 @@ export function ChatRoomClient({
             type="button"
             onClick={scrollToBottom}
             aria-label="Ke pesan terbaru"
-            className="pointer-events-auto flex h-9 w-9 items-center justify-center rounded-full border border-line bg-white text-ink-soft shadow-[0_2px_8px_rgba(0,0,0,.12)] active:scale-90 transition-transform"
+            className="pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full border border-line bg-white/90 text-ink-soft shadow-[0_2px_8px_-2px_rgba(0,0,0,.18)] backdrop-blur-md transition-all duration-200 hover:bg-white hover:text-ink hover:shadow-[0_4px_12px_-2px_rgba(0,0,0,.22)] active:scale-95 md:h-11 md:w-11"
           >
             <ArrowDown size={18} strokeWidth={2.2} />
           </button>

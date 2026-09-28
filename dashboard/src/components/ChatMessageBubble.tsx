@@ -89,14 +89,16 @@ export function ChatMessageBubble({
 
   return (
     <div
-      className={`flex w-full min-w-0 items-start gap-2 ${outgoing ? "justify-end" : "justify-start"}`}
+      className={`flex w-full min-w-0 items-end gap-2 ${outgoing ? "justify-end" : "justify-start"}`}
     >
       {!outgoing && (
-        <span className="mt-1 flex h-8 w-8 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-[#f0f0f0]">
+        <span className="mb-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-[#f0f0f0]">
           <TelegramAvatar src={avatarUrl} />
         </span>
       )}
-      <div className="min-w-0 max-w-[calc(100%-40px)]">
+      <div
+        className={`min-w-0 ${outgoing ? "max-w-[78%]" : "max-w-[calc(100%-40px)]"}`}
+      >
         <div
           role="group"
           aria-label={label}
@@ -105,10 +107,10 @@ export function ChatMessageBubble({
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerCancel}
           onContextMenu={onContextMenu}
-          className={`inline-block max-w-full touch-pan-y break-words rounded-2xl px-2.5 py-[5px] shadow-[0_1px_2px_rgba(0,0,0,.06)] transition-[transform,box-shadow] duration-300 ease-out active:scale-[.99] [overflow-wrap:anywhere] ${
+          className={`inline-block max-w-full touch-pan-y break-words rounded-2xl px-3.5 py-2 transition-[transform,box-shadow] duration-200 ease-out active:scale-[.985] [overflow-wrap:anywhere] ${
             outgoing
-              ? "rounded-tr-md bg-ink text-white"
-              : "rounded-tl-md bg-[#f2f2f2] text-ink"
+              ? "bg-ink text-white shadow-[0_1px_2px_rgba(0,0,0,.12)]"
+              : "bg-[#f1f3f5] text-ink shadow-[0_1px_1px_rgba(0,0,0,.04)]"
           } ${pending ? "opacity-70" : ""} ${
             highlight
               ? "ring-[3px] ring-amber-400 shadow-[0_0_18px_rgba(251,191,36,.55)] scale-[1.01]"
@@ -122,7 +124,7 @@ export function ChatMessageBubble({
           <span className="relative inline-block w-full align-top">
             {richText ? (
               <span
-                className={`inline whitespace-pre-wrap break-words text-[13.5px] leading-[1.4] ${
+                className={`inline whitespace-pre-wrap break-words text-[14px] leading-[1.45] ${
                   deleted
                     ? "italic opacity-65"
                     : outgoing
@@ -133,12 +135,12 @@ export function ChatMessageBubble({
               />
             ) : markdownHtml !== null ? (
               <span
-                className={`inline whitespace-pre-wrap break-words text-[13.5px] leading-[1.4] ${markdownClass}`}
+                className={`inline whitespace-pre-wrap break-words text-[14px] leading-[1.45] ${markdownClass}`}
                 dangerouslySetInnerHTML={{ __html: markdownHtml }}
               />
             ) : (
               <span
-                className={`inline whitespace-pre-wrap break-words text-[13.5px] leading-[1.4] ${deleted ? "italic opacity-65" : ""}`}
+                className={`inline whitespace-pre-wrap break-words text-[14px] leading-[1.45] ${deleted ? "italic opacity-65" : ""}`}
               >
                 {content}
               </span>
@@ -161,11 +163,6 @@ export function ChatMessageBubble({
           </span>
         </div>
       </div>
-      {outgoing && (
-        <span className="mt-1 flex h-8 w-8 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-[#f0f0f0]">
-          <TelegramAvatar src={avatarUrl} />
-        </span>
-      )}
     </div>
   );
 }

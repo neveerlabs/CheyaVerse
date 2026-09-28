@@ -29,15 +29,15 @@ export default function ChatRoomLoading() {
           <div className="flex items-center gap-2 -mx-3">
             <div className="w-10 h-10 rounded-full border border-line bg-white/45 backdrop-blur-xl shadow-[0_1px_2px_rgba(0,0,0,.03)]" />
 
-            <div className="flex-1 min-w-0 flex items-center gap-2.5 h-10 pl-1.5 pr-3 rounded-full border border-line bg-white/45 backdrop-blur-xl shadow-[0_1px_2px_rgba(0,0,0,.03)]">
-              <div className="w-8 h-8 rounded-full bg-[#f0f0f0]/55 backdrop-blur-md flex-shrink-0 overflow-hidden relative">
+            <div className="flex-1 min-w-0 flex items-center gap-2 h-10 pl-0.5 pr-3 rounded-full border border-line bg-white/45 backdrop-blur-xl shadow-[0_1px_2px_rgba(0,0,0,.03)]">
+              <div className="w-10 h-10 rounded-full bg-[#f0f0f0]/55 backdrop-blur-md flex-shrink-0 overflow-hidden relative">
                 <span className={`absolute inset-0 ${SHIMMER}`} />
               </div>
-              <div className="min-w-0 flex-1 flex flex-col justify-center gap-1.5">
-                <div className="h-3 w-24 rounded-full bg-[#e5e5e5]/65 backdrop-blur-md overflow-hidden relative">
+              <div className="min-w-0 flex-1 flex flex-col justify-center self-stretch">
+                <div className="h-3.5 w-28 rounded-full bg-[#e5e5e5]/65 backdrop-blur-md overflow-hidden relative">
                   <span className={`absolute inset-0 ${SHIMMER}`} />
                 </div>
-                <div className="h-2 w-20 rounded-full bg-[#ececec]/65 backdrop-blur-md overflow-hidden relative">
+                <div className="h-2 w-20 rounded-full bg-[#ececec]/65 backdrop-blur-md overflow-hidden relative -mt-0.5">
                   <span className={`absolute inset-0 ${SHIMMER}`} />
                 </div>
               </div>

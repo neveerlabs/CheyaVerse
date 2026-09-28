@@ -1003,15 +1003,15 @@ export function DirectChatRoomClient({
           </Link>
           <Link
             href={`/${uid}/profile/contact/${contact.uid}`}
-            className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-full border border-[#dfe3e8] bg-white px-1.5"
+            className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-full border border-[#dfe3e8] bg-white pl-0.5 pr-3"
             aria-label={`Lihat profil ${name}`}
           >
-            <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-[#f5f5f5]">
+            <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-[#f5f5f5]">
               <TelegramAvatar src={contact.photo_url || `/api/avatar/${contact.uid}`} />
             </span>
-            <span className="min-w-0">
-              <span className="block truncate text-[14px] font-semibold text-ink">{headerName}</span>
-              <span className={`block truncate text-[11px] ${presenceLabel === "online" ? "text-emerald-600" : "text-ink-mute"}`}>
+            <span className="min-w-0 flex flex-col justify-center self-stretch">
+              <span className="block truncate text-[15px] font-semibold leading-tight text-ink">{headerName}</span>
+              <span className={`block truncate text-[12px] leading-tight -mt-0.5 ${presenceLabel === "online" ? "text-emerald-600" : "text-ink-mute"}`}>
                 {presenceLabel}
               </span>
             </span>
@@ -1088,7 +1088,7 @@ export function DirectChatRoomClient({
             type="button"
             onClick={scrollToBottom}
             aria-label="Ke pesan terbaru"
-            className="pointer-events-auto flex h-9 w-9 items-center justify-center rounded-full border border-line bg-white text-ink-soft shadow-[0_2px_8px_rgba(0,0,0,.12)] active:scale-90 transition-transform"
+            className="pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full border border-line bg-white/90 text-ink-soft shadow-[0_2px_8px_-2px_rgba(0,0,0,.18)] backdrop-blur-md transition-all duration-200 hover:bg-white hover:text-ink hover:shadow-[0_4px_12px_-2px_rgba(0,0,0,.22)] active:scale-95 md:h-11 md:w-11"
           >
             <ArrowDown size={18} strokeWidth={2.2} />
           </button>
