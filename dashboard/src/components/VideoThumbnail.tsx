@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Image as ImageIcon } from "lucide-react";
 
+const CACHE_LIMIT = 1500;
 const memory = new Map<string, string>();
 const pending = new Map<string, Promise<string | null>>();
 
@@ -68,14 +69,14 @@ async function idbSet(key: string, value: string): Promise<void> {
 }
 
 function remember(src: string, value: string) {
-  if (memory.size >= 400) {
+  if (memory.size >= CACHE_LIMIT) {
     const first = memory.keys().next().value;
     if (first) memory.delete(first);
   }
   memory.set(src, value);
 }
 
-function generate(src: string): Promise<string | null> {
+function generate(src: string, priority: boolean): Promise<string | null> {
   const hit = memory.get(src);
   if (hit) return Promise.resolve(hit);
   const inflight = pending.get(src);
@@ -93,7 +94,7 @@ function generate(src: string): Promise<string | null> {
       video.crossOrigin = "anonymous";
       video.muted = true;
       video.playsInline = true;
-      video.preload = "metadata";
+      video.preload = priority ? "auto" : "metadata";
 
       let done = false;
       const finish = (r: string | null) => {
@@ -189,7 +190,19 @@ export function VideoThumbnail({
 
   useEffect(() => {
     const cached = memory.get(src);
-    if (cached) setThumb(cached);
+    if (cached) {
+      setThumb(cached);
+      return;
+    }
+    let cancelled = false;
+    idbGet(src).then((value) => {
+      if (cancelled || !value) return;
+      remember(src, value);
+      setThumb(value);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [src]);
 
   useEffect(() => {
@@ -199,7 +212,7 @@ export function VideoThumbnail({
 
     let cancelled = false;
     const start = () => {
-      generate(src).then((res) => {
+      generate(src, priority).then((res) => {
         if (!cancelled && res) setThumb(res);
       });
     };
@@ -220,7 +233,7 @@ export function VideoThumbnail({
           }
         }
       },
-      { rootMargin: "600px" },
+      { rootMargin: "1400px" },
     );
 
     observer.observe(el);

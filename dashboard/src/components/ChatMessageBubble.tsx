@@ -3,7 +3,7 @@
 import type { ReactNode, PointerEventHandler } from "react";
 import type { MouseEventHandler } from "react";
 import { useMemo } from "react";
-import { Pin } from "lucide-react";
+import { Check, Pin } from "lucide-react";
 import { TelegramAvatar } from "@/components/TelegramAvatar";
 import { LinkPreview } from "@/components/LinkPreview";
 import { extractFirstUrl } from "@/lib/link-preview";
@@ -34,11 +34,15 @@ type ChatMessageBubbleProps = {
   pending?: boolean;
   highlight?: boolean;
   label: string;
+  selectMode?: boolean;
+  selected?: boolean;
+  onToggleSelect?: () => void;
   onPointerDown?: PointerEventHandler<HTMLDivElement>;
   onPointerMove?: PointerEventHandler<HTMLDivElement>;
   onPointerUp?: PointerEventHandler<HTMLDivElement>;
   onPointerCancel?: PointerEventHandler<HTMLDivElement>;
   onContextMenu?: MouseEventHandler<HTMLDivElement>;
+  onDoubleClick?: MouseEventHandler<HTMLDivElement>;
 };
 
 export function ChatMessageBubble({
@@ -57,11 +61,15 @@ export function ChatMessageBubble({
   pending = false,
   highlight = false,
   label,
+  selectMode = false,
+  selected = false,
+  onToggleSelect,
   onPointerDown,
   onPointerMove,
   onPointerUp,
   onPointerCancel,
   onContextMenu,
+  onDoubleClick,
 }: ChatMessageBubbleProps) {
   const meta = (
     <>
@@ -87,15 +95,31 @@ export function ChatMessageBubble({
     ? "[&_a]:underline [&_a]:text-white [&_code]:rounded [&_code]:bg-white/15 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[12.5px] [&_code]:font-mono [&_strong]:font-semibold [&_em]:italic [&_s]:line-through"
     : "[&_a]:underline [&_a]:text-ink [&_code]:rounded [&_code]:bg-black/10 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[12.5px] [&_code]:font-mono [&_strong]:font-semibold [&_em]:italic [&_s]:line-through";
 
+  const selectIndicator = (
+    <span
+      className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border-2 transition-colors ${
+        selected
+          ? "border-emerald-500 bg-emerald-500"
+          : "border-ink-mute/40 bg-transparent"
+      }`}
+    >
+      {selected && <Check size={16} className="text-white" strokeWidth={3} />}
+    </span>
+  );
+
   return (
     <div
-      className={`flex w-full min-w-0 items-end gap-2 ${outgoing ? "justify-end" : "justify-start"}`}
+      className={`flex w-full min-w-0 items-end gap-2 ${
+        selectMode ? "justify-start" : outgoing ? "justify-end" : "justify-start"
+      }`}
     >
-      {!outgoing && (
+      {selectMode && <span className="mb-0.5 flex-shrink-0">{selectIndicator}</span>}
+      {!selectMode && !outgoing && (
         <span className="mb-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-[#f0f0f0]">
           <TelegramAvatar src={avatarUrl} />
         </span>
       )}
+      {selectMode && outgoing && <span aria-hidden className="flex-1" />}
       <div
         className={`min-w-0 ${outgoing ? "max-w-[78%]" : "max-w-[calc(100%-40px)]"}`}
       >
@@ -107,7 +131,15 @@ export function ChatMessageBubble({
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerCancel}
           onContextMenu={onContextMenu}
-          className={`inline-block max-w-full touch-pan-y break-words rounded-2xl px-3.5 py-2 transition-[transform,box-shadow] duration-200 ease-out active:scale-[.985] [overflow-wrap:anywhere] ${
+          onDoubleClick={onDoubleClick}
+          onClick={
+            selectMode && onToggleSelect
+              ? () => onToggleSelect()
+              : undefined
+          }
+          className={`inline-block max-w-full touch-pan-y break-words rounded-2xl px-3.5 py-2 transition-[transform,box-shadow] duration-200 ease-out [overflow-wrap:anywhere] ${
+            selectMode ? "cursor-pointer" : "active:scale-[.985]"
+          } ${
             outgoing
               ? "bg-ink text-white shadow-[0_1px_2px_rgba(0,0,0,.12)]"
               : "bg-[#f1f3f5] text-ink shadow-[0_1px_1px_rgba(0,0,0,.04)]"
@@ -119,7 +151,10 @@ export function ChatMessageBubble({
         >
           {prefix}
           {previewUrl && (
-            <LinkPreview url={previewUrl} tone={outgoing ? "outgoing" : "incoming"} />
+            <LinkPreview
+              url={previewUrl}
+              tone={outgoing ? "outgoing" : "incoming"}
+            />
           )}
           <span className="relative inline-block w-full align-top">
             {richText ? (
