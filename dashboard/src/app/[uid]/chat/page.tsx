@@ -145,7 +145,7 @@ export default async function ChatListPage({
               className="flex items-center gap-3 -ml-2 pr-1 py-3 transition-opacity active:opacity-60"
             >
               <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-[#f0f0f0]">
-                <TelegramAvatar src={contact.photo_url} />
+                <TelegramAvatar src={contact.photo_url || `/api/avatar/${contact.uid}`} />
               </div>
               <div className="flex min-w-0 flex-1 flex-col gap-1">
                 <span className={`truncate text-[14px] text-ink ${conversation.unread ? "font-bold" : "font-semibold"}`}>
