@@ -6,7 +6,14 @@ from pathlib import Path
 import qrcode
 from aiogram import F, Router
 from aiogram.filters import Command, CommandObject
-from aiogram.types import BufferedInputFile, Message, ReplyParameters
+from aiogram.types import (
+    BufferedInputFile,
+    CopyTextButton,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+    ReplyParameters,
+)
 from PIL import Image, ImageDraw
 import storage
 from config import MEDIA_TTL_DAYS, PUBLIC_URL, TELEGRAM_STORAGE_CHAT_ID
@@ -30,15 +37,14 @@ LOGO_SCALE = 0.20
 MAX_FILE_BYTES = 15 * 1024 * 1024
 OUTPUT_FILENAME = "barcode.jpg"
 USAGE_TEXT = "Usage: /qr <text> or send a photo/video with caption /qr"
+COPY_BUTTON_LABEL = "Copy URL"
 
 _GROUP_CACHE: dict[str, list[Message]] = {}
 _GROUP_TASKS: dict[str, asyncio.Task] = {}
 _GROUP_DELAY = 1.5
 
-
 def required_assets() -> list[Path]:
     return [BACKGROUND_PATH, LOGO_PATH]
-
 
 @lru_cache(maxsize=1)
 def _load_background() -> Image.Image:
@@ -46,13 +52,11 @@ def _load_background() -> Image.Image:
         raise FileNotFoundError(BACKGROUND_PATH)
     return Image.open(BACKGROUND_PATH).convert("RGBA")
 
-
 @lru_cache(maxsize=1)
 def _load_logo_source() -> Image.Image:
     if not LOGO_PATH.exists():
         raise FileNotFoundError(LOGO_PATH)
     return Image.open(LOGO_PATH).convert("RGBA")
-
 
 def _generate_qr(data: str) -> Image.Image:
     qr = qrcode.QRCode(
@@ -97,7 +101,6 @@ def _generate_qr(data: str) -> Image.Image:
 
     return img
 
-
 def _circular_logo(size: int) -> Image.Image:
     logo = _load_logo_source().resize((size, size), Image.LANCZOS)
     mask = Image.new("L", (size, size), 0)
@@ -105,7 +108,6 @@ def _circular_logo(size: int) -> Image.Image:
     out = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     out.paste(logo, (0, 0), mask)
     return out
-
 
 def _compose(data: str) -> Image.Image:
     qr_img = _generate_qr(data)
@@ -125,7 +127,6 @@ def _compose(data: str) -> Image.Image:
     bg.paste(qr_resized, (qr_x, qr_y))
     return bg.convert("RGB")
 
-
 def _derive_filename(message: Message, kind: str, ext: str) -> str:
     if message.video and message.video.file_name:
         return message.video.file_name
@@ -137,7 +138,6 @@ def _derive_filename(message: Message, kind: str, ext: str) -> str:
         return f"{message.photo[-1].file_unique_id}.{ext}"
     return f"{kind}.{ext}"
 
-
 def _content_type_for(kind: str, ext: str) -> str:
     if kind == "photo":
         return "image/jpeg"
@@ -145,19 +145,34 @@ def _content_type_for(kind: str, ext: str) -> str:
         return "video/mp4"
     return "application/octet-stream"
 
-
 def _expires_at_iso() -> str:
     return (datetime.now(timezone.utc) + timedelta(days=MEDIA_TTL_DAYS)).isoformat()
 
-
-def _build_viewer_url(media_id: str, owner_id: int) -> str:
+def _build_viewer_url(media_id: str) -> str:
     base = PUBLIC_URL if PUBLIC_URL else ""
-    return f"{base}/{owner_id}/m/{media_id}"
+    return f"{base}/m/{media_id}"
 
-
-async def _send_qr(message: Message, data: str, source: str) -> None:
+async def _send_qr(
+    message: Message,
+    data: str,
+    source: str,
+    copy_url: str | None = None,
+) -> None:
     user = message.from_user
     label = user.username or user.full_name or str(user.id)
+
+    keyboard: InlineKeyboardMarkup | None = None
+    if copy_url:
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text=COPY_BUTTON_LABEL,
+                        copy_text=CopyTextButton(text=copy_url),
+                    ),
+                ],
+            ]
+        )
 
     try:
         image = _compose(data)
@@ -168,6 +183,7 @@ async def _send_qr(message: Message, data: str, source: str) -> None:
         await message.answer_photo(
             photo=BufferedInputFile(buf.read(), filename=OUTPUT_FILENAME),
             reply_parameters=ReplyParameters(message_id=message.message_id),
+            reply_markup=keyboard,
         )
         logger.info(f"QR generated ({source}) for {label} (ID: {user.id})")
     except FileNotFoundError as exc:
@@ -183,7 +199,6 @@ async def _send_qr(message: Message, data: str, source: str) -> None:
         except Exception as e:
             logger.error(f"Fallback QR failed: {e}")
 
-
 @router.message(F.text, Command("qr"))
 async def cmd_qr(message: Message, command: CommandObject) -> None:
     payload = (command.args or "").strip()
@@ -195,20 +210,17 @@ async def cmd_qr(message: Message, command: CommandObject) -> None:
         return
     await _send_qr(message, payload, "text")
 
-
 @router.message(F.photo, F.caption.regexp(r"^/qr(\s|$)"), ~F.media_group_id)
 async def qr_single_photo(message: Message) -> None:
     if not message.photo:
         return
     await _handle_media(message, message.photo[-1].file_id, "photo", "jpg")
 
-
 @router.message(F.video, F.caption.regexp(r"^/qr(\s|$)"), ~F.media_group_id)
 async def qr_single_video(message: Message) -> None:
     if message.video is None:
         return
     await _handle_media(message, message.video.file_id, "video", "mp4")
-
 
 @router.message(F.media_group_id, F.photo | F.video)
 async def qr_media_group(message: Message) -> None:
@@ -225,7 +237,6 @@ async def qr_media_group(message: Message) -> None:
         _GROUP_TASKS[gid].cancel()
 
     _GROUP_TASKS[gid] = asyncio.create_task(_finalize_group(gid))
-
 
 async def _finalize_group(group_id: str) -> None:
     try:
@@ -253,7 +264,6 @@ async def _finalize_group(group_id: str) -> None:
                 await _handle_media(msg, msg.video.file_id, "video", "mp4")
         except Exception as exc:
             logger.error(f"Group item failed: {exc}")
-
 
 async def _handle_media(message: Message, file_id: str, kind: str, ext: str) -> None:
     user = message.from_user
@@ -306,7 +316,7 @@ async def _handle_media(message: Message, file_id: str, kind: str, ext: str) -> 
         }
 
         await storage.insert_media(row)
-        qr_payload = _build_viewer_url(media_id, owner_id)
+        qr_payload = _build_viewer_url(media_id)
 
     except ValueError as exc:
         logger.error(f"Media ({kind}) validation failed for {label}: {exc}")
@@ -323,4 +333,4 @@ async def _handle_media(message: Message, file_id: str, kind: str, ext: str) -> 
             logger.error(f"Fallback ({kind}) failed: {e}")
         return
 
-    await _send_qr(message, qr_payload, kind)
+    await _send_qr(message, qr_payload, kind, copy_url=qr_payload)

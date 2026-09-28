@@ -8,14 +8,14 @@ type BubbleSpec = {
 };
 
 const BUBBLES: BubbleSpec[] = [
-  { outgoing: false, width: 62, minHeight: 40 },
-  { outgoing: true, width: 48, minHeight: 34 },
-  { outgoing: false, width: 78, minHeight: 58 },
-  { outgoing: true, width: 70, minHeight: 46 },
-  { outgoing: false, width: 52, minHeight: 34 },
-  { outgoing: true, width: 58, minHeight: 40 },
-  { outgoing: false, width: 88, minHeight: 58 },
-  { outgoing: true, width: 44, minHeight: 34 },
+  { outgoing: false, width: 62, minHeight: 54 },
+  { outgoing: true, width: 48, minHeight: 44 },
+  { outgoing: false, width: 78, minHeight: 74 },
+  { outgoing: true, width: 70, minHeight: 60 },
+  { outgoing: false, width: 52, minHeight: 44 },
+  { outgoing: true, width: 58, minHeight: 54 },
+  { outgoing: false, width: 88, minHeight: 74 },
+  { outgoing: true, width: 44, minHeight: 44 },
 ];
 
 export default function ChatRoomLoading() {
@@ -27,60 +27,45 @@ export default function ChatRoomLoading() {
       >
         <div className="mx-auto max-w-[600px] px-5">
           <div className="flex items-center gap-2 -mx-3">
-            <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#dfe3e8] bg-white shadow-sm">
-              <span className="block h-5 w-5 rounded-full bg-[#e5e5e5] relative overflow-hidden">
-                <span className={`absolute inset-0 ${SHIMMER}`} />
-              </span>
-            </div>
+            <div className="w-10 h-10 rounded-full border border-line bg-white/45 backdrop-blur-xl shadow-[0_1px_2px_rgba(0,0,0,.03)]" />
 
-            <div className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-full border border-[#dfe3e8] bg-white pl-0.5 pr-3 shadow-sm">
-              <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-[#f5f5f5] relative">
+            <div className="flex-1 min-w-0 flex items-center gap-2 h-10 pl-0.5 pr-3 rounded-full border border-line bg-white/45 backdrop-blur-xl shadow-[0_1px_2px_rgba(0,0,0,.03)]">
+              <div className="w-10 h-10 rounded-full bg-[#f0f0f0]/55 backdrop-blur-md flex-shrink-0 overflow-hidden relative">
                 <span className={`absolute inset-0 ${SHIMMER}`} />
               </div>
-              <div className="min-w-0 flex-1 flex flex-col justify-center gap-1 self-stretch">
-                <div className="h-3.5 w-28 rounded-full bg-[#e5e5e5] overflow-hidden relative">
+              <div className="min-w-0 flex-1 flex flex-col justify-center self-stretch">
+                <div className="h-3.5 w-28 rounded-full bg-[#e5e5e5]/65 backdrop-blur-md overflow-hidden relative">
                   <span className={`absolute inset-0 ${SHIMMER}`} />
                 </div>
-                <div className="h-2.5 w-20 rounded-full bg-[#ececec] overflow-hidden relative">
+                <div className="h-2 w-20 rounded-full bg-[#ececec]/65 backdrop-blur-md overflow-hidden relative -mt-0.5">
                   <span className={`absolute inset-0 ${SHIMMER}`} />
                 </div>
               </div>
             </div>
 
-            <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#dfe3e8] bg-white shadow-sm">
-              <span className="block h-4 w-4 rounded-full bg-[#e5e5e5] relative overflow-hidden">
-                <span className={`absolute inset-0 ${SHIMMER}`} />
-              </span>
-            </div>
+            <div className="w-10 h-10 rounded-full border border-line bg-white/45 backdrop-blur-xl shadow-[0_1px_2px_rgba(0,0,0,.03)]" />
           </div>
         </div>
       </header>
 
-      <section
-        className="fixed left-0 right-0 z-10 mx-auto max-w-[600px] overflow-hidden pt-[calc(80px+env(safe-area-inset-top))] pb-[calc(96px+env(safe-area-inset-bottom))]"
-        style={{ top: 0, height: "100dvh" }}
-      >
-        <div className="flex min-w-0 flex-col gap-2 px-3 py-3">
+      <section className="pt-[calc(80px+env(safe-area-inset-top))] pb-[calc(96px+env(safe-area-inset-bottom))]">
+        <div className="flex flex-col gap-3 px-3">
           {BUBBLES.map((bubble, index) => (
             <div
               key={index}
-              className={`flex w-full min-w-0 items-end gap-2 ${
-                bubble.outgoing ? "justify-end" : "justify-start"
+              className={`flex gap-2.5 ${
+                bubble.outgoing ? "flex-row-reverse pl-8" : "pr-8 -ml-0"
               }`}
             >
-              {!bubble.outgoing && (
-                <div className="mb-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-[#f0f0f0] relative">
-                  <span className={`absolute inset-0 ${SHIMMER}`} />
-                </div>
-              )}
-              <div
-                className={`min-w-0 ${
-                  bubble.outgoing ? "max-w-[78%]" : "max-w-[calc(100%-40px)]"
-                }`}
-              >
+              <div className="w-8 h-8 rounded-full bg-[#f0f0f0]/55 backdrop-blur-md flex-shrink-0 mt-0.5 overflow-hidden relative">
+                <span className={`absolute inset-0 ${SHIMMER}`} />
+              </div>
+              <div className="min-w-0 flex-1 flex">
                 <div
-                  className={`inline-block max-w-full overflow-hidden rounded-2xl px-3.5 py-2 ${
-                    bubble.outgoing ? "bg-ink" : "bg-[#f1f3f5]"
+                  className={`inline-block bg-[#f5f5f5]/65 backdrop-blur-md px-3.5 py-2.5 relative overflow-hidden ${
+                    bubble.outgoing
+                      ? "rounded-2xl rounded-tr-md ml-auto"
+                      : "rounded-2xl rounded-tl-md"
                   }`}
                   style={{
                     width: `${bubble.width}%`,
@@ -96,21 +81,22 @@ export default function ChatRoomLoading() {
       </section>
 
       <footer
-        className="chat-footer pointer-events-none fixed left-0 right-0 z-30 bg-transparent"
+        className="chat-footer fixed left-0 right-0 z-30 pointer-events-none"
         style={{ bottom: 0 }}
       >
-        <div className="pointer-events-auto mx-auto max-w-[600px] px-3 pt-2 pb-[calc(8px+env(safe-area-inset-bottom))]">
-          <div className="flex w-full min-w-0 items-end gap-2">
-            <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-[22px] border border-line bg-white">
-              <div className="flex min-h-11 w-full items-end px-3 py-1.5">
-                <div className="h-[22px] w-32 rounded-full bg-[#f5f5f5] relative overflow-hidden">
-                  <span className={`absolute inset-0 ${SHIMMER}`} />
-                </div>
-              </div>
-            </div>
-            <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#dfe3e8] bg-white relative">
-              <span className={`absolute inset-0 ${SHIMMER}`} />
-            </div>
+        <div
+          className="absolute inset-x-0 top-0 bottom-0 pointer-events-none"
+          style={{
+            background:
+              "linear-gradient(to top, #ffffff 0%, #ffffff 60%, rgba(255,255,255,0) 100%)",
+          }}
+        />
+        <div className="relative mx-auto max-w-[600px] px-2 flex items-end gap-1.5 pointer-events-auto pt-4 pb-[calc(8px+env(safe-area-inset-bottom))]">
+          <div className="flex-1 min-w-0 h-[40px] rounded-[22px] bg-[#f5f5f5]/55 backdrop-blur-xl border border-line relative overflow-hidden">
+            <span className={`absolute inset-0 ${SHIMMER}`} />
+          </div>
+          <div className="w-10 h-10 rounded-full border border-line bg-white/45 backdrop-blur-xl flex-shrink-0 shadow-[0_1px_2px_rgba(0,0,0,.03)] relative overflow-hidden">
+            <span className={`absolute inset-0 ${SHIMMER}`} />
           </div>
         </div>
       </footer>
