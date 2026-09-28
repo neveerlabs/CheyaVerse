@@ -128,7 +128,7 @@ export function ChatSearch({ uid }: { uid: string }) {
                 className="flex items-center gap-3 px-4 py-3 transition-colors [@media(hover:hover)]:hover:bg-[#fafafa]"
               >
                 <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-[#f5f5f5]">
-                  <TelegramAvatar src={user.photo_url} />
+                  <TelegramAvatar src={user.photo_url || `/api/avatar/${user.uid}`} />
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[13.5px] font-semibold text-ink">
