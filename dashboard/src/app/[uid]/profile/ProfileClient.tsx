@@ -21,9 +21,9 @@ import {
   Copy,
   Download,
   Smartphone,
-  LogOut,
 } from "lucide-react";
 import { VideoThumbnail } from "@/components/VideoThumbnail";
+import { TelegramAvatar } from "@/components/TelegramAvatar";
 import { config } from "@/lib/config";
 import { CoverIcon } from "@/lib/cover-icons";
 import type { CoverConfig } from "@/lib/storage";
@@ -674,7 +674,10 @@ export function ProfileClient({
                 className="h-full w-full object-cover"
               />
             ) : (
-              <UserIcon size={16} className="text-white/60" strokeWidth={1.6} />
+              <TelegramAvatar
+                src={null}
+                className="h-full w-full text-white/60"
+              />
             )}
           </span>
           <span className="min-w-0 flex-1">
@@ -806,7 +809,10 @@ export function ProfileClient({
                 className="w-full h-full object-cover"
               />
             ) : (
-              <UserIcon size={38} className="text-ink-mute" strokeWidth={1.5} />
+              <TelegramAvatar
+                src={null}
+                className="h-full w-full text-ink-mute"
+              />
             )}
           </div>
           <div className="pl-3 pb-1 min-w-0 flex-1 translate-y-2">
@@ -1142,7 +1148,10 @@ export function ProfileClient({
                   onError={handleAvatarError}
                 />
               ) : (
-                <UserIcon size={100} className="text-ink-mute" strokeWidth={1.5} />
+                <TelegramAvatar
+                  src={null}
+                  className="h-full w-full text-ink-mute"
+                />
               )}
             </div>
           </div>
@@ -1187,9 +1196,6 @@ export function ProfileClient({
             disabled={loggingOut}
             className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left text-[13.5px] font-medium text-danger hover:bg-red-50 disabled:opacity-60"
           >
-            <span className="w-4 h-4 flex items-center justify-center flex-shrink-0">
-              <LogOut size={18} strokeWidth={1.8} />
-            </span>
             {loggingOut ? "Logging out…" : "Log out"}
           </button>
         </div>
@@ -1210,9 +1216,6 @@ export function ProfileClient({
             aria-labelledby="logout-dialog-title"
             className="w-full max-w-[380px] animate-fade-up rounded-[28px] border border-white/70 bg-white p-5 shadow-[0_24px_80px_-24px_rgba(0,0,0,.35)] sm:p-6"
           >
-            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-[17px] bg-[#fff1f0] text-danger">
-              <LogOut size={21} />
-            </div>
             <h2 id="logout-dialog-title" className="text-[18px] font-bold tracking-tight text-ink">
               Log out from this device?
             </h2>

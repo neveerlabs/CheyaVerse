@@ -133,16 +133,68 @@ a {
 @keyframes fade-up {
   from {
     opacity: 0;
-    transform: translateY(8px) scale(.98);
+    translate: 0 8px;
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    translate: 0 0;
   }
 }
 
 .animate-fade-up {
   animation: fade-up 180ms cubic-bezier(.2, .8, .2, 1) both;
+}
+
+.chat-rich-text b,
+.chat-rich-text strong {
+  font-weight: 700;
+}
+
+.chat-rich-text {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.chat-rich-text i,
+.chat-rich-text em {
+  font-style: italic;
+}
+
+.chat-rich-text pre {
+  display: block;
+  max-width: 100%;
+  margin-block: 0.5rem;
+  overflow-x: auto;
+  border-radius: 0.75rem;
+  padding: 0.5rem 0.625rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  white-space: pre;
+}
+
+.chat-rich-text-outgoing pre {
+  background: rgb(255 255 255 / 10%);
+}
+
+.chat-rich-text-incoming pre {
+  background: rgb(0 0 0 / 8%);
+}
+
+.chat-rich-text code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.chat-rich-text pre code {
+  padding: 0;
+  background: transparent;
+}
+
+.chat-rich-text blockquote {
+  margin-block: 0.25rem;
+  padding-left: 0.5rem;
+  border-left: 2px solid currentColor;
+  opacity: 0.85;
 }
 
 @media (prefers-reduced-motion: reduce) {

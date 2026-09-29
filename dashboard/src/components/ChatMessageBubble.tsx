@@ -92,9 +92,8 @@ export function ChatMessageBubble({
   }, [linkPreview, deleted, richText, content]);
 
   const markdownClass = outgoing
-    ? "[&_a]:underline [&_a]:text-white [&_code]:rounded [&_code]:bg-white/15 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[12.5px] [&_code]:font-mono [&_strong]:font-semibold [&_em]:italic [&_s]:line-through"
-    : "[&_a]:underline [&_a]:text-ink [&_code]:rounded [&_code]:bg-black/10 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[12.5px] [&_code]:font-mono [&_strong]:font-semibold [&_em]:italic [&_s]:line-through";
-
+    ? "[&_a]:underline [&_a]:text-white [&_code]:rounded [&_code]:bg-white/15 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[12.5px] [&_code]:font-mono [&_strong]:font-semibold [&_em]:italic [&_u]:underline [&_s]:line-through"
+    : "[&_a]:underline [&_a]:text-ink [&_code]:rounded [&_code]:bg-black/10 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[12.5px] [&_code]:font-mono [&_strong]:font-semibold [&_em]:italic [&_u]:underline [&_s]:line-through";
   const selectIndicator = (
     <span
       className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border-2 transition-colors ${
@@ -158,14 +157,10 @@ export function ChatMessageBubble({
           )}
           <span className="relative inline-block w-full align-top">
             {richText ? (
-              <span
-                className={`inline whitespace-pre-wrap break-words text-[14px] leading-[1.45] ${
-                  deleted
-                    ? "italic opacity-65"
-                    : outgoing
-                      ? "[&_b]:font-semibold [&_i]:italic [&_a]:underline"
-                      : "text-ink-soft [&_b]:font-semibold [&_b]:text-ink [&_i]:italic [&_a]:text-ink [&_a]:underline"
-                }`}
+              <div
+                className={`chat-rich-text block w-full break-words text-[14px] leading-[1.45] ${
+                  outgoing ? "chat-rich-text-outgoing" : "chat-rich-text-incoming"
+                } ${deleted ? "italic opacity-65" : ""}`}
                 dangerouslySetInnerHTML={{ __html: content }}
               />
             ) : markdownHtml !== null ? (

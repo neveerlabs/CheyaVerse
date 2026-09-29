@@ -30,6 +30,7 @@ export function createSessionToken(
   deviceId: string | null = null,
   deviceLink = false,
   sessionVersion = 0,
+  expiresAt = Math.floor(Date.now() / 1000) + SESSION_MAX_AGE_SECONDS,
 ): string {
   const payload = encode(
     JSON.stringify({
@@ -37,7 +38,7 @@ export function createSessionToken(
       deviceId,
       deviceLink,
       sessionVersion,
-      exp: Math.floor(Date.now() / 1000) + SESSION_MAX_AGE_SECONDS,
+      exp: expiresAt,
     } satisfies UserSession),
   );
   return `${payload}.${signature(payload)}`;

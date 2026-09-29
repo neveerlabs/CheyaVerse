@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { UserRound } from "lucide-react";
 
 export function TelegramAvatar({
   src,
@@ -21,7 +20,18 @@ export function TelegramAvatar({
   }, [imageSrc]);
 
   if (showFallback) {
-    return <UserRound aria-hidden="true" className="h-1/2 w-1/2 text-ink-mute" />;
+    return (
+      <svg
+        aria-hidden="true"
+        className={className}
+        viewBox="0 0 100 100"
+        fill="currentColor"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <circle cx="50" cy="33" r="19" />
+        <path d="M40 49h20v8c18 3 29 16 32 34 1 5-2 9-7 9H15c-5 0-8-4-7-9 3-18 14-31 32-34v-8Z" />
+      </svg>
+    );
   }
 
   return (

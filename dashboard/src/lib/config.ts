@@ -8,6 +8,7 @@ export const config = {
     storageChatId: process.env.TELEGRAM_STORAGE_CHAT_ID ?? "",
   },
   botUsername: (process.env.BOT_USERNAME ?? "").replace(/^@/, ""),
+  broadcastWebSecret: process.env.BROADCAST_WEB_SECRET ?? "",
   publicUrl: (process.env.PUBLIC_URL ?? "").replace(/\/+$/, ""),
   mediaTtlDays: Number(process.env.MEDIA_TTL_DAYS ?? 30),
   recaptchaSiteKey: process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY ?? "",

@@ -16,8 +16,14 @@ export function RealtimeSync({ uid }: { uid: string }) {
 
   useRealtime(uid, (event) => {
     const inChatRoom = /^\/[^/]+\/chat\/[^/]+\/?$/.test(pathnameRef.current);
+    const inSystemChat = /^\/[^/]+\/chat\/system\/?$/.test(pathnameRef.current);
 
-    if (!inChatRoom) {
+    if (
+      !inChatRoom ||
+      (inChatRoom &&
+        !inSystemChat &&
+        (event.type === "message:new" || event.type === "notification:new"))
+    ) {
       if (
         event.type === "media:changed" ||
         event.type === "message:new" ||

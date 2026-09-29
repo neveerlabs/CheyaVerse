@@ -654,6 +654,24 @@ export async function getAccountSessionVersion(uid: number): Promise<number> {
   return Number(result.rows[0]?.session_version ?? 0);
 }
 
+export async function incrementAccountSessionVersion(uid: number): Promise<number> {
+  await ensureAccountSessionVersionsTable();
+  const result = await getTurso().execute({
+    sql: `INSERT INTO account_session_versions (uid, session_version, updated_at)
+          VALUES (?, 1, ?)
+          ON CONFLICT(uid) DO UPDATE SET
+            session_version = account_session_versions.session_version + 1,
+            updated_at = excluded.updated_at
+          RETURNING session_version`,
+    args: [uid, new Date().toISOString()],
+  });
+  const version = Number(result.rows[0]?.session_version);
+  if (!Number.isSafeInteger(version) || version < 1) {
+    throw new Error("Could not increment the account session version.");
+  }
+  return version;
+}
+
 export async function getAccountSessionState(
   uid: number,
 ): Promise<{ sessionVersion: number; active: boolean }> {
@@ -1633,7 +1651,8 @@ export async function searchTelegramUsers(
 
   const result = await getTurso().execute({
     sql: `SELECT * FROM "akun-telegram"
-          WHERE uid != ? AND (${conditions})
+          WHERE uid != ? AND COALESCE(role, 'user') != 'deleted'
+            AND (${conditions})
           ORDER BY
             CASE WHEN LOWER(COALESCE(username, '')) = ? THEN 0 ELSE 1 END,
             first_name COLLATE NOCASE, last_name COLLATE NOCASE
@@ -1643,6 +1662,50 @@ export async function searchTelegramUsers(
   return result.rows.map((row) =>
     rowToTelegramUser(row as unknown as Record<string, unknown>),
   );
+}
+
+export async function listActiveAnnouncementRecipients(): Promise<number[]> {
+  await ensureTelegramAccountsTable();
+  const result = await getTurso().execute({
+    sql: `SELECT uid FROM "akun-telegram"
+          WHERE COALESCE(role, 'user') NOT IN ('deleted', 'admin')
+          ORDER BY uid`,
+    args: [],
+  });
+  return result.rows
+    .map((row) => Number(row.uid))
+    .filter((uid) => Number.isSafeInteger(uid) && uid > 0);
+}
+
+export async function saveBroadcastAnnouncement(
+  uid: number,
+  broadcastId: string,
+  content: string,
+): Promise<ChatMessage | null> {
+  await ensureChatMessageActions();
+  const id = `announcement-${broadcastId}-${uid}`;
+  const createdAt = new Date().toISOString();
+  const db = getTurso();
+  const activeAccount = `EXISTS (
+    SELECT 1 FROM "akun-telegram"
+    WHERE uid = ? AND COALESCE(role, 'user') NOT IN ('deleted', 'admin')
+  )`;
+
+  await db.execute({
+    sql: `INSERT OR IGNORE INTO notifications
+            (id, uid, title, message, ip, location, device, read, created_at)
+          SELECT ?, ?, 'CheyaVerse Announcement', ?, NULL, NULL, NULL, 0, ?
+          WHERE ${activeAccount}`,
+    args: [id, uid, content, createdAt, uid],
+  });
+  await db.execute({
+    sql: `INSERT OR IGNORE INTO messages
+            (id, uid, sender, sender_role, title, content, created_at, delivered_at, read_at, reply_to_id)
+          SELECT ?, ?, 'bot', 'admin', 'CheyaVerse · Admin', ?, ?, NULL, NULL, NULL
+          WHERE ${activeAccount}`,
+    args: [id, uid, content, createdAt, uid],
+  });
+  return getChatMessage(uid, id);
 }
 
 export async function listDirectMessages(
@@ -1941,7 +2004,7 @@ export async function listDirectConversations(
   return Promise.all(
     latest.map(async ({ peerUid, message }) => {
       const user = await getTelegramUser(peerUid);
-      if (!user) return null;
+      if (!user || user.role === "deleted") return null;
       const unreadResult = await getTurso().execute({
         sql: `SELECT COUNT(*) AS c FROM direct_messages
               WHERE sender_uid = ? AND recipient_uid = ? AND read_at IS NULL

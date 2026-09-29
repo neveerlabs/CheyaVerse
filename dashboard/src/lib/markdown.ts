@@ -147,7 +147,9 @@ function renderInternal(input: string, mode: RenderMode): string {
   text = text.replace(
     /(^|[^\w*_])(\*\*|__)(?=\S)([^\n]*?\S)\2(?!\w)/g,
     (_m, prefix, marker, content) => {
-      const inner = stash(`<strong>${content}</strong>`);
+      const inner = stash(
+        marker === "__" ? `<u>${content}</u>` : `<strong>${content}</strong>`,
+      );
       if (keepMarkers) return `${prefix}${marker}${inner}${marker}`;
       return `${prefix}${inner}`;
     },

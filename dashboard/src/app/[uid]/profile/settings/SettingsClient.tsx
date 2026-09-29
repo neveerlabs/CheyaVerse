@@ -9,7 +9,6 @@ import {
   Globe,
   HardDrive,
   Layers,
-  LogOut,
   Shield,
   Smartphone,
   Trash2,
@@ -58,6 +57,10 @@ export function SettingsClient({
   const [revokingDevice, setRevokingDevice] = useState<Device | null>(null);
   const [revokeBusy, setRevokeBusy] = useState(false);
   const [revokeError, setRevokeError] = useState("");
+  const [logoutOthersOpen, setLogoutOthersOpen] = useState(false);
+  const [logoutOthersBusy, setLogoutOthersBusy] = useState(false);
+  const [logoutOthersError, setLogoutOthersError] = useState("");
+  const [logoutOthersNotice, setLogoutOthersNotice] = useState("");
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteText, setDeleteText] = useState("");
   const [deleteBusy, setDeleteBusy] = useState(false);
@@ -163,6 +166,40 @@ export function SettingsClient({
       );
     } finally {
       setRevokeBusy(false);
+    }
+  }
+
+  async function logoutOtherSessions() {
+    if (logoutOthersBusy) return;
+    setLogoutOthersBusy(true);
+    setLogoutOthersError("");
+    try {
+      const response = await fetch("/api/session/logout-others", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+        cache: "no-store",
+      });
+      const result = (await response.json()) as { ok?: boolean };
+      if (!response.ok || !result.ok) {
+        throw new Error(
+          response.status === 401
+            ? "Sesi login tidak valid. Muat ulang halaman dan login kembali."
+            : "Sesi lain belum dapat dikeluarkan. Silakan coba lagi.",
+        );
+      }
+      setLogoutOthersOpen(false);
+      setLogoutOthersNotice(
+        "Sesi lain telah dikeluarkan. Sesi yang sedang digunakan tetap aktif.",
+      );
+    } catch (cause) {
+      setLogoutOthersError(
+        cause instanceof Error
+          ? cause.message
+          : "Sesi lain belum dapat dikeluarkan. Silakan coba lagi.",
+      );
+    } finally {
+      setLogoutOthersBusy(false);
     }
   }
 
@@ -299,6 +336,34 @@ export function SettingsClient({
               {deviceError}
             </p>
           )}
+          <section className="rounded-[22px] border border-line bg-white p-4 shadow-[0_8px_32px_-28px_rgba(15,23,42,.38)] sm:flex sm:items-center sm:justify-between sm:gap-5">
+            <div className="flex items-start gap-3">
+              <div className="min-w-0">
+                <h3 className="text-[13px] font-semibold text-ink">
+                  Keluar dari perangkat lain
+                </h3>
+                <p className="mt-1 text-[11.5px] leading-relaxed text-ink-mute">
+                  Akhiri sesi lain di akun Anda. Sesi yang sedang digunakan tetap aktif.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setLogoutOthersError("");
+                setLogoutOthersNotice("");
+                setLogoutOthersOpen(true);
+              }}
+              className="mt-3 w-full rounded-full border border-red-100 bg-red-50 px-4 py-2.5 text-[11.5px] font-semibold text-danger transition-colors hover:bg-red-100 sm:mt-0 sm:w-auto sm:shrink-0"
+            >
+              Keluar dari semua sesi
+            </button>
+            {logoutOthersNotice && (
+              <p role="status" className="mt-3 text-[11px] leading-relaxed text-emerald-700 sm:mt-0 sm:basis-full">
+                {logoutOthersNotice}
+              </p>
+            )}
+          </section>
           <div className="space-y-2.5">
             {devices.map((device) => {
               const current = device.deviceId === currentDeviceId;
@@ -348,7 +413,7 @@ export function SettingsClient({
                         }}
                         className="rounded-full px-3 py-1.5 text-[11px] font-semibold text-danger transition-colors hover:bg-red-50"
                       >
-                        Hentikan sesi
+                        Hapus sesi
                       </button>
                     )}
                   </div>
@@ -366,9 +431,9 @@ export function SettingsClient({
               </div>
             )}
           </div>
-          <SettingsSection title="Penghapusan akun">
+          <SettingsSection title="Danger Zone">
             <div className="p-4">
-              <p className="text-[13px] font-semibold text-ink">Hapus akun CheyaVerse</p>
+              <p className="text-[13px] font-semibold text-ink">Hapus akun web dashboard</p>
               <p className="mt-1 text-[11.5px] leading-relaxed text-ink-mute">
                 Profil dan data milik Anda di web akan dihapus. Salinan pesan yang sudah ada di percakapan akun lain tetap tersedia bagi mereka.
               </p>
@@ -434,13 +499,25 @@ export function SettingsClient({
 
       {revokingDevice && (
         <Dialog
-          title="Hentikan sesi perangkat?"
+          title="Yakin ingin menghapus sesi perangkat ini?"
           description={`Perangkat ${revokingDevice.brand ?? ""} ${revokingDevice.model ?? ""} akan kehilangan akses ke akun ini.`}
-          confirmLabel={revokeBusy ? "Menghentikan…" : "Hentikan sesi"}
+          confirmLabel={revokeBusy ? "Menghentikan…" : "Lanjutkan"}
           busy={revokeBusy}
           error={revokeError}
           onCancel={() => setRevokingDevice(null)}
           onConfirm={() => void revokeDevice()}
+        />
+      )}
+
+      {logoutOthersOpen && (
+        <Dialog
+          title="Keluar dari semua sesi lain?"
+          description="Sesi yang sedang digunakan tetap aktif. Semua sesi lain perlu login kembali untuk mengakses akun ini."
+          confirmLabel={logoutOthersBusy ? "Mengeluarkan…" : "Lanjutkan"}
+          busy={logoutOthersBusy}
+          error={logoutOthersError}
+          onCancel={() => setLogoutOthersOpen(false)}
+          onConfirm={() => void logoutOtherSessions()}
         />
       )}
 
@@ -604,9 +681,6 @@ function Dialog({
         aria-labelledby="revoke-session-title"
         className="w-full max-w-[380px] animate-fade-up rounded-[28px] border border-white/70 bg-white p-5 shadow-[0_24px_80px_-24px_rgba(0,0,0,.35)] sm:p-6"
       >
-        <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-[17px] bg-[#fff1f0] text-danger">
-          <LogOut size={21} />
-        </div>
         <h2 id="revoke-session-title" className="text-[18px] font-bold tracking-tight text-ink">
           {title}
         </h2>
