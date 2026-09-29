@@ -49,13 +49,6 @@ export function RealtimeSync({ uid }: { uid: string }) {
         ) {
           playReceiveSoundOutside();
         }
-        const originalTitle = document.title;
-        document.title = "Pesan baru · CheyaVerse";
-        window.setTimeout(() => {
-          if (document.title === "Pesan baru · CheyaVerse") {
-            document.title = originalTitle;
-          }
-        }, 5000);
       }
     }
   });

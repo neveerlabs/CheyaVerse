@@ -68,6 +68,7 @@ export default async function ChatRoomPage({
           first_name: contact.first_name,
           last_name: contact.last_name,
           photo_url: contact.photo_url,
+          role: contact.role,
         }}
         ownPhotoUrl={currentUser?.photo_url ?? null}
         ownName={ownName}

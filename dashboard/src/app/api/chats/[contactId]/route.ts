@@ -56,6 +56,7 @@ export async function GET(
       first_name: contact.first_name,
       last_name: contact.last_name,
       photo_url: contact.photo_url,
+      role: contact.role,
     },
     items,
     pinned,
@@ -73,6 +74,13 @@ export async function POST(
   const contactUid = parseContactId(params.contactId);
   if (!contactUid || contactUid === session.uid) {
     return NextResponse.json({ ok: false, error: "invalid_contact" }, { status: 400 });
+  }
+  const contact = await getTelegramUser(contactUid);
+  if (!contact) {
+    return NextResponse.json({ ok: false, error: "account_not_found" }, { status: 404 });
+  }
+  if (contact.role === "deleted") {
+    return NextResponse.json({ ok: false, error: "account_deleted" }, { status: 410 });
   }
 
   let body: unknown;
@@ -113,10 +121,6 @@ export async function POST(
       return NextResponse.json({ ok: false, error: "reply_not_found" }, { status: 404 });
     }
   }
-  if (!(await getTelegramUser(contactUid))) {
-    return NextResponse.json({ ok: false, error: "account_not_found" }, { status: 404 });
-  }
-
   try {
     const recipientOnline = await isTelegramUserOnline(contactUid);
     const message = await createDirectMessage(session.uid, contactUid, content, {
@@ -136,7 +140,6 @@ export async function POST(
         senderUid: session.uid,
         senderName,
         content,
-        messageId: message.id,
       });
     }
     return NextResponse.json({ ok: true, message });

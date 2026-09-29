@@ -4,6 +4,9 @@ __pycache__/
 venv/
 .venv/
 .env
+.env.*
+*.env
+*.env.*
 .env.local
 
 # Node

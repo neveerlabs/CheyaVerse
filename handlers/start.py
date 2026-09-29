@@ -1,3 +1,4 @@
+import asyncio
 import html
 
 from aiogram import F, Router
@@ -39,10 +40,19 @@ START_TEXT = (
 )
 
 
+async def _delete_start_message(message: Message, label: str) -> None:
+    await asyncio.sleep(0.2)
+    try:
+        await message.delete()
+    except Exception as exc:
+        logger.warning(f"Failed to delete /start message for {label}: {exc}")
+
+
 @router.message(CommandStart())
 async def cmd_start(message: Message) -> None:
     user = message.from_user
     label = user.username or user.full_name or str(user.id)
+    asyncio.create_task(_delete_start_message(message, label))
 
     parts = (message.text or "").split(maxsplit=1)
     payload = parts[1].strip() if len(parts) > 1 else ""
@@ -145,14 +155,18 @@ async def handle_login_challenge_callback(callback: CallbackQuery) -> None:
         )
         return
 
-    await callback.answer("Login disetujui!" if approve else "Login ditolak!")
-    await callback.message.edit_text(
-        "Login CheyaVerse disetujui. Kembali ke browser untuk melanjutkan."
-        if approve
-        else "Permintaan login ditolak!",
-        parse_mode=None,
-        reply_markup=None,
-    )
+    await callback.answer("permintaan disetujui" if approve else "Login ditolak!")
+    if approve:
+        try:
+            await callback.message.delete()
+        except Exception as exc:
+            logger.warning(f"Failed to delete approved login message for {label}: {exc}")
+    else:
+        await callback.message.edit_text(
+            "Permintaan login ditolak!",
+            parse_mode=None,
+            reply_markup=None,
+        )
     logger.info(
         f"Web login {'approved' if approve else 'denied'} for {label} (ID: {user.id})"
     )

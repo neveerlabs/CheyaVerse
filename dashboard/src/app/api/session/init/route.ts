@@ -9,7 +9,12 @@ import {
   isDeviceBlacklisted,
   getTelegramUser,
 } from "@/lib/storage";
-import { getClientIp, lookupLocation, parseDeviceInfo } from "@/lib/device";
+import {
+  getClientIp,
+  isPublicIp,
+  lookupCityAndCountry,
+  parseDeviceInfo,
+} from "@/lib/device";
 import { sendTelegramMessage } from "@/lib/telegram";
 import {
   computeFingerprint,
@@ -296,35 +301,48 @@ export async function POST(req: NextRequest) {
           ? "Desktop"
           : info.type === "bot"
             ? "Bot"
-            : "Unknown";
-  const platformVersion =
-    info.os?.match(/[\d]+(?:\.[\d]+)*/)?.[0] ?? "Unknown";
-  const operatingSystem =
-    info.os?.replace(/\s+[\d].*$/, "").trim() || info.os || "Unknown";
+            : null;
   const model =
     info.brand &&
     info.model &&
     !info.model.toUpperCase().includes(info.brand.toUpperCase())
       ? `${info.brand} ${info.model}`
-      : info.model ?? info.brand ?? "Unknown";
+      : info.model ?? info.brand;
+  const hardware = [
+    model,
+    cpuCores ? `${cpuCores} core` : null,
+    ramGb ? `${ramGb} GB RAM` : null,
+  ].filter((value): value is string => Boolean(value));
+  const ipAddress = getClientIp(req.headers);
+  const publicIp = isPublicIp(ipAddress) ? ipAddress : null;
   const timestampLocal = nowWaktu();
   const timestampUtc = new Date()
     .toISOString()
     .replace("T", " ")
     .replace(/\.\d{3}Z$/, "");
-  const location = await lookupLocation(getClientIp(req.headers));
-  const locationParts = location?.split(",").map((part) => part.trim()) ?? [];
-  const city = locationParts[0] || "Unknown";
-  const region = locationParts[1] || "Unknown";
+  const location = publicIp ? await lookupCityAndCountry(publicIp) : null;
+  const locationParts = [location?.city, location?.country].filter(
+    (value): value is string => Boolean(value),
+  );
+  const deviceParts = [deviceType, ...hardware, publicIp, info.os].filter(
+    (value): value is string => Boolean(value),
+  );
+  const greeting = account.first_name
+    ? `Dear ${escapeHtml(account.first_name)},`
+    : "Dear,";
 
   const blockOrigin = config.publicUrl || req.nextUrl.origin;
   const blockUrl = `${blockOrigin}/security/block?uid=${uid}&did=${encodeURIComponent(deviceId)}`;
 
   const dmText = [
-    'New login. Dear ${escapeHtml(account.first_name || "user")}, we detected a login into your account from a new device on ${escapeHtml(timestampLocal)} at ${escapeHtml(timestampUtc)} UTC.',
+    `<b>New login.</b> ${greeting} we detected a login into your account from a new device on ${escapeHtml(timestampLocal)}, ${escapeHtml(timestampUtc)} UTC.`,
     "",
-    `Device: ${escapeHtml(deviceType)}, ${escapeHtml(platformVersion)}, ${escapeHtml(model)}, ${escapeHtml(operatingSystem)}`,
-    `Location: ${escapeHtml(city)}, ${escapeHtml(region)}`,
+    ...(deviceParts.length
+      ? [`Device: ${deviceParts.map(escapeHtml).join(", ")}`]
+      : []),
+    ...(locationParts.length
+      ? [`Location: ${locationParts.map(escapeHtml).join(", ")}`]
+      : []),
     "",
     `If this wasn't you, you can terminate that session in <b>Setting &gt; Devices &amp; Security</b> (or open <b>@${escapeHtml(config.botUsername || "CheyaVersebot")}</b> and tap <b>Blokir Device</b>).`,
   ].join("\n");

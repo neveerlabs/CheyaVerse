@@ -1,5 +1,4 @@
 import { config } from "@/lib/config";
-import { buildPushNotification, sendPushToUid } from "@/lib/push";
 
 function escapeHtml(value: string): string {
   return value
@@ -62,34 +61,15 @@ export async function sendOfflineDirectMessageNotifications({
   senderUid,
   senderName,
   content,
-  messageId,
 }: {
   recipientUid: number;
   senderUid: number;
   senderName: string;
   content: string;
-  messageId: string;
 }): Promise<void> {
-  const results = await Promise.allSettled([
-    sendTelegramNotification(recipientUid, senderUid, senderName, content),
-    sendPushToUid(
-      recipientUid,
-      buildPushNotification({
-        uid: recipientUid,
-        contact: {
-          id: String(senderUid),
-          name: senderName,
-          avatarUrl: `/api/avatar/${senderUid}/circular`,
-        },
-        body: content,
-        url: `/${recipientUid}/chat/${senderUid}`,
-        msgId: messageId,
-      }),
-    ),
-  ]);
-  for (const result of results) {
-    if (result.status === "rejected") {
-      console.error("[chats] offline notification delivery failed:", result.reason);
-    }
+  try {
+    await sendTelegramNotification(recipientUid, senderUid, senderName, content);
+  } catch (error) {
+    console.error("[chats] offline Telegram notification delivery failed:", error);
   }
 }

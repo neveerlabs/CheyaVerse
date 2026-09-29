@@ -85,7 +85,11 @@ VAPID_SUBJECT=mailto:admin@example.com
 
 > **Login Telegram:** Isi `BOT_USERNAME` pada `.env` web dengan username bot (tanpa `@`). Pengguna membuka link sekali pakai ke bot dan memilih Setujui atau Tolak di chat pribadi. Bot harus online dan `.env` bot/web harus terhubung ke database Turso yang sama. Domain web tidak perlu didaftarkan dengan `/setdomain` untuk metode login ini.
 
+Pesan `/start` yang membuka permintaan login dihapus otomatis. Setelah disetujui, bot menghapus kartu permintaan dan hanya menampilkan konfirmasi singkat di Telegram.
+
 Setiap permintaan login berlaku selama lima menit, hanya dapat digunakan sekali, dan bot mengambil ID Telegram dari update resmi Telegram—bukan dari browser. Setelah disetujui, session web ditandatangani dengan `TELEGRAM_BOT_TOKEN`; jangan membagikan token dan segera rotasi token jika pernah terekspos. Device ID dibuat setelah identitas Telegram berhasil diverifikasi. Tabel `telegram_login_challenges` dibuat otomatis; tidak perlu menghapus atau membuat ulang tabel database.
+
+Pengaturan **Devices & Security** menampilkan perangkat terdaftar, waktu aktivitas terakhir, dan aksi untuk menghentikan sesi. Logout hanya mengakhiri sesi di perangkat ini. Penghapusan akun web memerlukan konfirmasi teks `HAPUS AKUN`; profil dianonimkan menjadi **Deleted account** pada salinan percakapan akun lain agar riwayat mereka tetap ada. Sesi lama dicabut lewat versi sesi akun. Media milik akun di database dihapus; penghapusan file dari Telegram Storage dilakukan sebaik mungkin dan kegagalan eksternal akan ditampilkan setelah proses.
 
 Halaman login memulihkan sesi hanya jika cookie sesi, Device ID di browser, dan data perangkat di database masih cocok. Sesi yang tidak valid harus melewati login Telegram kembali. Dari menu profil, **Link a device** membuat QR atau link undangan sekali pakai yang kedaluwarsa dalam 60 detik; perangkat baru akan masuk otomatis setelah membuka undangan. Token undangan hanya disimpan sebagai hash di tabel `device_link_tokens`, yang dibuat otomatis. **Log out** menghapus sesi pada browser saat ini.
 
@@ -239,7 +243,9 @@ CREATE TABLE IF NOT EXISTS user_covers (
 > **Pemberitahuan:** *Pastikan database sudah terbuat dengan nama `cheyaverse` di turso*
 > Aplikasi membuat/memigrasikan tabel akun `"akun-telegram"`, `direct_messages`, challenge login, presence, pin, dan penghapusan pesan secara otomatis. Kolom tambahan untuk edit/hapus/forward, balasan, dan pesan suara juga dimigrasikan saat akses pertama. Kolom fingerprint device yang baru juga dimigrasikan otomatis. Jangan drop tabel atau reset database untuk menerapkan pembaruan ini.
 
-Chat langsung menyinkronkan pesan dan tanda dibaca saat room terbuka. Status online didasarkan pada heartbeat web aktif; untuk penerima offline, pesan tetap tersimpan di web dan bot mengirim notifikasi Telegram dengan tombol **Dibaca** serta **Balas**. Balasan Telegram masuk ke room web yang sama.
+Chat langsung menyinkronkan pesan dan tanda dibaca saat room terbuka. Status online didasarkan pada heartbeat web aktif; untuk penerima offline, pesan tetap tersimpan di web dan bot mengirim notifikasi Telegram dengan tombol **Dibaca** serta **Balas**. Pesan dari kontak tidak memicu notifikasi browser atau web-push; notifikasi browser hanya digunakan untuk pemberitahuan CheyaVerse. Balasan Telegram masuk ke room web yang sama.
+
+Laporan login baru mencoba menentukan kota dan negara dari IP publik melalui layanan geolokasi IP; IP proxy privat/lokal tidak dikirim untuk lookup. Lokasi berbasis IP hanya perkiraan jaringan (bukan GPS), dan dapat berbeda atau tidak tersedia jika ISP memakai gateway/VPN atau layanan lookup sedang tidak tersedia.
 
 Pesan suara direkam di browser, dapat diputar ulang sebelum dikirim, lalu disimpan ke chat penyimpanan Telegram yang dikonfigurasi oleh `TELEGRAM_STORAGE_CHAT_ID`. Room membatasi rekaman hingga dua menit dan unggahan hingga 3 MiB. Kolom media dan balasan pada `direct_messages` dimigrasikan otomatis; tidak perlu menjalankan `DROP TABLE` atau mengubah secret environment baru.
 

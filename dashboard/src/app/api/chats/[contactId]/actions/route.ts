@@ -81,8 +81,12 @@ export async function POST(
     ) {
       return NextResponse.json({ ok: false, error: "invalid_target" }, { status: 400 });
     }
-    if (!(await getTelegramUser(targetUid))) {
+    const target = await getTelegramUser(targetUid);
+    if (!target) {
       return NextResponse.json({ ok: false, error: "account_not_found" }, { status: 404 });
+    }
+    if (target.role === "deleted") {
+      return NextResponse.json({ ok: false, error: "account_deleted" }, { status: 410 });
     }
     const online = await isTelegramUserOnline(targetUid);
     const forwarded = await createDirectMessage(session.uid, targetUid, message.content, {
@@ -106,7 +110,6 @@ export async function POST(
         senderUid: session.uid,
         senderName,
         content: message.media_file_id ? "🎙 Pesan suara" : message.content,
-        messageId: forwarded.id,
       });
     }
     return NextResponse.json({ ok: true, message: forwarded });

@@ -43,7 +43,7 @@ import { playSendSound, playReceiveSound } from "@/lib/chat-sounds";
 type ChatContact = Pick<
   TelegramUser,
   "uid" | "username" | "first_name" | "last_name" | "photo_url"
->;
+> & { role?: string };
 type SearchUser = ChatContact;
 
 type ViewportState = {
@@ -202,7 +202,6 @@ export function DirectChatRoomClient({
   const pendingIdsRef = useRef(new Set<string>());
   const toastTimerRef = useRef<number | null>(null);
   const highlightTimerRef = useRef<number | null>(null);
-  const previousTitleRef = useRef("");
   const typingActiveRef = useRef(false);
   const typingLastSentAtRef = useRef(0);
   const typingTimeoutRef = useRef<number | null>(null);
@@ -414,6 +413,7 @@ export function DirectChatRoomClient({
   }
 
   function handleTextChange(value: string) {
+    if (contact.role === "deleted") return;
     setText(value);
     const typing = value.trim().length > 0;
     if (!typing) {
@@ -466,12 +466,12 @@ export function DirectChatRoomClient({
       setMenuOpen(false);
       showToast(
         next
-          ? "Browser notifications muted for this chat."
-          : "Browser notifications enabled for this chat.",
+          ? "Chat sounds muted for this contact."
+          : "Chat sounds enabled for this contact.",
       );
     } catch (error) {
       console.error(
-        "[direct-chat] could not save notification preference:",
+        "[direct-chat] could not save sound preference:",
         error,
       );
       showToast("Could not save notification preference.");
@@ -479,6 +479,7 @@ export function DirectChatRoomClient({
   }
 
   function beginReply(message: DirectMessage) {
+    if (contact.role === "deleted") return;
     setReplyingTo(message);
     setMenuOpen(false);
     requestAnimationFrame(() => textareaRef.current?.focus());
@@ -567,7 +568,7 @@ export function DirectChatRoomClient({
       setMuted(value);
       mutedRef.current = value;
     } catch (error) {
-      console.error("[direct-chat] notification preference unavailable:", error);
+      console.error("[direct-chat] sound preference unavailable:", error);
     }
   }, [contact.uid]);
 
@@ -781,6 +782,19 @@ export function DirectChatRoomClient({
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    if (contact.role === "deleted") {
+      setText("");
+      setReplyingTo(null);
+      setEditingId(null);
+      draftReadyRef.current = true;
+      try {
+        window.localStorage.removeItem(DRAFT_KEY);
+      } catch (error) {
+        console.error("[direct-chat] could not clear deleted account draft:", error);
+      }
+      window.dispatchEvent(new Event("cheya-draft-change"));
+      return;
+    }
     try {
       const raw = window.localStorage.getItem(DRAFT_KEY);
       if (!raw) return;
@@ -806,10 +820,19 @@ export function DirectChatRoomClient({
         if (target) setReplyingTo(target);
       }
     } catch {}
-  }, [DRAFT_KEY]);
+  }, [contact.role, DRAFT_KEY]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    if (contact.role === "deleted") {
+      try {
+        window.localStorage.removeItem(DRAFT_KEY);
+      } catch (error) {
+        console.error("[direct-chat] could not clear deleted account draft:", error);
+      }
+      window.dispatchEvent(new Event("cheya-draft-change"));
+      return;
+    }
     if (!draftReadyRef.current) {
       draftReadyRef.current = true;
       return;
@@ -826,7 +849,7 @@ export function DirectChatRoomClient({
       }
       window.dispatchEvent(new Event("cheya-draft-change"));
     } catch {}
-  }, [text, replyingTo, DRAFT_KEY]);
+  }, [text, replyingTo, contact.role, DRAFT_KEY]);
 
   useRealtime(uid, (event) => {
     if (event.type === "direct-chat:typing" && event.senderUid === contact.uid) {
@@ -874,35 +897,6 @@ export function DirectChatRoomClient({
         if (isFromContact && !mutedRef.current) {
           playReceiveSound();
         }
-        if (
-          incoming.recipient_uid === myUid &&
-          document.visibilityState === "hidden"
-        ) {
-          if (
-            !muted &&
-            typeof Notification !== "undefined" &&
-            Notification.permission === "granted"
-          ) {
-            try {
-              new Notification(name, {
-                body: incoming.media_file_id
-                  ? "Pesan suara tidak didukung"
-                  : incoming.content,
-                icon: contact.photo_url || "/icon.png",
-                tag: `cheyaverse-chat-${contact.uid}`,
-              });
-            } catch (error) {
-              console.error("[direct-chat] browser notification failed:", error);
-            }
-          }
-          const oldTitle = previousTitleRef.current || document.title;
-          previousTitleRef.current = oldTitle;
-          document.title = `Pesan baru · ${name}`;
-          window.setTimeout(() => {
-            document.title = oldTitle;
-            previousTitleRef.current = "";
-          }, 5000);
-        }
       }
       return;
     }
@@ -941,6 +935,7 @@ export function DirectChatRoomClient({
   }, [messages.length]);
 
   async function sendMessage() {
+    if (contact.role === "deleted") return;
     const content = text.trim();
     if (!content || sending) return;
     stopTyping();
@@ -1178,12 +1173,14 @@ export function DirectChatRoomClient({
   }
 
   function replySelected() {
+    if (contact.role === "deleted") return;
     if (selectedMessages.length !== 1) return;
     beginReply(selectedMessages[0]);
     exitSelectMode();
   }
 
   function editSelected() {
+    if (contact.role === "deleted") return;
     if (selectedMessages.length !== 1) return;
     const msg = selectedMessages[0];
     if (msg.sender_uid !== myUid || msg.deleted_at || msg.media_file_id) return;
@@ -1315,7 +1312,7 @@ export function DirectChatRoomClient({
               >
                 <Forward size={17} strokeWidth={2.2} />
               </button>
-              {canEditSelected && (
+              {canEditSelected && contact.role !== "deleted" && (
                 <button
                   type="button"
                   onClick={editSelected}
@@ -1420,8 +1417,8 @@ export function DirectChatRoomClient({
                 >
                   {muted ? <Bell size={15} /> : <BellOff size={15} />}
                   {muted
-                    ? "Unmute browser notifications"
-                    : "Mute browser notifications"}
+                    ? "Unmute chat sounds"
+                    : "Mute chat sounds"}
                 </button>
               </div>
             )}
@@ -1431,7 +1428,14 @@ export function DirectChatRoomClient({
     </header>
   );
 
-  const footer = selectMode ? (
+  const footer = contact.role === "deleted" ? (
+    <footer
+      className="chat-footer pointer-events-none fixed left-0 right-0 z-30 flex justify-center px-3 py-3 text-center text-[13px] text-ink-mute"
+      style={{ bottom: footerBottom }}
+    >
+      Akun ini telah dihapus
+    </footer>
+  ) : selectMode ? (
     <footer
       className="chat-footer pointer-events-none fixed left-0 right-0 z-30 bg-transparent"
       style={{ bottom: footerBottom }}

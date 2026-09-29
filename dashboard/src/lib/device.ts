@@ -1,3 +1,5 @@
+import { isIP } from "node:net";
+
 export type DeviceType = "mobile" | "tablet" | "desktop" | "bot" | "unknown";
 
 export type DeviceInfo = {
@@ -132,47 +134,156 @@ export function parseDevice(ua: string): string {
 export function getClientIp(headers: {
   get: (name: string) => string | null;
 }): string {
-  const fwd = headers.get("x-forwarded-for");
-  if (fwd) {
-    const first = fwd.split(",")[0].trim();
-    if (first) return first;
-  }
-  return (
-    headers.get("x-real-ip") ??
-    headers.get("cf-connecting-ip") ??
-    headers.get("x-client-ip") ??
-    "unknown"
-  );
+  const candidates = [
+    headers.get("cf-connecting-ip"),
+    headers.get("x-real-ip"),
+    headers.get("x-client-ip"),
+    ...(headers.get("x-forwarded-for")?.split(",") ?? []),
+  ]
+    .map((ip) => ip?.trim() ?? "")
+    .filter(Boolean);
+  const publicIp = candidates.find(isPublicIp);
+  if (publicIp) return publicIp;
+  return candidates.find((ip) => isIP(ip) !== 0) ?? "unknown";
 }
 
 export function isPublicIp(ip: string): boolean {
-  if (!ip || ip === "unknown") return false;
-  if (ip === "127.0.0.1" || ip === "::1" || ip === "0.0.0.0") return false;
-  if (/^10\./.test(ip)) return false;
-  if (/^192\.168\./.test(ip)) return false;
-  if (/^172\.(1[6-9]|2\d|3[01])\./.test(ip)) return false;
-  if (/^169\.254\./.test(ip)) return false;
-  if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(ip)) return false;
-  if (/^fc00:|^fd00:|^fe80:|^::ffff:10\.|^::ffff:192\.168\./i.test(ip)) return false;
+  const version = isIP(ip);
+  if (version === 4) {
+    const [first, second, third] = ip.split(".").map(Number);
+    if (
+      first === 0 ||
+      first === 10 ||
+      first === 127 ||
+      first >= 224 ||
+      (first === 100 && second >= 64 && second <= 127) ||
+      (first === 169 && second === 254) ||
+      (first === 172 && second >= 16 && second <= 31) ||
+      (first === 192 &&
+        (second === 0 ||
+          second === 168 ||
+          (second === 88 && third === 99))) ||
+      (first === 198 &&
+        (second === 18 ||
+          second === 19 ||
+          (second === 51 && third === 100))) ||
+      (first === 203 && second === 0 && third === 113)
+    ) {
+      return false;
+    }
+    return true;
+  }
+  if (version !== 6) return false;
+
+  const [firstHextet, secondHextet] = ip.toLowerCase().split(":");
+  if (!/^[23]/.test(firstHextet)) return false;
+  const second = Number.parseInt(secondHextet || "0", 16);
+  if (
+    (firstHextet === "2001" &&
+      (second <= 0x01ff || second === 0x0db8)) ||
+    firstHextet === "2002" ||
+    (firstHextet === "3fff" && second <= 0x0fff)
+  ) {
+    return false;
+  }
   return true;
 }
 
-export async function lookupLocation(ip: string): Promise<string | null> {
-  if (!isPublicIp(ip)) return null;
+type LocationFields = {
+  city: string | null;
+  region: string | null;
+  country: string | null;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function locationFields(
+  value: Record<string, unknown>,
+): LocationFields | null {
+  const city =
+    typeof value.city === "string" && value.city.trim()
+      ? value.city.trim()
+      : null;
+  const region =
+    typeof value.region === "string" && value.region.trim()
+      ? value.region.trim()
+      : null;
+  const countryValue = value.country_name ?? value.country;
+  const country =
+    typeof countryValue === "string" && countryValue.trim()
+      ? countryValue.trim()
+      : null;
+  return city || region || country ? { city, region, country } : null;
+}
+
+async function fetchLocation(
+  url: string,
+  parse: (value: Record<string, unknown>) => LocationFields | null,
+): Promise<LocationFields | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 2500);
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 2500);
-    const res = await fetch(`https://ipapi.co/${encodeURIComponent(ip)}/json/`, {
+    const res = await fetch(url, {
       signal: controller.signal,
       cache: "no-store",
     });
-    clearTimeout(timer);
     if (!res.ok) return null;
-    const data = await res.json();
-    if (data?.error) return null;
-    const parts = [data?.city, data?.region, data?.country_name].filter(Boolean);
-    return parts.length ? parts.join(", ") : null;
+    const data: unknown = await res.json();
+    if (!isRecord(data)) return null;
+    return parse(data);
   } catch {
     return null;
+  } finally {
+    clearTimeout(timer);
   }
+}
+
+async function lookupLocationFields(ip: string): Promise<LocationFields | null> {
+  if (!isPublicIp(ip)) return null;
+  const encodedIp = encodeURIComponent(ip);
+  const primary = await fetchLocation(
+    `https://ipapi.co/${encodedIp}/json/`,
+    (data) => (data.error ? null : locationFields(data)),
+  );
+  if (primary?.city && primary.country) return primary;
+
+  const fallback = await fetchLocation(
+    `https://ipwho.is/${encodedIp}`,
+    (data) =>
+      data.success === false
+        ? null
+        : locationFields({
+            city: data.city,
+            region: data.region,
+            country: data.country,
+          }),
+  );
+  if (!primary && !fallback) {
+    console.warn("[device] IP geolocation providers returned no location data.");
+  }
+  if (!primary) return fallback;
+  if (!fallback) return primary;
+  return {
+    city: primary.city ?? fallback.city,
+    region: primary.region ?? fallback.region,
+    country: primary.country ?? fallback.country,
+  };
+}
+
+export async function lookupLocation(ip: string): Promise<string | null> {
+  const location = await lookupLocationFields(ip);
+  if (!location) return null;
+  const parts = [location.city, location.region, location.country].filter(
+    (part): part is string => Boolean(part),
+  );
+  return parts.length ? parts.join(", ") : null;
+}
+
+export async function lookupCityAndCountry(
+  ip: string,
+): Promise<Pick<LocationFields, "city" | "country"> | null> {
+  const location = await lookupLocationFields(ip);
+  return location ? { city: location.city, country: location.country } : null;
 }
