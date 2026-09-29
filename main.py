@@ -4,9 +4,11 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramAPIError
-from aiogram.types import ErrorEvent
+from aiogram.types import ErrorEvent, Update
+from aiogram.dispatcher.middlewares.base import BaseMiddleware
 import storage
-from config import BOT_TOKEN, PUBLIC_URL
+from config import ADMIN_TELEGRAM_IDS, BOT_TOKEN, BROADCAST_WEB_SECRET, PUBLIC_URL
+from handlers import announcement as announcement_handler
 from handlers import help as help_handler
 from handlers import qr as qr_handler
 from handlers import start
@@ -14,6 +16,43 @@ from logger import logger
 from handlers import web as web_handler
 
 CLEANUP_INTERVAL_SECONDS = 6 * 3600
+
+
+class TelegramUserRegistryMiddleware(BaseMiddleware):
+    async def __call__(self, handler, event: Update, data: dict):
+        interaction = next(
+            (
+                getattr(event, name, None)
+                for name in (
+                    "message",
+                    "edited_message",
+                    "channel_post",
+                    "edited_channel_post",
+                    "business_message",
+                    "edited_business_message",
+                    "callback_query",
+                    "inline_query",
+                    "chosen_inline_result",
+                    "shipping_query",
+                    "pre_checkout_query",
+                    "poll_answer",
+                    "chat_member",
+                    "my_chat_member",
+                    "chat_join_request",
+                )
+                if getattr(event, name, None) is not None
+            ),
+            None,
+        )
+        user = getattr(interaction, "from_user", None)
+        if user and not user.is_bot:
+            try:
+                await storage.record_telegram_bot_user_id(user.id)
+            except Exception as exc:
+                logger.error(
+                    f"Failed to record Telegram user ID {user.id}: {exc}"
+                )
+        return await handler(event, data)
 
 
 def _verify_assets() -> bool:
@@ -84,6 +123,8 @@ async def _run() -> int:
         return 1
 
     dp = Dispatcher()
+    dp.update.outer_middleware(TelegramUserRegistryMiddleware())
+    dp.include_router(announcement_handler.router)
     dp.include_router(start.router)
     dp.include_router(help_handler.router)
     dp.include_router(qr_handler.router)
@@ -112,11 +153,24 @@ async def _run() -> int:
     logger.info("CheyaVerse bot is starting...")
 
     _verify_assets()
+    if not ADMIN_TELEGRAM_IDS:
+        logger.warning("ADMIN_TELEGRAM_IDS is empty. /pesan broadcasts are disabled.")
 
     if not PUBLIC_URL:
         logger.warning("PUBLIC_URL is empty. QR media will use raw viewer paths.")
     else:
         logger.info(f"Public viewer base: {PUBLIC_URL}")
+    if not BROADCAST_WEB_SECRET:
+        logger.warning(
+            "BROADCAST_WEB_SECRET is empty. Web announcement delivery is disabled."
+        )
+
+    try:
+        await storage.ensure_telegram_bot_user_ids_table()
+    except Exception as exc:
+        logger.error(f"Telegram user registry initialization failed: {exc}")
+        await bot.session.close()
+        return 1
 
     await _run_cleanup_once(bot)
 

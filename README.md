@@ -7,7 +7,7 @@
 
 ## Requirements
 
-- Node.js 18+
+- Node.js 20+
 - Akun [Turso](https://turso.tech) (database SQLite cloud)
 - Bot Telegram + token dari [@BotFather](https://t.me/BotFather)
 - Google [reCAPTCHA v2](https://www.google.com/recaptcha/admin/)
@@ -42,7 +42,17 @@ TELEGRAM_STORAGE_CHAT_ID=
 VAPID_PUBLIC_KEY=
 VAPID_PRIVATE_KEY=
 VAPID_SUBJECT=mailto:admin@example.com
+ADMIN_TELEGRAM_IDS=
+BROADCAST_WEB_SECRET=
 ```
+
+`ADMIN_TELEGRAM_IDS` hanya untuk bot (bukan web): isi ID numerik akun admin, pisahkan dengan koma, dan biarkan key ini tetap di `.env` yang tidak di-commit. Bot mencatat ID numerik setiap akun Telegram yang mengirim pesan atau command ke bot dalam tabel `telegram_bot_user_ids`; ID unik dan trigger database menolak operasi update/delete. Saat tabel pertama kali dibuat, bot juga memasukkan ID akun yang sudah tercatat di tabel akun web. Interaksi Telegram lama yang tidak pernah masuk database akun tidak dapat dipulihkan oleh Bot API; ID pengirim baru akan tercatat setelah bot diperbarui dan dijalankan.
+
+`BROADCAST_WEB_SECRET` harus memakai nilai rahasia acak yang sama di `.env` bot dan environment web (local dan deployment). Jangan commit atau membagikan nilainya. Bot memakai key ini untuk memanggil endpoint internal web saat broadcast.
+
+Admin dapat mengirim pengumuman ke semua ID user client bot yang tercatat dengan `/pesan isi pengumuman`, atau mengirim media dengan caption `/pesan isi pengumuman`. ID admin dikecualikan dari penerima Telegram dan web. Pengumuman juga disimpan sebagai notifikasi dan pesan sistem untuk semua akun web aktif, dikirim ke koneksi realtime yang sedang terbuka, dan diteruskan sebagai web push jika tersedia. Bot mengirim laporan pribadi ke admin bila salah satu jalur broadcast mengalami error atau tidak ada penerima.
+
+Isi pengumuman mendukung `**bold**`, `*bold*`, `_italic_`, `__underline__`, baris kutipan `> ...`, daftar `- ...`, `&nbsp;`, dan fenced code block dengan label bahasa. Isi teks di-escape sebelum ditafsirkan sebagai format agar markup tidak menjadi HTML aktif. Garis pemisah dibuat pendek agar tetap konsisten pada layar sempit; Bot API tidak memberi tahu apakah penerima membaca pesan di perangkat mobile atau desktop, jadi format tidak dapat dipilih per perangkat.
 
 ### 4. Running bot
 
@@ -76,14 +86,21 @@ NEXT_PUBLIC_RECAPTCHA_SITE_KEY=
 RECAPTCHA_SECRET_KEY=
 TURSO_URL=
 TURSO_AUTH_TOKEN=
+BROADCAST_WEB_SECRET=
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_STORAGE_CHAT_ID=
+ADMIN_TELEGRAM_IDS=
 NEXT_PUBLIC_VAPID_PUBLIC_KEY=
 VAPID_PRIVATE_KEY=
 VAPID_SUBJECT=mailto:admin@example.com
+BLOB_READ_WRITE_TOKEN=
 ```
 
+`ADMIN_TELEGRAM_IDS` di `.env` dashboard berisi ID Telegram numerik admin, dipisahkan koma jika lebih dari satu. Akun-akun ini mendapat lencana admin terverifikasi di daftar pencarian/chat dan ruang chat.
+
 > **Login Telegram:** Isi `BOT_USERNAME` pada `.env` web dengan username bot (tanpa `@`). Pengguna membuka link sekali pakai ke bot dan memilih Setujui atau Tolak di chat pribadi. Bot harus online dan `.env` bot/web harus terhubung ke database Turso yang sama. Domain web tidak perlu didaftarkan dengan `/setdomain` untuk metode login ini.
+
+Isi `BROADCAST_WEB_SECRET` di environment web dengan nilai rahasia yang sama seperti di `.env` bot. Nilai ini melindungi endpoint internal penerima broadcast dan harus disetel juga pada environment deployment web.
 
 Pesan `/start` yang membuka permintaan login dihapus otomatis. Setelah disetujui, bot menghapus kartu permintaan dan hanya menampilkan konfirmasi singkat di Telegram.
 
@@ -94,6 +111,10 @@ Pengaturan **Devices & Security** menampilkan perangkat terdaftar, waktu aktivit
 Halaman login memulihkan sesi hanya jika cookie sesi, Device ID di browser, dan data perangkat di database masih cocok. Sesi yang tidak valid harus melewati login Telegram kembali. Dari menu profil, **Link a device** membuat QR atau link undangan sekali pakai yang kedaluwarsa dalam 60 detik; perangkat baru akan masuk otomatis setelah membuka undangan. Token undangan hanya disimpan sebagai hash di tabel `device_link_tokens`, yang dibuat otomatis. **Log out** menghapus sesi pada browser saat ini.
 
 Untuk push saat bot menghapus media yang kedaluwarsa, isi `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, dan `VAPID_SUBJECT` di `.env` bot dengan pasangan yang sama seperti `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, dan `VAPID_SUBJECT` di `.env` web.
+
+Push dari CheyaVerse web ditandai **Web** dan setiap pesan memakai tag unik agar browser tidak mengganti pesan sebelumnya. Browser atau OS dapat mengelompokkan notifikasi secara visual sesuai dukungannya. Suara dan getar push mengikuti dukungan serta pengaturan notifikasi browser/OS; halaman web memakai audio lokal ketika browser mengizinkan pemutaran. QR cadangan di viewer media dibuat dan dikustomisasi di browser, tanpa menyimpan desainnya di server.
+
+Beranda web menyediakan **Library** virtual pada path `/home/{username}`. Path ini hanya struktur data aplikasi di Turso, bukan akses ke filesystem server. Pengguna dapat mengelola folder, file teks (maksimal 1 MB), dan file gambar/video (maksimal 30 MiB per file); media diunggah langsung dari browser sebagai private object di Vercel Blob, sementara metadata/path disimpan di Turso. Tambahkan `BLOB_READ_WRITE_TOKEN` dari Blob Store dan pastikan `PUBLIC_URL` dashboard mengarah ke URL publik HTTPS agar callback upload dapat dijangkau. Penghapusan folder menghapus seluruh isinya; data library dibatasi pada akun pemilik dan ikut dihapus saat akun web dihapus. Halaman Statistik telah dihapus.
 
 ### 4. Buat tabel di Turso
 

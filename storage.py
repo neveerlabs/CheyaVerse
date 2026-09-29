@@ -23,6 +23,97 @@ from logger import logger
 from pywebpush import WebPushException, webpush
 
 
+_telegram_bot_user_ids_ready = False
+_telegram_bot_user_ids_lock = asyncio.Lock()
+
+
+async def ensure_telegram_bot_user_ids_table() -> None:
+    global _telegram_bot_user_ids_ready
+    if _telegram_bot_user_ids_ready:
+        return
+    async with _telegram_bot_user_ids_lock:
+        if _telegram_bot_user_ids_ready:
+            return
+        await _execute(
+            """
+            CREATE TABLE IF NOT EXISTS telegram_bot_user_ids (
+                telegram_uid INTEGER PRIMARY KEY,
+                first_seen_at TEXT NOT NULL
+            )
+            """,
+            [],
+        )
+        await _execute(
+            """
+            CREATE TRIGGER IF NOT EXISTS telegram_bot_user_ids_no_update
+            BEFORE UPDATE ON telegram_bot_user_ids
+            BEGIN
+                SELECT RAISE(ABORT, 'Telegram bot user IDs are append-only');
+            END
+            """,
+            [],
+        )
+        await _execute(
+            """
+            CREATE TRIGGER IF NOT EXISTS telegram_bot_user_ids_no_delete
+            BEFORE DELETE ON telegram_bot_user_ids
+            BEGIN
+                SELECT RAISE(ABORT, 'Telegram bot user IDs are append-only');
+            END
+            """,
+            [],
+        )
+        _columns, account_tables = await _execute(
+            """
+            SELECT name FROM sqlite_master
+            WHERE type = 'table' AND name IN (?, ?)
+            """,
+            ["akun-telegram", "telegram_users"],
+        )
+        existing_tables = {str(row[0]) for row in account_tables}
+        first_seen_at = datetime.now(timezone.utc).isoformat()
+        for table in ('"akun-telegram"', "telegram_users"):
+            if table.strip('"') not in existing_tables:
+                continue
+            await _execute(
+                f"""
+                INSERT OR IGNORE INTO telegram_bot_user_ids
+                    (telegram_uid, first_seen_at)
+                SELECT uid, ? FROM {table} WHERE uid IS NOT NULL
+                """,
+                [first_seen_at],
+            )
+        _telegram_bot_user_ids_ready = True
+
+
+async def record_telegram_bot_user_id(telegram_uid: int) -> None:
+    if telegram_uid <= 0:
+        raise ValueError("Telegram user ID must be positive")
+    await ensure_telegram_bot_user_ids_table()
+    await _execute(
+        """
+        INSERT OR IGNORE INTO telegram_bot_user_ids (telegram_uid, first_seen_at)
+        VALUES (?, ?)
+        """,
+        [telegram_uid, datetime.now(timezone.utc).isoformat()],
+    )
+
+
+async def list_telegram_bot_user_ids() -> list[int]:
+    await ensure_telegram_bot_user_ids_table()
+    _columns, rows = await _execute(
+        """
+        SELECT known.telegram_uid
+        FROM telegram_bot_user_ids known
+        LEFT JOIN "akun-telegram" account ON account.uid = known.telegram_uid
+        WHERE COALESCE(account.role, 'user') NOT IN ('deleted', 'admin')
+        ORDER BY known.telegram_uid
+        """,
+        [],
+    )
+    return [int(row[0]) for row in rows]
+
+
 def _telegram_login_challenge_hash(challenge: str) -> str | None:
     if not re.fullmatch(r"[A-Za-z0-9_-]{43}", challenge):
         return None
