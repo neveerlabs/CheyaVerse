@@ -1,5 +1,8 @@
 import type { NextRequest } from "next/server";
-import { isDeviceBlacklisted } from "@/lib/storage";
+import {
+  getAccountSessionVersion,
+  isDeviceBlacklisted,
+} from "@/lib/storage";
 import {
   readSessionToken,
   SESSION_COOKIE_NAME,
@@ -31,6 +34,9 @@ export async function getUserSession(
     request.cookies.get(SESSION_COOKIE_NAME)?.value,
   );
   if (!session || (expectedUid !== undefined && session.uid !== expectedUid)) {
+    return null;
+  }
+  if (session.sessionVersion !== (await getAccountSessionVersion(session.uid))) {
     return null;
   }
   if (

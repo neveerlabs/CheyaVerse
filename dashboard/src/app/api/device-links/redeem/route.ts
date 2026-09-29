@@ -6,7 +6,7 @@ import {
   SESSION_COOKIE_NAME,
   SESSION_MAX_AGE_SECONDS,
 } from "@/lib/session-token";
-import { getTelegramUser } from "@/lib/storage";
+import { getAccountSessionState } from "@/lib/storage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,20 +24,25 @@ export async function POST(request: NextRequest) {
       { status: 410 },
     );
   }
-  if (!(await getTelegramUser(uid))) {
+  const accountState = await getAccountSessionState(uid);
+  if (!accountState.active) {
     return NextResponse.json({ ok: false, error: "account_not_found" }, { status: 410 });
   }
 
   const response = NextResponse.json({ ok: true, uid });
-  response.cookies.set(SESSION_COOKIE_NAME, createSessionToken(uid, null, true), {
-    httpOnly: true,
-    secure:
-      process.env.NODE_ENV === "production" ||
-      request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim() === "https" ||
-      request.nextUrl.protocol === "https:",
-    sameSite: "lax",
-    path: "/",
-    maxAge: SESSION_MAX_AGE_SECONDS,
-  });
+  response.cookies.set(
+    SESSION_COOKIE_NAME,
+    createSessionToken(uid, null, true, accountState.sessionVersion),
+    {
+      httpOnly: true,
+      secure:
+        process.env.NODE_ENV === "production" ||
+        request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim() === "https" ||
+        request.nextUrl.protocol === "https:",
+      sameSite: "lax",
+      path: "/",
+      maxAge: SESSION_MAX_AGE_SECONDS,
+    },
+  );
   return response;
 }

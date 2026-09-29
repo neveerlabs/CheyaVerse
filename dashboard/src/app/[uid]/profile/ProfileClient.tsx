@@ -86,6 +86,8 @@ export function ProfileClient({
   const [avatarOpen, setAvatarOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [deviceId, setDeviceId] = useState<string | null>(null);
+  const [logoutDialog, setLogoutDialog] = useState(false);
+  const [logoutError, setLogoutError] = useState("");
   const [mounted, setMounted] = useState(false);
   const [headerVisible, setHeaderVisible] = useState(false);
 
@@ -470,7 +472,9 @@ export function ProfileClient({
       window.location.replace("/login");
     } catch (cause) {
       console.error("[profile] logout failed:", cause);
-      showToast(cause instanceof Error ? cause.message : "Logout gagal");
+      setLogoutError(
+        cause instanceof Error ? cause.message : "Logout gagal",
+      );
       setLoggingOut(false);
     }
   }
@@ -1175,7 +1179,11 @@ export function ProfileClient({
           <div className="my-1.5 border-t border-line" />
           <button
             type="button"
-            onClick={() => void logOut()}
+            onClick={() => {
+              closeMenu();
+              setLogoutError("");
+              setLogoutDialog(true);
+            }}
             disabled={loggingOut}
             className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left text-[13.5px] font-medium text-danger hover:bg-red-50 disabled:opacity-60"
           >
@@ -1184,6 +1192,57 @@ export function ProfileClient({
             </span>
             {loggingOut ? "Logging out…" : "Log out"}
           </button>
+        </div>
+      )}
+
+      {logoutDialog && (
+        <div
+          className="fixed inset-0 z-[130] flex items-end justify-center bg-black/45 p-3 backdrop-blur-[3px] sm:items-center sm:p-5"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !loggingOut) {
+              setLogoutDialog(false);
+            }
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="logout-dialog-title"
+            className="w-full max-w-[380px] animate-fade-up rounded-[28px] border border-white/70 bg-white p-5 shadow-[0_24px_80px_-24px_rgba(0,0,0,.35)] sm:p-6"
+          >
+            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-[17px] bg-[#fff1f0] text-danger">
+              <LogOut size={21} />
+            </div>
+            <h2 id="logout-dialog-title" className="text-[18px] font-bold tracking-tight text-ink">
+              Log out from this device?
+            </h2>
+            <p className="mt-2 text-[13px] leading-relaxed text-ink-soft">
+              Sesi pada perangkat ini akan dihapus. Anda perlu login kembali untuk mengakses akun.
+            </p>
+            {logoutError && (
+              <p role="alert" className="mt-3 rounded-xl bg-red-50 px-3 py-2.5 text-[11px] text-danger">
+                {logoutError}
+              </p>
+            )}
+            <div className="mt-6 grid grid-cols-2 gap-2.5">
+              <button
+                type="button"
+                disabled={loggingOut}
+                onClick={() => setLogoutDialog(false)}
+                className="rounded-2xl border border-line bg-white px-4 py-3 text-[13px] font-semibold text-ink-soft transition-colors hover:bg-[#f8f8f8] disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={loggingOut}
+                onClick={() => void logOut()}
+                className="rounded-2xl bg-danger px-4 py-3 text-[13px] font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+              >
+                {loggingOut ? "Logging out…" : "Log out"}
+              </button>
+            </div>
+          </section>
         </div>
       )}
     </>

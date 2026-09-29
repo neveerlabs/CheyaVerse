@@ -9,7 +9,9 @@ import {
 } from "@/lib/session-token";
 import {
   consumeTelegramLoginChallenge,
+  getAccountSessionState,
   getTelegramLoginChallenge,
+  restoreDeletedTelegramAccount,
 } from "@/lib/storage";
 
 export const runtime = "nodejs";
@@ -88,15 +90,24 @@ export async function POST(request: NextRequest) {
       { status: "approved", uid },
       { headers: { "Cache-Control": "no-store" } },
     );
-    response.cookies.set(SESSION_COOKIE_NAME, createSessionToken(uid), {
-      httpOnly: true,
-      secure:
-        process.env.NODE_ENV === "production" ||
-        request.headers.get("origin")?.startsWith("https://") === true,
-      sameSite: "lax",
-      path: "/",
-      maxAge: SESSION_MAX_AGE_SECONDS,
-    });
+    await restoreDeletedTelegramAccount(uid);
+    const accountState = await getAccountSessionState(uid);
+    if (!accountState.active) {
+      return NextResponse.json({ status: "expired" }, { status: 410 });
+    }
+    response.cookies.set(
+      SESSION_COOKIE_NAME,
+      createSessionToken(uid, null, false, accountState.sessionVersion),
+      {
+        httpOnly: true,
+        secure:
+          process.env.NODE_ENV === "production" ||
+          request.headers.get("origin")?.startsWith("https://") === true,
+        sameSite: "lax",
+        path: "/",
+        maxAge: SESSION_MAX_AGE_SECONDS,
+      },
+    );
     return response;
   } catch (error) {
     console.error("[auth/challenge/status] failed to verify challenge:", error);

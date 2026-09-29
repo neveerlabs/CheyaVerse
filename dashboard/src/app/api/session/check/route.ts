@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isDeviceBlacklisted } from "@/lib/storage";
+import {
+  getAccountSessionVersion,
+  isDeviceBlacklisted,
+  touchDeviceId,
+} from "@/lib/storage";
 import { readSessionToken, SESSION_COOKIE_NAME } from "@/lib/session-token";
 
 export const runtime = "nodejs";
@@ -14,6 +18,9 @@ export async function POST(req: NextRequest) {
   if (!session) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
+  if (session.sessionVersion !== (await getAccountSessionVersion(session.uid))) {
+    return NextResponse.json({ ok: false, error: "session_revoked" }, { status: 401 });
+  }
   const body = await req.json().catch(() => ({}));
   const uid = Number(body?.uid);
 
@@ -26,5 +33,6 @@ export async function POST(req: NextRequest) {
   }
 
   const blocked = await isDeviceBlacklisted(deviceId, uid);
+  if (!blocked) await touchDeviceId(deviceId, uid);
   return NextResponse.json({ ok: true, blocked });
 }

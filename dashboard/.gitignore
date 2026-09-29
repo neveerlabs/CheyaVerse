@@ -3,5 +3,8 @@ node_modules/
 out/
 build/
 .env
+.env.*
+*.env
+*.env.*
 .env.local
 .env.production.local

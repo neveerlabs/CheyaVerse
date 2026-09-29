@@ -7,7 +7,11 @@ import { PushRegister } from "@/components/PushRegister";
 import { ChatPresence } from "@/components/ChatPresence";
 import { cookies } from "next/headers";
 import { notFound, redirect } from "next/navigation";
-import { isDeviceBlacklisted, getTelegramUser } from "@/lib/storage";
+import {
+  getAccountSessionVersion,
+  isDeviceBlacklisted,
+  getTelegramUser,
+} from "@/lib/storage";
 import { readSessionToken, SESSION_COOKIE_NAME } from "@/lib/session-token";
 
 export const dynamic = "force-dynamic";
@@ -26,6 +30,9 @@ export default async function UserLayout({
   const valid = Number.isInteger(uid) && uid > 0;
   const session = readSessionToken(cookies().get(SESSION_COOKIE_NAME)?.value);
   if (!session) redirect("/login");
+  if (session.sessionVersion !== (await getAccountSessionVersion(session.uid))) {
+    redirect("/login");
+  }
   if (session.uid !== uid) redirect(`/${session.uid}`);
 
   const [user, blocked] = await Promise.all([

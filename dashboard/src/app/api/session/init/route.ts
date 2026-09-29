@@ -9,7 +9,7 @@ import {
   isDeviceBlacklisted,
   getTelegramUser,
 } from "@/lib/storage";
-import { parseDeviceInfo } from "@/lib/device";
+import { getClientIp, lookupLocation, parseDeviceInfo } from "@/lib/device";
 import { sendTelegramMessage } from "@/lib/telegram";
 import {
   computeFingerprint,
@@ -73,16 +73,6 @@ function buildDeviceLine(info: ReturnType<typeof parseDeviceInfo>): string | nul
     parts.push(info.model);
   }
   return parts.join(" · ") || null;
-}
-
-function buildHardwareLine(
-  cpuCores: number | null,
-  ramGb: number | null,
-): string {
-  const parts: string[] = [];
-  if (typeof cpuCores === "number" && cpuCores > 0) parts.push(`${cpuCores} core`);
-  if (typeof ramGb === "number" && ramGb > 0) parts.push(`${ramGb} GB RAM`);
-  return parts.length ? parts.join(" · ") : "Tidak terdeteksi";
 }
 
 function nowWaktu(): string {
@@ -151,7 +141,6 @@ export async function POST(req: NextRequest) {
 
   const info = parseDeviceInfo(ua);
   const deviceLine = buildDeviceLine(info);
-  const hardwareLine = buildHardwareLine(cpuCores, ramGb);
 
   const ident = {
     device_type: info.type === "unknown" ? null : info.type,
@@ -216,7 +205,7 @@ export async function POST(req: NextRequest) {
         screen_w: screenW,
         screen_h: screenH,
       });
-      return withDeviceSession(req, uid, deviceId);
+      return withDeviceSession(req, uid, deviceId, session.sessionVersion);
     }
 
     if (session.deviceId) {
@@ -291,35 +280,53 @@ export async function POST(req: NextRequest) {
       : "Otorisasi akun berhasil. Akun Anda telah terhubung dengan aman.";
     sendPushToUid(uid, buildSystemPush(uid, pushBody)).catch(() => {});
 
-    return withDeviceSession(req, uid, deviceId, {
+    return withDeviceSession(req, uid, deviceId, session.sessionVersion, {
       ok: true,
       state: "welcome",
       deviceId,
     });
   }
 
-  const deviceBaru = escapeHtml(deviceLine || "Tidak terdeteksi");
-  const browserBaru = escapeHtml(info.browser || "Tidak terdeteksi");
-  const waktuBaru = nowWaktu();
+  const deviceType =
+    info.type === "mobile"
+      ? "Mobile"
+      : info.type === "tablet"
+        ? "Tablet"
+        : info.type === "desktop"
+          ? "Desktop"
+          : info.type === "bot"
+            ? "Bot"
+            : "Unknown";
+  const platformVersion =
+    info.os?.match(/[\d]+(?:\.[\d]+)*/)?.[0] ?? "Unknown";
+  const operatingSystem =
+    info.os?.replace(/\s+[\d].*$/, "").trim() || info.os || "Unknown";
+  const model =
+    info.brand &&
+    info.model &&
+    !info.model.toUpperCase().includes(info.brand.toUpperCase())
+      ? `${info.brand} ${info.model}`
+      : info.model ?? info.brand ?? "Unknown";
+  const timestampLocal = nowWaktu();
+  const timestampUtc = new Date()
+    .toISOString()
+    .replace("T", " ")
+    .replace(/\.\d{3}Z$/, "");
+  const location = await lookupLocation(getClientIp(req.headers));
+  const locationParts = location?.split(",").map((part) => part.trim()) ?? [];
+  const city = locationParts[0] || "Unknown";
+  const region = locationParts[1] || "Unknown";
 
   const blockOrigin = config.publicUrl || req.nextUrl.origin;
   const blockUrl = `${blockOrigin}/security/block?uid=${uid}&did=${encodeURIComponent(deviceId)}`;
 
   const dmText = [
-    "<b>CheyaVerse Service Notifications</b>",
+    'New login. Dear ${escapeHtml(account.first_name || "user")}, we detected a login into your account from a new device on ${escapeHtml(timestampLocal)} at ${escapeHtml(timestampUtc)} UTC.',
     "",
-    "Sistem mendeteksi login akun Telegram Anda dari perangkat baru.",
+    `Device: ${escapeHtml(deviceType)}, ${escapeHtml(platformVersion)}, ${escapeHtml(model)}, ${escapeHtml(operatingSystem)}`,
+    `Location: ${escapeHtml(city)}, ${escapeHtml(region)}`,
     "",
-    "<b>Detail device:</b>",
-    `• <b>Device ID:</b> <code>${deviceId}</code>`,
-    `• <b>Perangkat:</b> ${deviceBaru}`,
-    `• <b>Hardware:</b> ${hardwareLine}`,
-    `• <b>Browser:</b> ${browserBaru}`,
-    `• <b>Waktu:</b> ${waktuBaru}`,
-    "",
-    "⚠️ <b>TINDAKAN DIPERLUKAN:</b> Jika Anda tidak melakukan login ini, blokir Device ID di atas. Pemblokiran hanya berlaku untuk akun Telegram ini; perangkat masih dapat memakai akun Telegram lain yang tidak diblokir.",
-    "",
-    "<i>Pilih <b>Blokir Device</b> di bawah jika login ini bukan milik Anda. Jika memang Anda yang login, tidak perlu melakukan apa pun.</i>",
+    `If this wasn't you, you can terminate that session in <b>Setting &gt; Devices &amp; Security</b> (or open <b>@${escapeHtml(config.botUsername || "CheyaVersebot")}</b> and tap <b>Blokir Device</b>).`,
   ].join("\n");
 
   const sent = await sendTelegramMessage(uid, dmText, {
@@ -333,7 +340,7 @@ export async function POST(req: NextRequest) {
     console.error(`[session/init] Security alert for account ${uid}, device ${deviceId} could not be sent through Telegram.`);
   }
 
-  return withDeviceSession(req, uid, deviceId, {
+  return withDeviceSession(req, uid, deviceId, session.sessionVersion, {
     ok: true,
     state: "new-device",
     deviceId,
@@ -344,12 +351,13 @@ function withDeviceSession(
   req: NextRequest,
   uid: number,
   deviceId: string,
+  sessionVersion: number,
   payload: Record<string, unknown> = { ok: true, state: "known", deviceId },
 ) {
   const response = NextResponse.json(payload);
   response.cookies.set(
     SESSION_COOKIE_NAME,
-    createSessionToken(uid, deviceId),
+    createSessionToken(uid, deviceId, false, sessionVersion),
     {
       httpOnly: true,
       secure:

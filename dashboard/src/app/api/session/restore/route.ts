@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { hasValidSameOrigin } from "@/lib/auth-request";
-import { getDeviceIdRow, isDeviceBlacklisted } from "@/lib/storage";
+import {
+  getAccountSessionVersion,
+  getDeviceIdRow,
+  isDeviceBlacklisted,
+} from "@/lib/storage";
 import {
   readSessionToken,
   SESSION_COOKIE_NAME,
@@ -33,6 +37,11 @@ export async function POST(request: NextRequest) {
     return request.cookies.has(SESSION_COOKIE_NAME)
       ? clearSession(response)
       : response;
+  }
+  if (session.sessionVersion !== (await getAccountSessionVersion(session.uid))) {
+    return clearSession(
+      NextResponse.json({ ok: true, authenticated: false, clearDeviceId: true }),
+    );
   }
 
   const body = await request.json().catch(() => ({}));

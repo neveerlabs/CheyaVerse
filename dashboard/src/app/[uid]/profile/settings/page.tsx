@@ -20,7 +20,7 @@ export default function SettingsPage({
         subtitle="Preferensi & konfigurasi"
         backHref={`/${params.uid}/profile`}
       />
-      <SettingsClient mediaTtlDays={config.mediaTtlDays} />
+      <SettingsClient uid={params.uid} mediaTtlDays={config.mediaTtlDays} />
     </>
   );
 }

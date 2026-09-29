@@ -4,6 +4,7 @@ type SessionPayload = {
   uid: number;
   deviceId: string | null;
   deviceLink?: boolean;
+  sessionVersion?: number;
   exp: number;
 };
 
@@ -60,6 +61,9 @@ async function readEdgeSession(
       (session.uid ?? 0) <= 0 ||
       !Number.isSafeInteger(session.exp) ||
       (session.exp ?? 0) <= Math.floor(Date.now() / 1000) ||
+      (session.sessionVersion !== undefined &&
+        (!Number.isSafeInteger(session.sessionVersion) ||
+          session.sessionVersion < 0)) ||
       (session.deviceId !== null &&
         session.deviceId !== undefined &&
         !/^\d{10}$/.test(session.deviceId))
@@ -70,6 +74,7 @@ async function readEdgeSession(
       uid: session.uid!,
       deviceId: session.deviceId ?? null,
       deviceLink: session.deviceLink === true,
+      sessionVersion: session.sessionVersion ?? 0,
       exp: session.exp!,
     };
   } catch {

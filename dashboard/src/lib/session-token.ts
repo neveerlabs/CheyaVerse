@@ -7,6 +7,7 @@ export type UserSession = {
   uid: number;
   deviceId: string | null;
   deviceLink?: boolean;
+  sessionVersion: number;
   exp: number;
 };
 
@@ -28,12 +29,14 @@ export function createSessionToken(
   uid: number,
   deviceId: string | null = null,
   deviceLink = false,
+  sessionVersion = 0,
 ): string {
   const payload = encode(
     JSON.stringify({
       uid,
       deviceId,
       deviceLink,
+      sessionVersion,
       exp: Math.floor(Date.now() / 1000) + SESSION_MAX_AGE_SECONDS,
     } satisfies UserSession),
   );
@@ -58,6 +61,9 @@ export function readSessionToken(token: string | undefined): UserSession | null 
       (session.uid ?? 0) <= 0 ||
       !Number.isSafeInteger(session.exp) ||
       (session.exp ?? 0) <= Math.floor(Date.now() / 1000) ||
+      (session.sessionVersion !== undefined &&
+        (!Number.isSafeInteger(session.sessionVersion) ||
+          session.sessionVersion < 0)) ||
       (session.deviceId !== null &&
         session.deviceId !== undefined &&
         !/^\d{10}$/.test(session.deviceId))
@@ -68,6 +74,7 @@ export function readSessionToken(token: string | undefined): UserSession | null 
       uid: session.uid!,
       deviceId: session.deviceId ?? null,
       deviceLink: session.deviceLink === true,
+      sessionVersion: session.sessionVersion ?? 0,
       exp: session.exp!,
     };
   } catch {

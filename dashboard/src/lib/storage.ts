@@ -607,6 +607,99 @@ export async function getDeviceIdRow(
   return rowToDeviceId(result.rows[0] as unknown as Record<string, unknown>);
 }
 
+export async function listDeviceIdsForUid(uid: number): Promise<DeviceIdRow[]> {
+  await ensureDeviceFingerprintColumns();
+  const result = await getTurso().execute({
+    sql: "SELECT * FROM device_ids WHERE uid = ? ORDER BY last_seen DESC",
+    args: [uid],
+  });
+  return result.rows.map((row) =>
+    rowToDeviceId(row as unknown as Record<string, unknown>),
+  );
+}
+
+export async function listBlacklistedDeviceIds(uid: number): Promise<string[]> {
+  const result = await getTurso().execute({
+    sql: "SELECT device_id FROM session_blacklist WHERE uid = ?",
+    args: [uid],
+  });
+  return result.rows.map((row) => String(row.device_id ?? ""));
+}
+
+let accountSessionVersionsReady: Promise<void> | null = null;
+
+async function ensureAccountSessionVersionsTable(): Promise<void> {
+  if (!accountSessionVersionsReady) {
+    accountSessionVersionsReady = getTurso()
+      .execute(`CREATE TABLE IF NOT EXISTS account_session_versions (
+        uid INTEGER PRIMARY KEY,
+        session_version INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL
+      )`)
+      .then(() => undefined)
+      .catch((error) => {
+        accountSessionVersionsReady = null;
+        throw error;
+      });
+  }
+  await accountSessionVersionsReady;
+}
+
+export async function getAccountSessionVersion(uid: number): Promise<number> {
+  await ensureAccountSessionVersionsTable();
+  const result = await getTurso().execute({
+    sql: "SELECT session_version FROM account_session_versions WHERE uid = ? LIMIT 1",
+    args: [uid],
+  });
+  return Number(result.rows[0]?.session_version ?? 0);
+}
+
+export async function getAccountSessionState(
+  uid: number,
+): Promise<{ sessionVersion: number; active: boolean }> {
+  await Promise.all([
+    ensureAccountSessionVersionsTable(),
+    ensureTelegramAccountsTable(),
+  ]);
+  const result = await getTurso().execute({
+    sql: `SELECT COALESCE(versions.session_version, 0) AS session_version,
+                 accounts.role AS role
+          FROM "akun-telegram" AS accounts
+          LEFT JOIN account_session_versions AS versions ON versions.uid = accounts.uid
+          WHERE accounts.uid = ? LIMIT 1`,
+    args: [uid],
+  });
+  if (!result.rows.length) return { sessionVersion: 0, active: false };
+  return {
+    sessionVersion: Number(result.rows[0].session_version ?? 0),
+    active: String(result.rows[0].role ?? "user") !== "deleted",
+  };
+}
+
+export async function restoreDeletedTelegramAccount(
+  uid: number,
+): Promise<void> {
+  await ensureTelegramAccountsTable();
+  const now = new Date().toISOString();
+  await getTurso().batch(
+    [
+      {
+        sql: `UPDATE "akun-telegram"
+              SET role = 'user', updated_at = ?
+              WHERE uid = ? AND role = 'deleted'`,
+        args: [now, uid],
+      },
+      {
+        sql: `UPDATE telegram_users
+              SET role = 'user', updated_at = ?
+              WHERE uid = ? AND role = 'deleted'`,
+        args: [now, uid],
+      },
+    ],
+    "write",
+  );
+}
+
 export async function findDeviceIdByFingerprint(
   uid: number,
   fingerprint: string,
@@ -2040,4 +2133,112 @@ export async function listPushSubscriptions(
   } catch {
     return [];
   }
+}
+
+export async function deleteWebAccountData(
+  uid: number,
+): Promise<number[]> {
+  await Promise.all([
+    ensureTelegramAccountsTable(),
+    ensureTelegramLoginChallengesTable(),
+    ensureChatMessageActions(),
+    ensureDirectMessagesTable(),
+    ensureDeviceFingerprintColumns(),
+    ensureAccountSessionVersionsTable(),
+  ]);
+
+  const db = getTurso();
+  await db.execute(`CREATE TABLE IF NOT EXISTS device_link_tokens (
+    token_hash TEXT PRIMARY KEY,
+    uid INTEGER NOT NULL,
+    created_by_device_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    consumed_at INTEGER
+  )`);
+
+  const [mediaResult, coverResult, tableResult] = await Promise.all([
+    db.execute({
+      sql: "SELECT storage_message_id FROM media WHERE owner_id = ?",
+      args: [uid],
+    }),
+    db.execute({
+      sql: "SELECT storage_message_id FROM user_covers WHERE uid = ?",
+      args: [uid],
+    }),
+    db.execute("SELECT name FROM sqlite_master WHERE type = 'table'"),
+  ]);
+  const telegramMessageIds = Array.from(
+    new Set(
+      [...mediaResult.rows, ...coverResult.rows]
+        .map((row) => Number(row.storage_message_id))
+        .filter((messageId) => Number.isSafeInteger(messageId) && messageId > 0),
+    ),
+  );
+  const tables = new Set(
+    tableResult.rows.map((row) => String(row.name ?? "")),
+  );
+  const statements: Array<{ sql: string; args: (string | number | null)[] }> = [];
+  const deleteForUid: Array<[string, string]> = [
+    ["telegram_login_challenges", "uid"],
+    ["device_link_tokens", "uid"],
+    ["device_ids", "uid"],
+    ["session_blacklist", "uid"],
+    ["notifications", "uid"],
+    ["messages", "uid"],
+    ["media", "owner_id"],
+    ["user_covers", "uid"],
+    ["push_subscriptions", "uid"],
+    ["chat_message_hides", "uid"],
+    ["chat_message_pins", "uid"],
+    ["chat_notification_pins", "uid"],
+    ["direct_message_hides", "uid"],
+    ["direct_message_pins", "uid"],
+    ["chat_presence", "uid"],
+  ];
+
+  const anonymizedAt = new Date().toISOString();
+  if (tables.has("akun-telegram")) {
+    statements.push({
+      sql: `UPDATE "akun-telegram"
+            SET username = NULL, first_name = 'Deleted account', last_name = NULL,
+                photo_url = NULL, photo_file_id = NULL, allows_write_to_pm = 0,
+                auth_date = NULL, role = 'deleted', created_at = ?, updated_at = ?
+            WHERE uid = ?`,
+      args: [anonymizedAt, anonymizedAt, uid],
+    });
+  }
+  if (tables.has("telegram_users")) {
+    statements.push({
+      sql: `UPDATE telegram_users
+            SET username = NULL, first_name = 'Deleted account', last_name = NULL,
+                photo_file_id = NULL, role = 'deleted', created_at = ?, updated_at = ?
+            WHERE uid = ?`,
+      args: [anonymizedAt, anonymizedAt, uid],
+    });
+  }
+  for (const [table, column] of deleteForUid) {
+    if (!tables.has(table)) continue;
+    statements.push({
+      sql: `DELETE FROM "${table}" WHERE "${column}" = ?`,
+      args: [uid],
+    });
+  }
+  if (tables.has("telegram_chat_replies")) {
+    statements.push({
+      sql: 'DELETE FROM "telegram_chat_replies" WHERE telegram_uid = ? OR peer_uid = ?',
+      args: [uid, uid],
+    });
+  }
+  statements.push({
+    sql: `INSERT INTO account_session_versions (uid, session_version, updated_at)
+          VALUES (?, 1, ?)
+          ON CONFLICT(uid) DO UPDATE SET
+            session_version = account_session_versions.session_version + 1,
+            updated_at = excluded.updated_at`,
+    args: [uid, new Date().toISOString()],
+  });
+
+  await db.batch(statements, "write");
+  return telegramMessageIds;
 }
