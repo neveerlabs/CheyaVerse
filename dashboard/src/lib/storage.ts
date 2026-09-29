@@ -2258,6 +2258,7 @@ export async function deleteWebAccountData(
     ["direct_message_hides", "uid"],
     ["direct_message_pins", "uid"],
     ["chat_presence", "uid"],
+    ["library_nodes", "owner_uid"],
   ];
 
   const anonymizedAt = new Date().toISOString();

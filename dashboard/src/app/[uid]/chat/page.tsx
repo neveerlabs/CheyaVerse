@@ -9,6 +9,8 @@ import { VerifiedName } from "@/components/VerifiedName";
 import { TelegramAvatar } from "@/components/TelegramAvatar";
 import { ChatDraftPreview } from "@/components/ChatDraftPreview";
 import { ChatSearch } from "./ChatSearch";
+import { config } from "@/lib/config";
+import { chatPreviewText } from "@/lib/chat-preview";
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +36,7 @@ function formatTimeShort(iso: string): string {
 }
 
 function previewText(text: string, max = 70): string {
-  const flat = text.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
+  const flat = chatPreviewText(text);
   if (flat.length <= max) return flat;
   return flat.slice(0, max).trimEnd() + "…";
 }
@@ -138,6 +140,7 @@ export default async function ChatListPage({
           const name =
             [contact.first_name, contact.last_name].filter(Boolean).join(" ").trim() ||
             (contact.username ? `@${contact.username}` : `Telegram ${contact.uid}`);
+          const isAdmin = config.adminTelegramIds.has(contact.uid);
           return (
             <Link
               key={contact.uid}
@@ -148,16 +151,25 @@ export default async function ChatListPage({
                 <TelegramAvatar src={contact.photo_url || `/api/avatar/${contact.uid}`} />
               </div>
               <div className="flex min-w-0 flex-1 flex-col gap-1">
-                <span className={`truncate text-[14px] text-ink ${conversation.unread ? "font-bold" : "font-semibold"}`}>
-                  {name}
-                </span>
+                {isAdmin ? (
+                  <VerifiedName
+                    name={name}
+                    size="sm"
+                    wrap
+                    nameClassName={`text-[14px] ${conversation.unread ? "font-bold" : "font-semibold"}`}
+                  />
+                ) : (
+                  <span className={`truncate text-[14px] text-ink ${conversation.unread ? "font-bold" : "font-semibold"}`}>
+                    {name}
+                  </span>
+                )}
                 <span className={`truncate text-[12.5px] ${conversation.unread ? "font-medium text-ink-soft" : "text-ink-mute"}`}>
                   <ChatDraftPreview
                     uid={String(uid)}
                     contactId={String(contact.uid)}
                     fallback={previewText(
                       conversation.last_message.deleted_at
-                        ? "Pesan dihapus"
+                        ? "Message deleted"
                         : conversation.last_message.content,
                     )}
                   />

@@ -52,12 +52,6 @@ function getCtx(): AudioContext | null {
   return ctx;
 }
 
-function ensureRunning(c: AudioContext) {
-  if (c.state === "suspended") {
-    void c.resume().catch(() => {});
-  }
-}
-
 function outputNode(c: AudioContext): AudioNode {
   return compressor ?? c.destination;
 }
@@ -96,43 +90,51 @@ function playTone(c: AudioContext, spec: ToneSpec) {
 function playSynthSend() {
   const c = getCtx();
   if (!c) return;
-  ensureRunning(c);
-  playTone(c, {
-    type: "sine",
-    freqStart: 720,
-    freqEnd: 1180,
-    duration: 0.09,
-    gain: 0.5,
-  });
-  playTone(c, {
-    type: "sine",
-    freqStart: 1180,
-    freqEnd: 1560,
-    duration: 0.07,
-    gain: 0.32,
-    delay: 0.05,
-  });
+  const play = () => {
+    if (c.state !== "running") return;
+    playTone(c, {
+      type: "sine",
+      freqStart: 720,
+      freqEnd: 1180,
+      duration: 0.09,
+      gain: 0.5,
+    });
+    playTone(c, {
+      type: "sine",
+      freqStart: 1180,
+      freqEnd: 1560,
+      duration: 0.07,
+      gain: 0.32,
+      delay: 0.05,
+    });
+  };
+  if (c.state === "running") play();
+  else void c.resume().then(play).catch(() => {});
 }
 
 function playSynthReceive() {
   const c = getCtx();
   if (!c) return;
-  ensureRunning(c);
-  playTone(c, {
-    type: "sine",
-    freqStart: 880,
-    freqEnd: 880,
-    duration: 0.18,
-    gain: 0.55,
-  });
-  playTone(c, {
-    type: "sine",
-    freqStart: 1320,
-    freqEnd: 1320,
-    duration: 0.22,
-    gain: 0.38,
-    delay: 0.11,
-  });
+  const play = () => {
+    if (c.state !== "running") return;
+    playTone(c, {
+      type: "sine",
+      freqStart: 880,
+      freqEnd: 880,
+      duration: 0.18,
+      gain: 0.55,
+    });
+    playTone(c, {
+      type: "sine",
+      freqStart: 1320,
+      freqEnd: 1320,
+      duration: 0.22,
+      gain: 0.38,
+      delay: 0.11,
+    });
+  };
+  if (c.state === "running") play();
+  else void c.resume().then(play).catch(() => {});
 }
 
 type SoundKey = "sent" | "received" | "notification";
@@ -170,7 +172,7 @@ if (typeof window !== "undefined") {
   preloadSounds();
 }
 
-function tryPlayAudio(key: SoundKey): boolean {
+function tryPlayAudio(key: SoundKey, onFailure: () => void): boolean {
   if (failedSounds.has(key)) return false;
   const el = audioCache.get(key);
   if (!el) return false;
@@ -180,7 +182,7 @@ function tryPlayAudio(key: SoundKey): boolean {
   try {
     const p = el.play();
     if (p && typeof p.catch === "function") {
-      p.catch(() => {});
+      void p.catch(onFailure);
     }
     return true;
   } catch {
@@ -189,16 +191,13 @@ function tryPlayAudio(key: SoundKey): boolean {
 }
 
 export function playSendSound() {
-  if (tryPlayAudio("sent")) return;
-  playSynthSend();
+  if (!tryPlayAudio("sent", playSynthSend)) playSynthSend();
 }
 
 export function playReceiveSound() {
-  if (tryPlayAudio("received")) return;
-  playSynthReceive();
+  if (!tryPlayAudio("received", playSynthReceive)) playSynthReceive();
 }
 
 export function playReceiveSoundOutside() {
-  if (tryPlayAudio("notification")) return;
-  playSynthReceive();
+  if (!tryPlayAudio("notification", playSynthReceive)) playSynthReceive();
 }

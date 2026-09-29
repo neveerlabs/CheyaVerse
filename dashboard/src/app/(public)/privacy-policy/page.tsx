@@ -4,39 +4,39 @@ export const dynamic = "force-dynamic";
 
 const SECTIONS: { title: string; body: string }[] = [
   {
-    title: "Pendahuluan",
+    title: "Introduction",
     body: "Dokumen ini menjelaskan bagaimana CheyaVerse mengumpulkan, menggunakan, dan melindungi data pengguna. Dengan menggunakan layanan, pengguna menyetujui praktik yang dijelaskan dalam dokumen ini.",
   },
   {
-    title: "Informasi yang Dikumpulkan",
+    title: "Information We Collect",
     body: "Sistem hanya menyimpan metadata dari file yang diunggah melalui bot Telegram. Metadata mencakup: ID media, nama file, ukuran file, tipe konten, tanggal kadaluarsa, dan ID Telegram pengguna. File fisik media disimpan sepenuhnya di Telegram Storage Chat dan tidak disalin ke server aplikasi.",
   },
   {
-    title: "Penggunaan Informasi",
+    title: "How We Use Information",
     body: "Metadata digunakan secara eksklusif untuk: (1) menampilkan kembali file pengguna di dashboard personal, (2) memfasilitasi pencarian dan penghapusan media, (3) menghapus media yang sudah kadaluarsa secara otomatis.",
   },
   {
-    title: "Berbagi Data",
+    title: "Data Sharing",
     body: "Sistem tidak menjual, menyewakan, atau membagikan data pengguna kepada pihak ketiga. Media hanya dapat diakses oleh pemiliknya melalui URL unik yang diberikan bot. Pengguna lain tidak dapat melihat atau mengakses daftar media milik pengguna lain.",
   },
   {
-    title: "Keamanan",
+    title: "Security",
     body: "Setiap dashboard tertaut langsung dengan ID Telegram pengguna. Akses dashboard hanya dimungkinkan melalui URL unik yang diberikan bot melalui perintah /web. Sistem tidak menyimpan kata sandi atau kredensial tambahan.",
   },
   {
-    title: "Masa Simpan Data",
+    title: "Data Retention",
     body: "Media disimpan selama 30 hari sejak tanggal unggahan. Setelah periode tersebut, file dihapus otomatis dari Telegram Storage Chat dan tidak dapat dipulihkan. Pengguna juga dapat menghapus media kapan saja secara manual melalui dashboard.",
   },
   {
-    title: "Hak Pengguna",
+    title: "User Rights",
     body: "Pengguna berhak menghapus seluruh media yang diunggah kapan saja. Penghapusan melalui dashboard akan menghapus metadata dari database dan file fisik dari Telegram Storage Chat secara permanen.",
   },
   {
-    title: "Perubahan Kebijakan",
+    title: "Policy Changes",
     body: "Kebijakan Privasi dapat diperbarui dari waktu ke waktu. Perubahan signifikan akan diinformasikan melalui bot. Penggunaan layanan setelah pembaruan menandakan persetujuan pengguna terhadap kebijakan yang telah diperbarui.",
   },
   {
-    title: "Kontak",
+    title: "Contact",
     body: "Pertanyaan terkait privasi data dapat dikirim melalui email ke userlinuxorg@gmail.com. Respons diberikan dalam waktu 3-5 hari kerja.",
   },
 ];
@@ -45,8 +45,8 @@ export default function PrivacyPolicyPage() {
   return (
     <>
       <AppHeader
-        title="Kebijakan Privasi"
-        subtitle="Terakhir diperbarui: 22 September 2026"
+        title="Privacy Policy"
+        subtitle="Pembaruan terakhir: 22 September 2026"
       />
 
       <article className="animate-fade-up">

@@ -80,7 +80,7 @@ export function ContactProfileClient({
       setMenuOpen(false);
     } catch (error) {
       console.error("[contact-profile] clipboard copy failed:", error);
-      showNotice("Gagal menyalin. Coba lagi.");
+      showNotice("Teks tidak dapat disalin. Silakan coba kembali.");
     }
   }
 
@@ -102,7 +102,7 @@ export function ContactProfileClient({
         console.error("[contact-profile] native share failed:", error);
       }
     }
-    await copyValue(url, "Tautan kontak disalin");
+    await copyValue(url, "Tautan kontak berhasil disalin.");
   }
 
   return (
@@ -157,7 +157,7 @@ export function ContactProfileClient({
 
         <Link
           href={chatHref}
-          aria-label="Kembali ke percakapan"
+          aria-label="Back to chat"
           className="absolute left-2 top-3 z-20 flex h-9 w-9 items-center justify-center rounded-full transition-all active:scale-90 sm:hover:bg-black/5"
           style={{
             color: cover ? "white" : undefined,
@@ -193,7 +193,7 @@ export function ContactProfileClient({
                 className="flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-[13px] font-medium hover:bg-[#f5f5f5]"
               >
                 <MessageCircle size={16} className="text-ink-soft" />
-                Kirim pesan
+                Send message
               </Link>
               <button
                 type="button"
@@ -202,18 +202,18 @@ export function ContactProfileClient({
                 className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-[13px] font-medium hover:bg-[#f5f5f5]"
               >
                 <Share2 size={16} className="text-ink-soft" />
-                Bagikan kontak
+                Share contact
               </button>
               <button
                 type="button"
                 role="menuitem"
                 onClick={() =>
-                  void copyValue(String(contact.uid), "ID Telegram disalin")
+                  void copyValue(String(contact.uid), "Telegram ID berhasil disalin.")
                 }
                 className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-[13px] font-medium hover:bg-[#f5f5f5]"
               >
                 <Copy size={16} className="text-ink-soft" />
-                Salin ID Telegram
+                Copy Telegram ID
               </button>
             </div>
           )}
@@ -231,10 +231,10 @@ export function ContactProfileClient({
           </div>
           <div className="min-w-0 flex-1 translate-y-2 pb-1 pl-3">
             <h1 className="truncate text-[22px] font-bold leading-tight tracking-[-.03em] text-ink">
-              Hi, {name}
+              Hello, {name}
             </h1>
             <p className="mt-0.5 truncate text-[13px] font-normal text-ink-mute">
-              Profil kontak
+              Contact profile
             </p>
           </div>
         </div>
@@ -245,7 +245,7 @@ export function ContactProfileClient({
             className="inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-ink px-4 py-3 text-[13px] font-semibold text-white transition-opacity hover:opacity-90"
           >
             <MessageCircle size={17} />
-            Kirim pesan
+            Send message
           </Link>
           <button
             type="button"
@@ -253,7 +253,7 @@ export function ContactProfileClient({
             className="inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl border border-line bg-white px-4 py-3 text-[13px] font-semibold text-ink transition-colors hover:bg-[#f7f7f7]"
           >
             <Share2 size={17} />
-            Bagikan
+            Share
           </button>
         </div>
       </div>

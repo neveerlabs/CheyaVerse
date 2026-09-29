@@ -35,7 +35,7 @@ export function BlockClient({ uid, deviceId }: { uid: string; deviceId: string }
       </div>
 
       <h1 className="text-[22px] font-bold tracking-[-.02em] text-ink mb-2 text-center">
-        Blokir Sesi Perangkat
+        Block this device session
       </h1>
 
       {!valid && (
@@ -55,14 +55,14 @@ export function BlockClient({ uid, deviceId }: { uid: string; deviceId: string }
             onClick={onBlock}
             className="inline-flex items-center gap-2 px-6 py-3.5 rounded-xl bg-danger text-white text-[14px] font-semibold hover:bg-[#b91c1c] transition-all active:scale-[.97]"
           >
-            Blokir Device
+            Block device
           </button>
         </>
       )}
 
       {state === "loading" && (
         <div className="inline-flex items-center gap-2 text-[13.5px] text-ink-soft">
-          <Loader2 size={16} className="animate-spin" /> Memproses…
+          <Loader2 size={16} className="animate-spin" /> Processing…
         </div>
       )}
 

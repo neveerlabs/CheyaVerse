@@ -57,6 +57,10 @@ export function RealtimeSync({ uid }: { uid: string }) {
         }
       }
     }
+
+    if (event.type === "notification:new" && !inSystemChat) {
+      playReceiveSoundOutside();
+    }
   });
 
   return null;

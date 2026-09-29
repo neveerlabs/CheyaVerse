@@ -1,7 +1,12 @@
+import { del } from "@vercel/blob";
 import { NextRequest, NextResponse } from "next/server";
 import { getUserSession, hasValidSameOrigin } from "@/lib/auth-request";
+import { listLibraryBlobUrls } from "@/lib/library";
 import { deleteTelegramMessage } from "@/lib/telegram";
-import { deleteWebAccountData, getDeviceIdRow } from "@/lib/storage";
+import {
+  deleteWebAccountData,
+  getDeviceIdRow,
+} from "@/lib/storage";
 import { SESSION_COOKIE_NAME } from "@/lib/session-token";
 
 export const runtime = "nodejs";
@@ -25,12 +30,28 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    const libraryBlobUrls = await listLibraryBlobUrls(session.uid);
     const messageIds = await deleteWebAccountData(session.uid);
-    const deletionResults = await Promise.all(
-      messageIds.map((messageId) => deleteTelegramMessage(messageId)),
-    );
+    const [deletionResults, blobCleanupResults] = await Promise.all([
+      Promise.all(
+        messageIds.map((messageId) => deleteTelegramMessage(messageId)),
+      ),
+      Promise.allSettled(libraryBlobUrls.map((url) => del(url))),
+    ]);
     const storageCleanupFailed = deletionResults.filter((success) => !success).length;
-    const response = NextResponse.json({ ok: true, storageCleanupFailed });
+    const blobStorageCleanupFailed = blobCleanupResults.filter(
+      (result) => result.status === "rejected",
+    ).length;
+    if (blobStorageCleanupFailed) {
+      console.error(
+        `[account/delete] ${blobStorageCleanupFailed} Blob object(s) could not be deleted for account ${session.uid}.`,
+      );
+    }
+    const response = NextResponse.json({
+      ok: true,
+      storageCleanupFailed,
+      blobStorageCleanupFailed,
+    });
     response.cookies.set(SESSION_COOKIE_NAME, "", {
       httpOnly: true,
       secure:

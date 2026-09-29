@@ -429,14 +429,14 @@ export function ProfileClient({
 
   async function copyId() {
     if (!deviceId) {
-      showToast("DeviceID belum tersedia");
+      showToast("ID perangkat belum tersedia.");
       return;
     }
 
     try {
       if (navigator.clipboard?.writeText && window.isSecureContext) {
         await navigator.clipboard.writeText(deviceId);
-        showToast("DeviceID copied");
+        showToast("ID perangkat disalin.");
       } else {
         const ta = document.createElement("textarea");
         ta.value = deviceId;
@@ -446,10 +446,10 @@ export function ProfileClient({
         ta.select();
         document.execCommand("copy");
         document.body.removeChild(ta);
-        showToast("DeviceID copied");
+        showToast("ID perangkat disalin.");
       }
     } catch {
-      showToast("Gagal menyalin");
+      showToast("ID perangkat tidak dapat disalin.");
     }
   }
 
@@ -462,7 +462,7 @@ export function ProfileClient({
         cache: "no-store",
       });
       if (!response.ok) {
-        throw new Error(`Logout gagal (${response.status}).`);
+        throw new Error(`Sesi tidak dapat diakhiri (${response.status}).`);
       }
       try {
         window.localStorage.removeItem(DEVICE_ID_KEY);
@@ -473,7 +473,7 @@ export function ProfileClient({
     } catch (cause) {
       console.error("[profile] logout failed:", cause);
       setLogoutError(
-        cause instanceof Error ? cause.message : "Logout gagal",
+        cause instanceof Error ? cause.message : "Sesi tidak dapat diakhiri.",
       );
       setLoggingOut(false);
     }
@@ -539,7 +539,7 @@ export function ProfileClient({
       });
       if (res.ok) {
         setLocalMedia((prev) => prev.filter((x) => x.id !== item.id));
-        showToast("Media dihapus");
+        showToast("Media berhasil dihapus.");
         setDeleteItem(null);
         closeMediaMenu();
         router.refresh();
@@ -548,19 +548,19 @@ export function ProfileClient({
       const j = await res.json().catch(() => ({}));
       const reason = (j as { error?: string })?.error;
       if (res.status === 404 || reason === "not_found") {
-        showToast("Media udah nggak ada");
+        showToast("Media sudah tidak tersedia.");
         setLocalMedia((prev) => prev.filter((x) => x.id !== item.id));
       } else if (res.status === 403 || reason === "forbidden") {
-        showToast("Bukan media lo");
+        showToast("Media ini bukan milik Anda.");
       } else if (reason === "db_error") {
-        showToast("Gagal hapus (cek policy DELETE)");
+        showToast("Media tidak dapat dihapus.");
       } else {
-        showToast(`Gagal menghapus (${res.status})`);
+        showToast(`Media tidak dapat dihapus (${res.status}).`);
       }
       setDeleteItem(null);
       closeMediaMenu();
     } catch {
-      showToast("Network error");
+      showToast("Koneksi bermasalah. Silakan coba kembali.");
     } finally {
       setBusy(false);
     }
@@ -570,8 +570,8 @@ export function ProfileClient({
     const url = `${window.location.origin}/m/${item.id}`;
     if (navigator.clipboard?.writeText && window.isSecureContext) {
       navigator.clipboard.writeText(url).then(
-        () => showToast("Link disalin"),
-        () => showToast("Gagal menyalin"),
+        () => showToast("Tautan berhasil disalin."),
+        () => showToast("Tautan tidak dapat disalin."),
       );
     } else {
       const ta = document.createElement("textarea");
@@ -582,9 +582,9 @@ export function ProfileClient({
       ta.select();
       try {
         document.execCommand("copy");
-        showToast("Link disalin");
+        showToast("Tautan berhasil disalin.");
       } catch {
-        showToast("Gagal menyalin");
+        showToast("Tautan tidak dapat disalin.");
       }
       document.body.removeChild(ta);
     }
@@ -608,7 +608,7 @@ export function ProfileClient({
 
   function onCaptchaExpired() {
     setCaptchaToken(null);
-    showToast("Verifikasi expired, coba lagi");
+    showToast("Verifikasi kedaluwarsa. Silakan coba kembali.");
   }
 
   function openDelete(item: MediaItem) {
@@ -619,7 +619,7 @@ export function ProfileClient({
   const MENU: MenuEntry[] = [
     {
       href: `/${uid}/profile/settings`,
-      label: "Setting",
+      label: "Settings",
       icon: <Settings size={18} strokeWidth={1.8} />,
     },
     {
@@ -639,7 +639,7 @@ export function ProfileClient({
     },
     {
       href: `/${uid}/profile/support`,
-      label: "Tech Support",
+      label: "Help Center",
       icon: <LifeBuoy size={18} strokeWidth={1.8} />,
     },
     {
@@ -782,7 +782,7 @@ export function ProfileClient({
 
           <Link
             href={`/${uid}/profile/cover`}
-            aria-label="Ubah sampul"
+            aria-label="Edit cover"
             className={`absolute bottom-1.5 right-2 z-20 w-9 h-9 rounded-full flex items-center justify-center sm:hover:bg-black/5 active:scale-90 transition-all ${
               cover ? "text-white drop-shadow-[0_1px_3px_rgba(0,0,0,.55)]" : "text-ink-soft/60"
             }`}
@@ -820,7 +820,7 @@ export function ProfileClient({
               Hi, {greetingName}
             </h1>
             <p className="text-[13px] text-ink-mute font-normal mt-0.5 truncate">
-              Your device profile
+              Profil perangkat Anda.
             </p>
           </div>
         </div>
@@ -834,13 +834,13 @@ export function ProfileClient({
           className="w-full rounded-2xl bg-[#f5f5f5] sm:hover:bg-[#ededed] active:scale-[.99] px-4 py-3.5 text-center transition-all disabled:opacity-60"
         >
           <p className="text-[13.5px] text-ink-soft leading-none">
-            <span className="font-medium">DeviceID: </span>
+            <span className="font-medium">Device ID: </span>
             <span className="font-semibold text-ink tabular-nums tracking-[-.005em]">
-              {deviceId ?? "Memuat…"}
+              {deviceId ?? "Loading…"}
             </span>
           </p>
           <p className="text-[10.5px] text-ink-mute mt-1.5 leading-none">
-            Tap untuk menyalin
+            Tap to copy
           </p>
         </button>
         <div className="mt-3 flex items-center justify-center gap-3 text-[12px] text-ink-mute">
@@ -851,7 +851,7 @@ export function ProfileClient({
           <span className="w-px h-3 bg-divider" />
           <span>
             <span className="font-semibold text-ink-soft tabular-nums">{stats.active}</span>{" "}
-            aktif
+            active
           </span>
           <span className="w-px h-3 bg-divider" />
           <span>
@@ -867,9 +867,9 @@ export function ProfileClient({
             <div className="w-14 h-14 rounded-full bg-[#f5f5f5] mx-auto mb-4 flex items-center justify-center">
               <ImageIcon size={22} className="text-ink-mute" strokeWidth={1.8} />
             </div>
-            <p className="text-[14.5px] font-medium text-ink mb-1.5">Belum ada media</p>
+            <p className="text-[14.5px] font-medium text-ink mb-1.5">No media yet</p>
             <p className="text-[12.5px] text-ink-mute font-normal leading-relaxed">
-              Upload foto/video ke bot dengan caption /qr
+              Unggah foto atau video ke bot dengan keterangan /qr.
             </p>
           </div>
         ) : (
@@ -965,7 +965,7 @@ export function ProfileClient({
             </div>
             <MenuItem
               icon={<ExternalLink size={18} strokeWidth={1.9} />}
-              label="Buka"
+              label="Open"
               onClick={() => {
                 window.location.href = `/${uid}/m/${menuItem.id}`;
               }}
@@ -982,7 +982,7 @@ export function ProfileClient({
             />
             <MenuItem
               icon={<Trash2 size={18} strokeWidth={1.9} />}
-              label="Hapus"
+              label="Delete"
               danger
               onClick={() => openDelete(menuItem)}
             />
@@ -992,7 +992,7 @@ export function ProfileClient({
               className="w-full mt-1 px-4 py-3 rounded-xl bg-[#fafafa] border border-line
                          text-ink text-[13px] font-semibold active:scale-[.97] transition-transform"
             >
-              Batal
+              Cancel
             </button>
           </div>
         </div>
@@ -1011,7 +1011,7 @@ export function ProfileClient({
           <div className="p-1">
             <DropdownItem
               icon={<ExternalLink size={16} strokeWidth={1.9} />}
-              label="Buka"
+              label="Open"
               onClick={() => {
                 window.location.href = `/${uid}/m/${menuItem.id}`;
               }}
@@ -1028,7 +1028,7 @@ export function ProfileClient({
             />
             <DropdownItem
               icon={<Trash2 size={16} strokeWidth={1.9} />}
-              label="Hapus"
+              label="Delete"
               danger
               onClick={() => openDelete(menuItem)}
             />
@@ -1047,12 +1047,12 @@ export function ProfileClient({
             <div className="w-12 h-12 rounded-full bg-[#fff0f0] mx-auto mb-4 flex items-center justify-center">
               <Trash2 size={22} className="text-danger" strokeWidth={2} />
             </div>
-            <h2 className="text-[16px] font-semibold text-center mb-1.5 text-ink">Hapus media ini?</h2>
+            <h2 className="text-[16px] font-semibold text-center mb-1.5 text-ink">Delete this media?</h2>
             <p className="text-[12.5px] text-ink-soft text-center mb-1.5 leading-relaxed">
               <span className="font-semibold text-ink break-all">{deleteItem.filename}</span>
             </p>
             <p className="text-[12px] text-ink-mute text-center mb-5 leading-relaxed">
-              File akan dihapus permanen dari server. Tindakan ini tidak bisa dibatalkan.
+              File akan dihapus secara permanen dari server. Tindakan ini tidak dapat dibatalkan.
             </p>
             <div className="flex gap-2.5">
               <button
@@ -1062,7 +1062,7 @@ export function ProfileClient({
                 className="flex-1 px-4 py-3 rounded-xl bg-[#fafafa] border border-line text-ink
                            text-[13px] font-semibold active:scale-[.97] transition-transform disabled:opacity-60"
               >
-                Batal
+                Cancel
               </button>
               <button
                 type="button"
@@ -1071,7 +1071,7 @@ export function ProfileClient({
                 className="flex-1 px-4 py-3 rounded-xl bg-danger hover:bg-[#b91c1c] text-white
                            text-[13px] font-semibold active:scale-[.97] transition-all disabled:opacity-60"
               >
-                {busy ? "Menghapus…" : "Hapus"}
+                {busy ? "Deleting…" : "Delete"}
               </button>
             </div>
           </div>
@@ -1088,12 +1088,12 @@ export function ProfileClient({
           <div className="w-full max-w-[380px] rounded-2xl bg-white border border-line p-6 animate-fade-up">
             <div className="flex items-center justify-between mb-1">
               <h2 className="text-[16px] font-semibold text-ink">
-                Verifikasi Diperlukan
+                Verification required
               </h2>
               <button
                 type="button"
                 onClick={() => setCaptchaItem(null)}
-                aria-label="Tutup"
+                aria-label="Close"
                 className="w-7 h-7 rounded-full flex items-center justify-center text-ink-mute hover:text-ink hover:bg-[#f5f5f5] transition-colors"
               >
                 <X size={16} strokeWidth={2.2} />
@@ -1116,7 +1116,7 @@ export function ProfileClient({
               onClick={() => setCaptchaItem(null)}
               className="w-full px-4 py-3 rounded-xl bg-[#fafafa] border border-line text-ink text-[13px] font-semibold active:scale-[.97] transition-transform"
             >
-              Batal
+              Cancel
             </button>
           </div>
         </div>
@@ -1196,7 +1196,7 @@ export function ProfileClient({
             disabled={loggingOut}
             className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left text-[13.5px] font-medium text-danger hover:bg-red-50 disabled:opacity-60"
           >
-            {loggingOut ? "Logging out…" : "Log out"}
+            {loggingOut ? "Signing out…" : "Sign out"}
           </button>
         </div>
       )}
@@ -1217,10 +1217,10 @@ export function ProfileClient({
             className="w-full max-w-[380px] animate-fade-up rounded-[28px] border border-white/70 bg-white p-5 shadow-[0_24px_80px_-24px_rgba(0,0,0,.35)] sm:p-6"
           >
             <h2 id="logout-dialog-title" className="text-[18px] font-bold tracking-tight text-ink">
-              Log out from this device?
+              Sign out from this device?
             </h2>
             <p className="mt-2 text-[13px] leading-relaxed text-ink-soft">
-              Sesi pada perangkat ini akan dihapus. Anda perlu login kembali untuk mengakses akun.
+              Sesi pada perangkat ini akan diakhiri. Anda perlu masuk kembali untuk mengakses akun.
             </p>
             {logoutError && (
               <p role="alert" className="mt-3 rounded-xl bg-red-50 px-3 py-2.5 text-[11px] text-danger">
@@ -1242,7 +1242,7 @@ export function ProfileClient({
                 onClick={() => void logOut()}
                 className="rounded-2xl bg-danger px-4 py-3 text-[13px] font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-60"
               >
-                {loggingOut ? "Logging out…" : "Log out"}
+                {loggingOut ? "Signing out…" : "Sign out"}
               </button>
             </div>
           </section>

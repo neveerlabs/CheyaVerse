@@ -27,7 +27,7 @@ export default function AboutPage() {
 
   return (
     <>
-      <AppHeader title="Tentang" subtitle="Informasi aplikasi & pengembang" />
+      <AppHeader title="About" subtitle="Informasi aplikasi dan pengembang." />
 
       <section className="px-1 mb-6 animate-fade-up">
         <div className="flex items-center gap-4">
@@ -49,7 +49,7 @@ export default function AboutPage() {
           </div>
         </div>
         <p className="text-[13.5px] text-ink-soft leading-[1.7] mt-4">
-          CheyaVerse adalah webapp personal yang terhubung dengan bot Telegram. Dan terhubung langsung dengan akun telegram anda
+          CheyaVerse adalah aplikasi web pribadi yang terhubung langsung dengan akun Telegram Anda melalui bot Telegram.
         </p>
       </section>
 
@@ -58,42 +58,42 @@ export default function AboutPage() {
         <ListRow icon={<Globe size={22} />} title="Platform" value="Telegram" disabled />
         <ListRow
           icon={<Tag size={22} />}
-          title="Prefix command"
+          title="Command prefix"
           value="/qr · /web"
           disabled
         />
       </GroupSection>
 
-      <GroupSection title="Aplikasi">
-        <ListRow icon={<Code2 size={22} />} title="Versi" value="v1.7.3-release" disabled />
+      <GroupSection title="Application">
+        <ListRow icon={<Code2 size={22} />} title="Version" value="v1.7.3-release" disabled />
         <ListRow
           icon={<ShieldCheck size={22} />}
           title="Status"
-          value="Running"
+          value="Active"
           disabled
         />
-        <ListRow icon={<Radio size={22} />} title="Realtime" value="SSE" disabled />
+        <ListRow icon={<Radio size={22} />} title="Real-time" value="SSE" disabled />
       </GroupSection>
 
       <GroupSection title="Media">
         <ListRow
           icon={<Clock size={22} />}
-          title="Expired file"
-          value={`${ttl} hari`}
+          title="Media retention"
+          value={`${ttl} days`}
           disabled
         />
         <ListRow icon={<ImageIcon size={22} />} title="Max upload" value="15 MB" disabled />
         <ListRow
           icon={<Palette size={22} />}
-          title="Sampul profil"
-          value="Foto · Warna · Ikon"
+          title="Profile cover"
+          value="Photo · Colors · Icons"
           disabled
         />
       </GroupSection>
 
-      <GroupSection title="Teknologi">
+      <GroupSection title="Technology">
         <ListRow icon={<Cpu size={22} />} title="Frontend" value="Next.js 14" disabled />
-        <ListRow icon={<Layers size={22} />} title="UI" value="Tailwind CSS" disabled />
+        <ListRow icon={<Layers size={22} />} title="Interface" value="Tailwind CSS" disabled />
         <ListRow
           icon={<Database size={22} />}
           title="Database"
@@ -108,10 +108,10 @@ export default function AboutPage() {
         />
       </GroupSection>
 
-      <GroupSection title="Pengembang">
+      <GroupSection title="Developer">
         <ListRow
           icon={<User size={22} />}
-          title="Nama"
+          title="Name"
           value="M. Syalman Al Farizi"
           disabled
         />

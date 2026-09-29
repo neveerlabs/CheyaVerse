@@ -79,12 +79,12 @@ function renderBlocks(text: string): string {
 
   text = text.replace(
     /^[-*+] (?!\[[ xX]\] )(.*)$/gm,
-    '<span class="my-0.5 block pl-3 relative"><span class="absolute left-0">•</span>$1</span>',
+    '<span class="chat-markdown-list-item block pl-3 relative"><span class="absolute left-0">•</span>$1</span>',
   );
 
   text = text.replace(
     /^(\d+)\. (.*)$/gm,
-    '<span class="my-0.5 block pl-5 relative"><span class="absolute left-0 text-ink-mute tabular-nums">$1.</span>$2</span>',
+    '<span class="chat-markdown-list-item block pl-5 relative"><span class="absolute left-0 text-ink-mute tabular-nums">$1.</span>$2</span>',
   );
 
   return text;
@@ -102,10 +102,12 @@ function renderInternal(input: string, mode: RenderMode): string {
   let text = escapeHtml(input);
 
   if (mode === "message") {
-    text = text.replace(/```([\w-]*)\n?([\s\S]*?)```/g, (_m, _lang, code) => {
+    text = text.replace(/```([\w+-]*)[ \t]*\n([\s\S]*?)```/g, (_m, lang, code) => {
       const clean = code.replace(/\n$/, "");
+      const safeLanguage = /^[A-Za-z0-9_+-]+$/.test(lang) ? lang : "";
+      const header = `<div class="chat-code-header">${safeLanguage ? `<span class="chat-code-language">${safeLanguage}</span>` : "<span></span>"}<button type="button" class="chat-code-copy" aria-label="Salin kode" title="Salin kode" data-code-copy><svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg><svg class="chat-code-check" aria-hidden="true" viewBox="0 0 24 24" fill="none"><path d="m5 12 4 4L19 6"/></svg></button></div>`;
       return stash(
-        `<pre class="my-1 block overflow-x-auto rounded-lg bg-black/10 px-2 py-1.5 font-mono text-[12.5px] leading-[1.5]"><code>${clean}</code></pre>`,
+        `<div class="chat-code-block">${header}<pre class="my-0 block overflow-x-auto font-mono"><code>${clean}</code></pre></div>`,
       );
     });
   }
@@ -174,8 +176,16 @@ function renderInternal(input: string, mode: RenderMode): string {
   );
 
   if (mode === "message") {
+    text = text.replace(
+      /^([ \t]*[-*+] (?:\[[ xX]\] )?[^\n]+)\n(?:[ \t]*\n)+(?=[ \t]*[-*+] )/gm,
+      "$1\n",
+    );
     text = renderBlocks(text);
     text = text.replace(/\n/g, "<br>");
+    text = text.replace(
+      /(<span class="chat-markdown-list-item[^"]*">[\s\S]*?<\/span>)(?:<br>)+(?=<span class="chat-markdown-list-item)/g,
+      "$1",
+    );
   }
 
   text = text.replace(/\u0001PH(\d+)\u0001/g, (_m, i) => ph[Number(i)] ?? "");

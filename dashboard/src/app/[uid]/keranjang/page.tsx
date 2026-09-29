@@ -14,17 +14,17 @@ export default function KeranjangPage({
 
   return (
     <>
-      <AppHeader title="Keranjang" subtitle="Belanja kamu di CheyaVerse" />
+      <AppHeader title="Cart" subtitle="Your CheyaVerse shopping cart" />
 
       <div className="px-1 py-20 text-center animate-fade-up">
         <div className="w-14 h-14 rounded-full bg-[#f5f5f5] mx-auto mb-4 flex items-center justify-center">
           <ShoppingCart size={22} className="text-ink-mute" strokeWidth={1.8} />
         </div>
         <p className="text-[14.5px] font-medium text-ink mb-1.5">
-          Keranjang masih kosong
+          Your cart is empty
         </p>
         <p className="text-[12.5px] text-ink-mute font-normal leading-relaxed">
-          Belum ada item di keranjang kamu
+          Belum terdapat item dalam keranjang Anda.
         </p>
       </div>
     </>

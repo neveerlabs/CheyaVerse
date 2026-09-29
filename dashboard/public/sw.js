@@ -1,7 +1,6 @@
-const ICON_PATH = "/api/avatar/system/circular";
-const CACHE_NAME = "cheya-push-assets-v3";
-const DEFAULT_TAG = "cheyaverse-system-alert";
-const DEFAULT_TITLE = "CheyaVerse";
+const ICON_PATH = "/push-icon.png";
+const CACHE_NAME = "cheya-push-assets-v5";
+const DEFAULT_TITLE = "CheyaVerse · Web";
 
 function absoluteUrl(path) {
   if (!path) return undefined;
@@ -67,28 +66,42 @@ self.addEventListener("push", (event) => {
     : DEFAULT_TITLE;
   const body = typeof payload.body === "string" ? payload.body : "";
   const data = payload.data && typeof payload.data === "object" ? payload.data : {};
+  const messageId = typeof data.msgId === "string"
+    ? data.msgId
+    : typeof data.notifId === "string"
+      ? data.notifId
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const tag = typeof payload.tag === "string" && payload.tag
+    ? payload.tag
+    : `cheyaverse-${messageId}`;
+  const iconRaw = typeof payload.icon === "string" && payload.icon
+    ? payload.icon
+    : ICON_PATH;
 
-  const iconRaw = typeof payload.icon === "string" && payload.icon ? payload.icon : ICON_PATH;
+  event.waitUntil((async () => {
+    const options = {
+      body,
+      icon: absoluteUrl(iconRaw),
+      tag,
+      renotify: payload.renotify !== false,
+      silent: payload.silent === true,
+      vibrate: Array.isArray(payload.vibrate)
+        ? payload.vibrate
+        : [200, 100, 200],
+      data,
+      actions: Array.isArray(payload.actions) && payload.actions.length > 0
+        ? payload.actions
+        : [
+            { action: "mark-read", title: "Mark as read" },
+            { action: "reply", type: "text", title: "Reply", placeholder: "Type a message..." },
+          ],
+    };
+    if (typeof payload.badge === "string" && payload.badge) {
+      options.badge = absoluteUrl(payload.badge);
+    }
 
-  const options = {
-    body,
-    icon: absoluteUrl(iconRaw),
-    tag: typeof payload.tag === "string" && payload.tag ? payload.tag : DEFAULT_TAG,
-    renotify: payload.renotify !== false,
-    data,
-    actions: Array.isArray(payload.actions) && payload.actions.length > 0
-      ? payload.actions
-      : [
-          { action: "mark-read", title: "Mark as Read" },
-          { action: "reply", type: "text", title: "Reply", placeholder: "Type a message..." },
-        ],
-  };
-
-  if (typeof payload.badge === "string" && payload.badge) {
-    options.badge = absoluteUrl(payload.badge);
-  }
-
-  event.waitUntil(self.registration.showNotification(title, options));
+    await self.registration.showNotification(title, options);
+  })());
 });
 
 self.addEventListener("notificationclick", (event) => {

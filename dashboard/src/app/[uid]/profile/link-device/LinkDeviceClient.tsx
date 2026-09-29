@@ -35,8 +35,8 @@ export function LinkDeviceClient({ uid }: { uid: string }) {
       if (!response.ok || !result.ok || !result.token || !result.expiresAt) {
         throw new Error(
           response.status === 401
-            ? "Sesi berakhir. Silakan login kembali."
-            : "Undangan perangkat gagal dibuat. Coba lagi.",
+            ? "Sesi berakhir. Silakan masuk kembali."
+            : "Undangan perangkat tidak dapat dibuat. Silakan coba kembali.",
         );
       }
       setInvite({ token: result.token, expiresAt: result.expiresAt });
@@ -46,7 +46,7 @@ export function LinkDeviceClient({ uid }: { uid: string }) {
       setError(
         cause instanceof Error
           ? cause.message
-          : "Undangan perangkat gagal dibuat. Coba lagi.",
+          : "Undangan perangkat tidak dapat dibuat. Silakan coba kembali.",
       );
     } finally {
       refreshing.current = false;
@@ -110,7 +110,7 @@ export function LinkDeviceClient({ uid }: { uid: string }) {
       setCopied(true);
     } catch (cause) {
       console.error("[device-link] could not copy invite URL:", cause);
-      setError("Link tidak dapat disalin. Coba izinkan akses clipboard.");
+      setError("Tautan tidak dapat disalin. Periksa izin akses papan klip.");
     }
   }
 
@@ -120,24 +120,24 @@ export function LinkDeviceClient({ uid }: { uid: string }) {
         <header className={styles.topbar}>
           <Link href={`/${uid}/profile`} className={styles.back}>
             <ArrowLeft size={18} strokeWidth={2} />
-            <span>Kembali</span>
+            <span>Back</span>
           </Link>
           <span className={styles.secure}>
             <ShieldCheck size={15} />
-            Koneksi aman
+            Secure connection
           </span>
         </header>
 
         <main className={styles.layout}>
           <section className={styles.intro}>
-            <p className={styles.eyebrow}>PERANGKAT BARU</p>
-            <h1>Hubungkan perangkat</h1>
+            <p className={styles.eyebrow}>NEW DEVICE</p>
+            <h1>Connect a device</h1>
             <p className={styles.description}>
-              Tambahkan perangkat dengan memindai QR atau membuka tautan undangan
-              sekali pakai.
+              Tambahkan perangkat dengan memindai kode QR atau membuka tautan
+              undangan sekali pakai.
             </p>
 
-            <div className={styles.methods} aria-label="Pilih cara menghubungkan">
+            <div className={styles.methods} aria-label="Choose a connection method">
               <button
                 type="button"
                 onClick={() => setMethod("qr")}
@@ -146,8 +146,8 @@ export function LinkDeviceClient({ uid }: { uid: string }) {
               >
                 <span className={styles.methodIcon}><QrCode size={20} /></span>
                 <span className={styles.methodCopy}>
-                  <span className={styles.methodTitle}>Pindai kode QR</span>
-                  <span className={styles.methodDescription}>Gunakan kamera perangkat baru</span>
+                  <span className={styles.methodTitle}>Scan QR code</span>
+                  <span className={styles.methodDescription}>Gunakan kamera pada perangkat baru.</span>
                 </span>
                 <span className={styles.methodAction} aria-hidden>›</span>
               </button>
@@ -159,8 +159,8 @@ export function LinkDeviceClient({ uid }: { uid: string }) {
               >
                 <span className={styles.methodIcon}><Link2 size={20} /></span>
                 <span className={styles.methodCopy}>
-                  <span className={styles.methodTitle}>Salin tautan undangan</span>
-                  <span className={styles.methodDescription}>Buka langsung di perangkat baru</span>
+                  <span className={styles.methodTitle}>Copy invite link</span>
+                  <span className={styles.methodDescription}>Buka tautan pada perangkat baru.</span>
                 </span>
                 <span className={styles.methodAction} aria-hidden>›</span>
               </button>
@@ -168,7 +168,7 @@ export function LinkDeviceClient({ uid }: { uid: string }) {
 
             <div className={styles.securityNote}>
               <ShieldCheck size={17} />
-              <span>Jangan bagikan undangan kepada orang lain.</span>
+              <span>Jangan bagikan tautan undangan kepada siapa pun.</span>
             </div>
           </section>
 
@@ -178,8 +178,8 @@ export function LinkDeviceClient({ uid }: { uid: string }) {
             {!method && (
               <div className={styles.emptyState}>
                 <span className={styles.emptyIcon}><QrCode size={28} strokeWidth={1.6} /></span>
-                <h2>Pilih cara untuk memulai</h2>
-                <p>Tautan undangan akan muncul di sini.</p>
+                <h2>Choose a method to continue</h2>
+                <p>Tautan undangan akan ditampilkan di sini.</p>
               </div>
             )}
 
@@ -189,13 +189,13 @@ export function LinkDeviceClient({ uid }: { uid: string }) {
                   <>
                     <div className={styles.inviteStatus}>
                       <div>
-                        <p className={styles.statusLabel}>Undangan aktif</p>
-                        <p className={styles.statusTime}>{remaining} detik tersisa</p>
+                        <p className={styles.statusLabel}>Invite active</p>
+                        <p className={styles.statusTime}>{remaining} seconds left</p>
                       </div>
                       <span
                         className={styles.progress}
                         role="progressbar"
-                        aria-label="Waktu undangan tersisa"
+                        aria-label="Invite time remaining"
                         aria-valuemin={0}
                         aria-valuemax={60}
                         aria-valuenow={remaining}
@@ -210,7 +210,7 @@ export function LinkDeviceClient({ uid }: { uid: string }) {
                           <svg
                             viewBox={`0 0 ${qr.modules.size + 8} ${qr.modules.size + 8}`}
                             role="img"
-                            aria-label="QR code untuk menautkan perangkat"
+                            aria-label="QR code to link a device"
                             className={styles.qr}
                           >
                             <defs>
@@ -289,12 +289,12 @@ export function LinkDeviceClient({ uid }: { uid: string }) {
                           </svg>
                         )}
                         <p className={styles.qrHint}>
-                          Buka kamera di perangkat yang ingin ditautkan, lalu pindai kode ini.
+                          Buka kamera pada perangkat yang akan ditautkan, lalu pindai kode ini.
                         </p>
                       </div>
                     ) : (
                       <div className={styles.linkPanel}>
-                        <label htmlFor="device-invite-link">Tautan undangan</label>
+                        <label htmlFor="device-invite-link">Invite link</label>
                         <input
                           id="device-invite-link"
                           readOnly
@@ -307,14 +307,14 @@ export function LinkDeviceClient({ uid }: { uid: string }) {
                           className={styles.copyButton}
                         >
                           {copied ? <Check size={18} /> : <Copy size={18} />}
-                          {copied ? "Tersalin" : "Salin tautan"}
+                          {copied ? "Copied" : "Copy link"}
                         </button>
                       </div>
                     )}
                   </>
                 ) : (
                   <div className={styles.loading}>
-                    {error ? "Tautan undangan belum tersedia!" : "Membuat tautan undangan…"}
+                    {error ? "Tautan undangan belum tersedia." : "Creating invite link…"}
                   </div>
                 )}
 
@@ -324,7 +324,7 @@ export function LinkDeviceClient({ uid }: { uid: string }) {
                     onClick={() => void refreshInvite()}
                     className={styles.retryButton}
                   >
-                    Coba lagi
+                    Try again
                   </button>
                 )}
               </>
@@ -332,7 +332,7 @@ export function LinkDeviceClient({ uid }: { uid: string }) {
 
             {method && (
               <p className={styles.expiryNote}>
-                Undangan hanya dapat digunakan satu kali dan diperbarui setiap 60 detik.
+                Tautan undangan hanya dapat digunakan satu kali dan diperbarui setiap 60 detik.
               </p>
             )}
           </section>

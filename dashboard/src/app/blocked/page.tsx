@@ -43,11 +43,11 @@ export default function BlockedPage() {
         <ShieldAlert size={32} className="text-danger" strokeWidth={2} />
       </div>
       <h1 className="text-[22px] font-bold tracking-[-.02em] text-ink mb-2 text-center">
-        Perangkat Diblokir
+        Device blocked
       </h1>
       <p className="text-[13.5px] text-ink-soft text-center max-w-[380px] leading-relaxed">
-        Perangkat ini telah diblokir dari layanan CheyaVerse. Akses ke seluruh
-        halaman dashboard akan ditolak secara otomatis dari perangkat ini.
+        Perangkat ini telah diblokir dari CheyaVerse. Akses ke seluruh halaman
+        dashboard dari perangkat ini akan ditolak secara otomatis.
       </p>
 
       {deviceId && (
@@ -57,7 +57,7 @@ export default function BlockedPage() {
           className="mt-6 w-full max-w-[320px] rounded-2xl bg-[#f5f5f5] sm:hover:bg-[#ededed] active:scale-[.99] px-4 py-3.5 text-center transition-all"
         >
           <p className="text-[13px] text-ink-soft leading-none break-all">
-            <span className="font-medium">DeviceID: </span>
+            <span className="font-medium">Device ID: </span>
             <span className="font-semibold text-ink tabular-nums tracking-[-.005em]">
               {deviceId}
             </span>
@@ -65,11 +65,11 @@ export default function BlockedPage() {
           <p className="text-[10.5px] text-ink-mute mt-2 leading-none inline-flex items-center gap-1">
             {copied ? (
               <>
-                <Check size={11} strokeWidth={2.6} /> Tersalin
+                <Check size={11} strokeWidth={2.6} /> Copied
               </>
             ) : (
               <>
-                <Copy size={11} strokeWidth={2.2} /> Tap untuk menyalin
+                <Copy size={11} strokeWidth={2.2} /> Tap to copy
               </>
             )}
           </p>
@@ -77,8 +77,8 @@ export default function BlockedPage() {
       )}
 
       <p className="text-[12px] text-ink-mute text-center max-w-[340px] leading-relaxed mt-6">
-        Jika Anda merasa ini sebuah kesalahan, hubungi pemilik akun Telegram
-        terkait untuk membuka blokir.
+        Jika pemblokiran ini terjadi karena kesalahan, hubungi pemilik akun
+        Telegram terkait untuk meminta pembukaan blokir.
       </p>
     </main>
   );

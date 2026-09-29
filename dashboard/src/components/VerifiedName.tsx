@@ -1,74 +1,67 @@
 // src/components/VerifiedName.tsx
 "use client";
 
-import { useEffect, useState } from "react";
-
-let cachedReady: boolean = false;
-let inflight: Promise<void> | null = null;
-
-function loadCheckmark(): Promise<void> {
-  if (cachedReady) return Promise.resolve();
-  if (inflight) return inflight;
-  if (typeof window === "undefined") {
-    inflight = Promise.resolve();
-    return inflight;
-  }
-  inflight = new Promise<void>((resolve) => {
-    const img = new Image();
-    const done = () => {
-      cachedReady = true;
-      resolve();
-    };
-    img.onload = done;
-    img.onerror = done;
-    img.src = "/assets/centang.png";
-  });
-  return inflight;
-}
+import Image from "next/image";
+import { useState } from "react";
 
 export function VerifiedName({
   name,
   size = "lg",
   className,
   nameClassName,
+  wrap = false,
 }: {
   name: string;
   size?: "sm" | "lg";
   className?: string;
   nameClassName?: string;
+  wrap?: boolean;
 }) {
-  const [ready, setReady] = useState<boolean>(cachedReady);
-
-  useEffect(() => {
-    if (ready) return;
-    let cancelled = false;
-    loadCheckmark().then(() => {
-      if (!cancelled) setReady(true);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [ready]);
+  const [failed, setFailed] = useState(false);
 
   const imgSize = size === "lg" ? "w-[26px] h-[26px]" : "w-[22px] h-[22px]";
   const textSize = size === "lg" ? "text-[15px]" : "text-[13.5px]";
 
   return (
-    <span
-      className={`inline-flex items-center gap-0.5 min-w-0 ${className ?? ""}`}
-      style={{ visibility: ready ? "visible" : "hidden" }}
-    >
+    <span className={`inline-flex items-center gap-0.5 min-w-0 ${className ?? ""}`}>
       <span
-        className={`${textSize} font-semibold text-ink leading-tight truncate min-w-0 ${nameClassName ?? ""}`}
+        className={`${textSize} font-semibold text-ink leading-tight min-w-0 ${
+          wrap ? "whitespace-normal break-words" : "truncate"
+        } ${nameClassName ?? ""}`}
       >
         {name}
       </span>
-      <img
-        src="/assets/centang.png"
-        alt=""
-        draggable={false}
-        className={`${imgSize} object-contain flex-shrink-0 -my-1`}
-      />
+      {failed ? (
+        <svg
+          aria-label="Akun terverifikasi"
+          role="img"
+          viewBox="0 0 24 24"
+          className={`${imgSize} flex-shrink-0 -my-1`}
+        >
+          <path
+            fill="#45b7e8"
+            d="M12 1.8 14.7 3l3-.1 1.3 2.7 2.5 1.7-.5 3 1.1 2.8-2.1 2.2-.7 3-3 .7-2.2 2.1-2.8-1.1-3 .5-1.7-2.5-2.7-1.3.1-3L3 12l1.2-2.7-.1-3 2.7-1.3 1.7-2.5 3 .5L12 1.8Z"
+          />
+          <path
+            fill="none"
+            stroke="white"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="2"
+            d="m8.3 12.1 2.4 2.4 5-5"
+          />
+        </svg>
+      ) : (
+        <Image
+          src="/assets/centang.png"
+          alt="Akun terverifikasi"
+          onError={() => setFailed(true)}
+          width={26}
+          height={26}
+          draggable={false}
+          className={`${imgSize} object-contain flex-shrink-0 -my-1`}
+        />
+      )}
     </span>
   );
 }

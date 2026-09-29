@@ -27,7 +27,7 @@ export default async function MediaPage({ params }: { params: { uid: string } })
 
   return (
     <>
-      <AppHeader title="Media" subtitle={`${items.length} file terbaru`} />
+      <AppHeader title="Media" subtitle={`${items.length} latest files`} />
       <MediaClient uid={params.uid} items={items} initialView={initialView} />
     </>
   );

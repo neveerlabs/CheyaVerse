@@ -39,8 +39,8 @@ const TEXTAREA_CLASS =
 export function ChatComposer({
   value,
   sending,
-  placeholder = "Pesan",
-  sendLabel = "Kirim",
+  placeholder = "Message",
+  sendLabel = "Send",
   inputRef,
   onChange,
   onSend,
@@ -137,7 +137,7 @@ export function ChatComposer({
             {onToggleDictation && (
               <button
                 type="button"
-                aria-label={dictating ? "Hentikan dikte" : "Dikte suara"}
+                aria-label={dictating ? "Stop dictation" : "Voice dictation"}
                 aria-pressed={dictating}
                 onClick={onToggleDictation}
                 className="ml-2 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-ink-soft active:bg-[#f2f3f5]"

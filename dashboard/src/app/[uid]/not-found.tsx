@@ -9,17 +9,16 @@ export default function TelegramAccountNotFound() {
           Error 404
         </div>
         <h1 className="mb-2 text-[22px] font-bold tracking-[-.02em] text-ink">
-          ID Telegram tidak ditemukan
+          Telegram ID not found
         </h1>
         <p className="mb-6 text-[13.5px] leading-relaxed text-ink-soft">
-          Akun Telegram ini belum terdaftar atau tidak dapat diverifikasi.
-          Silakan login kembali dengan Telegram.
+          Akun Telegram ini belum terdaftar atau tidak dapat diverifikasi. Silakan masuk kembali melalui Telegram.
         </p>
         <Link
           href="/login"
           className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-ink px-5 py-3 text-[13.5px] font-semibold text-white"
         >
-          <Home size={15} /> Login / Register
+          <Home size={15} /> Log in / Register
         </Link>
       </section>
     </main>

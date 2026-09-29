@@ -35,7 +35,7 @@ export default function ViewerLoading() {
           <span className="relative w-11 h-11 rounded-full border-2 border-white/15 border-t-white/90 animate-spin" />
         </div>
         <span className="absolute bottom-6 left-1/2 -translate-x-1/2 text-white/40 text-[10.5px] font-semibold tracking-[.2em] uppercase">
-          Memuat
+          Loading
         </span>
       </div>
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserSession } from "@/lib/auth-request";
 import { listDirectConversations } from "@/lib/storage";
+import { config } from "@/lib/config";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,6 +19,7 @@ export async function GET(request: NextRequest) {
       first_name: conversation.user.first_name,
       last_name: conversation.user.last_name,
       photo_url: conversation.user.photo_url,
+      is_admin: config.adminTelegramIds.has(conversation.user.uid),
     }));
     return NextResponse.json(
       { ok: true, contacts },

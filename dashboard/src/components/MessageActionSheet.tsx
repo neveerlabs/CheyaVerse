@@ -20,7 +20,7 @@ export function MessageActionSheet({
       <section
         role="dialog"
         aria-modal="true"
-        aria-label="Aksi pesan"
+        aria-label="Message actions"
         onClick={(event) => event.stopPropagation()}
         className="w-full max-w-[560px] animate-fade-up overflow-hidden rounded-2xl border border-line bg-white pb-1 shadow-2xl [&_button:hover]:!bg-transparent [&_button:active]:!bg-transparent"
       >

@@ -15,7 +15,7 @@ export function LoginApproval({ botUsername }: { botUsername: string }) {
   const requestedNext = searchParams.get("next") ?? "";
   const [attempt, setAttempt] = useState(0);
   const [botUrl, setBotUrl] = useState("");
-  const [message, setMessage] = useState("Menyiapkan permintaan login…");
+  const [message, setMessage] = useState("Preparing sign-in request…");
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -26,7 +26,7 @@ export function LoginApproval({ botUsername }: { botUsername: string }) {
     async function start() {
       setError("");
       setBotUrl("");
-      setMessage("Menyiapkan permintaan login…");
+      setMessage("Preparing sign-in request…");
       try {
         const response = await fetch("/api/auth/challenge", {
           method: "POST",
@@ -36,22 +36,22 @@ export function LoginApproval({ botUsername }: { botUsername: string }) {
         if (!response.ok || !result.challenge || !result.botUrl) {
           throw new Error(
             result.error === "bot_not_configured"
-              ? "Login bot belum dikonfigurasi oleh administrator."
+              ? "Bot Telegram belum dikonfigurasi oleh administrator."
               : result.error === "rate_limited"
-                ? "Terlalu banyak permintaan login. Tunggu satu menit lalu coba lagi."
-              : "Permintaan login gagal dibuat. Silakan coba lagi.",
+                ? "Terlalu banyak permintaan masuk. Silakan tunggu satu menit, lalu coba kembali."
+              : "Permintaan masuk tidak dapat dibuat. Silakan coba kembali.",
           );
         }
         if (stopped) return;
         setBotUrl(result.botUrl);
-        setMessage("Buka bot, lalu setujui permintaan login ini.");
+        setMessage("Buka bot Telegram dan setujui permintaan masuk.");
 
         const expiresAt = Date.now() + (result.expiresIn ?? 300) * 1000;
         const poll = async (): Promise<boolean> => {
           if (stopped) return false;
           if (polling) return true;
           if (Date.now() >= expiresAt) {
-            setError("Permintaan login kedaluwarsa. Buat permintaan baru.");
+            setError("Permintaan masuk kedaluwarsa. Buat permintaan baru.");
             if (timer !== undefined) window.clearInterval(timer);
             return false;
           }
@@ -69,17 +69,17 @@ export function LoginApproval({ botUsername }: { botUsername: string }) {
               uid?: number;
             };
             if (statusResponse.status === 410 || status.status === "expired") {
-              setError("Permintaan login kedaluwarsa. Buat permintaan baru.");
+              setError("Permintaan masuk kedaluwarsa. Buat permintaan baru.");
               if (timer !== undefined) window.clearInterval(timer);
               return false;
             }
             if (status.status === "denied") {
-              setError("Permintaan login ditolak lewat bot Telegram.");
+              setError("Permintaan masuk ditolak melalui bot Telegram.");
               if (timer !== undefined) window.clearInterval(timer);
               return false;
             }
             if (!statusResponse.ok) {
-              throw new Error("Status login tidak dapat diperiksa.");
+              throw new Error("Status masuk tidak dapat diperiksa.");
             }
             if (
               status.status === "approved" &&
@@ -109,7 +109,7 @@ export function LoginApproval({ botUsername }: { botUsername: string }) {
               setError(
                 cause instanceof Error
                   ? cause.message
-                  : "Status login tidak dapat diperiksa.",
+                  : "Status masuk tidak dapat diperiksa.",
               );
               if (timer !== undefined) window.clearInterval(timer);
             }
@@ -127,7 +127,7 @@ export function LoginApproval({ botUsername }: { botUsername: string }) {
           setError(
             cause instanceof Error
               ? cause.message
-              : "Login gagal disiapkan. Silakan coba lagi.",
+              : "Proses masuk tidak dapat disiapkan. Silakan coba kembali.",
           );
         }
       }
@@ -149,7 +149,7 @@ export function LoginApproval({ botUsername }: { botUsername: string }) {
           rel="noreferrer"
           className="flex min-h-11 w-full items-center justify-center rounded-xl bg-[#229ED9] px-4 text-[14px] font-semibold text-white transition hover:bg-[#168ac2]"
         >
-          Buka bot @{botUsername}
+          Open bot @{botUsername}
         </a>
       ) : (
         <div className="min-h-11 text-[13px] text-ink-mute">{message}</div>
@@ -169,7 +169,7 @@ export function LoginApproval({ botUsername }: { botUsername: string }) {
             onClick={() => setAttempt((value) => value + 1)}
             className="mt-3 w-full rounded-xl border border-line px-4 py-2.5 text-[13px] font-semibold text-ink"
           >
-            Coba lagi
+            Try again
           </button>
         </div>
       )}

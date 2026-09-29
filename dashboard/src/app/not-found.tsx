@@ -17,17 +17,17 @@ export default function NotFound() {
           Error 404
         </div>
         <h1 className="text-[22px] font-bold text-ink tracking-[-.02em] mb-2">
-          Halaman nggak ketemu
+          Page not found
         </h1>
         <p className="text-[13.5px] text-ink-soft leading-relaxed mb-6 font-medium">
-          URL mungkin salah ketik, atau file-nya udah expired &amp; terhapus.
+          URL mungkin salah ditulis, atau berkas telah kedaluwarsa dan dihapus.
         </p>
         <Link
           href="/"
           className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-ink hover:bg-accent-hover text-white text-[13.5px] font-semibold transition-all active:scale-[.97] w-full"
         >
           <Home size={15} strokeWidth={2.4} />
-          Beranda
+          Home
         </Link>
       </div>
     </main>

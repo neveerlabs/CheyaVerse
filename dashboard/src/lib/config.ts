@@ -1,4 +1,10 @@
 export const config = {
+  adminTelegramIds: new Set(
+    (process.env.ADMIN_TELEGRAM_IDS ?? "")
+      .split(",")
+      .map((id) => Number(id.trim()))
+      .filter((id) => Number.isSafeInteger(id) && id > 0),
+  ),
   turso: {
     url: process.env.TURSO_URL ?? "",
     authToken: process.env.TURSO_AUTH_TOKEN ?? "",

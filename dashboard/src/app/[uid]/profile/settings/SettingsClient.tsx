@@ -33,7 +33,7 @@ const DELETE_CONFIRMATION = "HAPUS AKUN";
 
 function formatDate(value: string): string {
   const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return "Belum diketahui";
+  if (!Number.isFinite(date.getTime())) return "Tanggal tidak diketahui";
   return new Intl.DateTimeFormat("id-ID", {
     dateStyle: "medium",
     timeStyle: "short",
@@ -78,7 +78,7 @@ export function SettingsClient({
       if (!response.ok || !result.ok || !Array.isArray(result.devices)) {
         throw new Error(
           response.status === 401
-            ? "Sesi berakhir. Silakan login kembali."
+            ? "Sesi berakhir. Silakan masuk kembali."
             : "Daftar perangkat tidak dapat dimuat.",
         );
       }
@@ -115,7 +115,7 @@ export function SettingsClient({
       window.setTimeout(() => setCleared(false), 1800);
     } catch (cause) {
       console.error("[settings] local cache could not be cleared:", cause);
-      setNotice("Cache lokal tidak dapat dibersihkan di browser ini.");
+      setNotice("Cache lokal tidak dapat dihapus di browser ini.");
     }
   }
 
@@ -184,19 +184,19 @@ export function SettingsClient({
       if (!response.ok || !result.ok) {
         throw new Error(
           response.status === 401
-            ? "Sesi login tidak valid. Muat ulang halaman dan login kembali."
-            : "Sesi lain belum dapat dikeluarkan. Silakan coba lagi.",
+            ? "Sesi masuk tidak valid. Muat ulang halaman dan masuk kembali."
+            : "Sesi lain tidak dapat dihentikan. Silakan coba kembali.",
         );
       }
       setLogoutOthersOpen(false);
       setLogoutOthersNotice(
-        "Sesi lain telah dikeluarkan. Sesi yang sedang digunakan tetap aktif.",
+        "Sesi lain telah dihentikan. Sesi ini tetap aktif.",
       );
     } catch (cause) {
       setLogoutOthersError(
         cause instanceof Error
           ? cause.message
-          : "Sesi lain belum dapat dikeluarkan. Silakan coba lagi.",
+          : "Sesi lain tidak dapat dihentikan. Silakan coba kembali.",
       );
     } finally {
       setLogoutOthersBusy(false);
@@ -217,12 +217,13 @@ export function SettingsClient({
       const result = (await response.json()) as {
         ok?: boolean;
         storageCleanupFailed?: number;
+        blobStorageCleanupFailed?: number;
       };
       if (!response.ok || !result.ok) {
         throw new Error(
           response.status === 401
-            ? "Sesi perangkat tidak valid. Login kembali lalu coba lagi."
-            : "Akun belum dapat dihapus. Silakan coba lagi.",
+            ? "Sesi perangkat tidak valid. Masuk kembali, lalu coba lagi."
+            : "Akun tidak dapat dihapus. Silakan coba kembali.",
         );
       }
       try {
@@ -233,32 +234,32 @@ export function SettingsClient({
       setDeleteOpen(false);
       setDeleteText("");
       setNotice(
-        result.storageCleanupFailed
-          ? `Akun sudah dihapus. ${result.storageCleanupFailed} file tidak berhasil dihapus dari penyimpanan Telegram.`
-          : "Akun dan data web berhasil dihapus. Anda akan diarahkan ke halaman login.",
+        result.storageCleanupFailed || result.blobStorageCleanupFailed
+          ? `Akun telah dihapus. ${result.storageCleanupFailed ?? 0} file Telegram dan ${result.blobStorageCleanupFailed ?? 0} file media cloud gagal dibersihkan.`
+          : "Akun dan data web telah dihapus. Anda akan diarahkan ke halaman masuk.",
       );
       window.setTimeout(() => {
         window.location.replace("/login");
       }, 3500);
     } catch (cause) {
       setNotice(
-        cause instanceof Error ? cause.message : "Akun belum dapat dihapus.",
+        cause instanceof Error ? cause.message : "Akun tidak dapat dihapus.",
       );
       setDeleteBusy(false);
     }
   }
 
   const tabs: Array<{ id: Tab; label: string; icon: React.ReactNode }> = [
-    { id: "general", label: "Umum", icon: <Globe size={16} /> },
+    { id: "general", label: "General", icon: <Globe size={16} /> },
     { id: "security", label: "Devices & Security", icon: <Shield size={16} /> },
     { id: "data", label: "Data", icon: <Database size={16} /> },
-    { id: "about", label: "Tentang", icon: <Layers size={16} /> },
+    { id: "about", label: "About", icon: <Layers size={16} /> },
   ];
 
   return (
     <>
       <div className="mb-5 overflow-x-auto rounded-[22px] border border-white bg-[#f0f1f5] p-1.5 shadow-sm">
-        <nav aria-label="Kategori pengaturan" className="flex min-w-max gap-1">
+        <nav aria-label="Settings categories" className="flex min-w-max gap-1">
           {tabs.map((item) => (
             <button
               key={item.id}
@@ -293,11 +294,11 @@ export function SettingsClient({
           id="settings-panel-general"
           className="animate-fade-up space-y-5"
         >
-          <SettingsSection title="Preferensi">
-            <Row icon={<Globe size={17} />} title="Bahasa" value="Indonesia" />
-            <Row icon={<Calendar size={17} />} title="Format tanggal" value="24 jam" last />
+          <SettingsSection title="Preferences">
+            <Row icon={<Globe size={17} />} title="Language" value="Indonesian" />
+            <Row icon={<Calendar size={17} />} title="Time format" value="24-hour" last />
           </SettingsSection>
-          <SettingsSection title="Akun">
+          <SettingsSection title="Account">
             <Row
               icon={<Smartphone size={17} />}
               title="Telegram ID"
@@ -319,7 +320,7 @@ export function SettingsClient({
                 Devices & Security
               </h2>
               <p className="mt-1 text-[12px] leading-relaxed text-ink-mute">
-                Sesi aktif tetap tercatat sampai Anda menghentikannya. Perangkat yang dicabut tidak dapat login kembali.
+                Sesi aktif tetap tercatat hingga Anda menghentikannya. Perangkat yang dicabut tidak dapat digunakan untuk masuk kembali.
               </p>
             </div>
             <button
@@ -328,7 +329,7 @@ export function SettingsClient({
               disabled={devicesLoading}
               className="shrink-0 rounded-full border border-line bg-white px-3 py-1.5 text-[11px] font-semibold text-ink-soft disabled:opacity-50"
             >
-              {devicesLoading ? "Memuat…" : "Refresh"}
+              {devicesLoading ? "Loading…" : "Refresh"}
             </button>
           </div>
           {deviceError && (
@@ -340,10 +341,10 @@ export function SettingsClient({
             <div className="flex items-start gap-3">
               <div className="min-w-0">
                 <h3 className="text-[13px] font-semibold text-ink">
-                  Keluar dari perangkat lain
+                  Sign out other sessions
                 </h3>
                 <p className="mt-1 text-[11.5px] leading-relaxed text-ink-mute">
-                  Akhiri sesi lain di akun Anda. Sesi yang sedang digunakan tetap aktif.
+                  Hentikan sesi lain pada akun Anda. Sesi ini akan tetap aktif.
                 </p>
               </div>
             </div>
@@ -356,7 +357,7 @@ export function SettingsClient({
               }}
               className="mt-3 w-full rounded-full border border-red-100 bg-red-50 px-4 py-2.5 text-[11.5px] font-semibold text-danger transition-colors hover:bg-red-100 sm:mt-0 sm:w-auto sm:shrink-0"
             >
-              Keluar dari semua sesi
+              Sign out other sessions
             </button>
             {logoutOthersNotice && (
               <p role="status" className="mt-3 text-[11px] leading-relaxed text-emerald-700 sm:mt-0 sm:basis-full">
@@ -384,25 +385,25 @@ export function SettingsClient({
                         <h3 className="truncate text-[13px] font-semibold text-ink">{name}</h3>
                         {current && (
                           <span className="rounded-full bg-[#eef1ff] px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[#59649f]">
-                            Perangkat ini
+                            This device
                           </span>
                         )}
                       </div>
                       <p className="mt-1 text-[11px] text-ink-mute">
-                        {[device.os, device.browser].filter(Boolean).join(" · ") || "Detail perangkat tidak tersedia"}
+                        {[device.os, device.browser].filter(Boolean).join(" · ") || "Detail perangkat tidak tersedia."}
                       </p>
                       <p className="mt-2 text-[10.5px] text-ink-mute">
-                        Aktivitas terakhir · {formatDate(device.lastSeen)}
+                        Last active · {formatDate(device.lastSeen)}
                       </p>
                       <p className="mt-1 font-mono text-[10px] text-ink-mute">
-                        ID · {device.deviceId}
+                        Device ID · {device.deviceId}
                       </p>
                     </div>
-                    <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${device.revoked ? "bg-[#c9cbd3]" : "bg-emerald-500"}`} title={device.revoked ? "Sesi dihentikan" : "Sesi valid"} />
+                    <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${device.revoked ? "bg-[#c9cbd3]" : "bg-emerald-500"}`} title={device.revoked ? "Session revoked" : "Session active"} />
                   </div>
                   <div className="mt-3 flex items-center justify-between border-t border-[#f0f0f2] pt-3">
                     <span className={`text-[10px] font-medium ${device.revoked ? "text-ink-mute" : "text-emerald-700"}`}>
-                      {device.revoked ? "Sesi dihentikan" : "Sesi valid"}
+                      {device.revoked ? "Revoked" : "Active"}
                     </span>
                     {!device.revoked && (
                       <button
@@ -413,7 +414,7 @@ export function SettingsClient({
                         }}
                         className="rounded-full px-3 py-1.5 text-[11px] font-semibold text-danger transition-colors hover:bg-red-50"
                       >
-                        Hapus sesi
+                        Revoke session
                       </button>
                     )}
                   </div>
@@ -422,20 +423,20 @@ export function SettingsClient({
             })}
             {!devicesLoading && !deviceError && devices.length === 0 && (
               <div className="rounded-[22px] border border-line bg-white px-4 py-8 text-center text-[12px] text-ink-mute">
-                Belum ada perangkat terdaftar.
+                Belum ada perangkat yang terdaftar.
               </div>
             )}
             {devicesLoading && devices.length === 0 && (
               <div role="status" className="rounded-[22px] border border-line bg-white px-4 py-8 text-center text-[12px] text-ink-mute">
-                Memuat daftar perangkat…
+                Loading devices…
               </div>
             )}
           </div>
           <SettingsSection title="Danger Zone">
             <div className="p-4">
-              <p className="text-[13px] font-semibold text-ink">Hapus akun web dashboard</p>
+              <p className="text-[13px] font-semibold text-ink">Delete web account</p>
               <p className="mt-1 text-[11.5px] leading-relaxed text-ink-mute">
-                Profil dan data milik Anda di web akan dihapus. Salinan pesan yang sudah ada di percakapan akun lain tetap tersedia bagi mereka.
+                Profil dan data web Anda akan dihapus. Salinan pesan yang sudah tersimpan di percakapan akun lain tetap tersedia bagi pemiliknya.
               </p>
               <button
                 type="button"
@@ -446,7 +447,7 @@ export function SettingsClient({
                 className="mt-4 inline-flex items-center gap-2 rounded-full border border-red-100 bg-red-50 px-4 py-2.5 text-[12px] font-semibold text-danger transition-colors hover:bg-red-100"
               >
                 <Trash2 size={15} />
-                Hapus akun
+                Delete account
               </button>
             </div>
           </SettingsSection>
@@ -458,13 +459,13 @@ export function SettingsClient({
           id="settings-panel-data"
           className="animate-fade-up space-y-5"
         >
-          <SettingsSection title="Penyimpanan">
-            <Row icon={<Database size={17} />} title="Masa simpan media" value={`${mediaTtlDays} hari`} />
-            <Row icon={<HardDrive size={17} />} title="Penyimpanan media" value="Telegram" />
+          <SettingsSection title="Storage">
+            <Row icon={<Database size={17} />} title="Media retention" value={`${mediaTtlDays} days`} />
+            <Row icon={<HardDrive size={17} />} title="Media storage" value="Telegram" />
             <Row
               icon={<Trash2 size={17} />}
-              title="Bersihkan cache lokal"
-              subtitle="Hapus preferensi tampilan media di perangkat ini"
+              title="Clear local cache"
+              subtitle="Menghapus preferensi tampilan media pada perangkat ini."
               action={
                 <button
                   type="button"
@@ -473,9 +474,9 @@ export function SettingsClient({
                 >
                   {cleared ? (
                     <span className="inline-flex items-center gap-1">
-                      <Check size={13} strokeWidth={2.4} /> Selesai
+                      <Check size={13} strokeWidth={2.4} /> Done
                     </span>
-                  ) : "Bersihkan"}
+                  ) : "Clear"}
                 </button>
               }
               last
@@ -489,8 +490,8 @@ export function SettingsClient({
           id="settings-panel-about"
           className="animate-fade-up"
         >
-          <SettingsSection title="Tentang aplikasi">
-            <Row icon={<Layers size={17} />} title="Versi" value="v1.7.3-release" />
+          <SettingsSection title="About the app">
+            <Row icon={<Layers size={17} />} title="Version" value="v1.7.3-release" />
             <Row icon={<Cpu size={17} />} title="Runtime" value="Next.js 14" />
             <Row icon={<Database size={17} />} title="Backend" value="Turso · Telegram" last />
           </SettingsSection>
@@ -499,9 +500,9 @@ export function SettingsClient({
 
       {revokingDevice && (
         <Dialog
-          title="Yakin ingin menghapus sesi perangkat ini?"
+          title="Revoke this device session?"
           description={`Perangkat ${revokingDevice.brand ?? ""} ${revokingDevice.model ?? ""} akan kehilangan akses ke akun ini.`}
-          confirmLabel={revokeBusy ? "Menghentikan…" : "Lanjutkan"}
+          confirmLabel={revokeBusy ? "Revoking…" : "Continue"}
           busy={revokeBusy}
           error={revokeError}
           onCancel={() => setRevokingDevice(null)}
@@ -511,9 +512,9 @@ export function SettingsClient({
 
       {logoutOthersOpen && (
         <Dialog
-          title="Keluar dari semua sesi lain?"
-          description="Sesi yang sedang digunakan tetap aktif. Semua sesi lain perlu login kembali untuk mengakses akun ini."
-          confirmLabel={logoutOthersBusy ? "Mengeluarkan…" : "Lanjutkan"}
+          title="Sign out of other sessions?"
+          description="Sesi ini akan tetap aktif. Semua sesi lain harus masuk kembali untuk mengakses akun."
+          confirmLabel={logoutOthersBusy ? "Signing out…" : "Continue"}
           busy={logoutOthersBusy}
           error={logoutOthersError}
           onCancel={() => setLogoutOthersOpen(false)}
@@ -535,15 +536,15 @@ export function SettingsClient({
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h2 id="delete-account-title" className="text-[18px] font-bold tracking-tight text-ink">
-                  Hapus akun secara permanen?
+                  Delete account permanently?
                 </h2>
                 <p className="mt-2 text-[12px] leading-relaxed text-ink-soft">
-                  Profil, perangkat, notifikasi, media, dan data akun web akan dihapus. Pesan di percakapan akun lain tetap disimpan untuk mereka. Tindakan ini tidak dapat dibatalkan.
+                  Profil, perangkat, notifikasi, media, dan data akun web akan dihapus. Pesan dalam percakapan akun lain tetap tersedia bagi pemiliknya. Tindakan ini tidak dapat dibatalkan.
                 </p>
               </div>
               <button
                 type="button"
-                aria-label="Tutup konfirmasi"
+                aria-label="Close confirmation"
                 disabled={deleteBusy}
                 onClick={() => setDeleteOpen(false)}
                 className="rounded-full p-1.5 text-ink-mute hover:bg-[#f4f4f5]"
@@ -552,7 +553,7 @@ export function SettingsClient({
               </button>
             </div>
             <label htmlFor="delete-account-confirmation" className="mt-5 block text-[11px] font-semibold text-ink-soft">
-              Ketik <span className="font-mono text-danger">{DELETE_CONFIRMATION}</span> untuk mengonfirmasi
+              Ketik <span className="font-mono text-danger">{DELETE_CONFIRMATION}</span> untuk mengonfirmasi penghapusan akun.
             </label>
             <input
               id="delete-account-confirmation"
@@ -574,7 +575,7 @@ export function SettingsClient({
                 onClick={() => setDeleteOpen(false)}
                 className="rounded-2xl border border-line bg-white px-4 py-3 text-[12px] font-semibold text-ink-soft hover:bg-[#f8f8f8] disabled:opacity-50"
               >
-                Batal
+                Cancel
               </button>
               <button
                 type="button"
@@ -582,7 +583,7 @@ export function SettingsClient({
                 onClick={() => void deleteAccount()}
                 className="rounded-2xl bg-danger px-4 py-3 text-[12px] font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-45"
               >
-                {deleteBusy ? "Menghapus…" : "Hapus akun"}
+                {deleteBusy ? "Deleting…" : "Delete account"}
               </button>
             </div>
           </section>
@@ -697,7 +698,7 @@ function Dialog({
             onClick={onCancel}
             className="rounded-2xl border border-line px-4 py-3 text-[12px] font-semibold text-ink-soft hover:bg-[#f8f8f8] disabled:opacity-50"
           >
-            Batal
+            Cancel
           </button>
           <button
             type="button"

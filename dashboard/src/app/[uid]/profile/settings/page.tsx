@@ -16,8 +16,8 @@ export default function SettingsPage({
   return (
     <>
       <SubPageHeader
-        title="Setting"
-        subtitle="Preferensi & konfigurasi"
+        title="Settings"
+        subtitle="Preferensi dan konfigurasi akun."
         backHref={`/${params.uid}/profile`}
       />
       <SettingsClient uid={params.uid} mediaTtlDays={config.mediaTtlDays} />

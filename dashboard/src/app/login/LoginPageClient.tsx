@@ -40,7 +40,7 @@ export function LoginPageClient({
         clearDeviceId?: boolean;
       };
       if (!response.ok || !result.ok) {
-        throw new Error("Sesi perangkat tidak dapat diperiksa. Coba lagi.");
+        throw new Error("Sesi perangkat tidak dapat diperiksa. Silakan coba kembali.");
       }
       if (result.clearDeviceId) {
         window.localStorage.removeItem(DEVICE_ID_KEY);
@@ -58,7 +58,7 @@ export function LoginPageClient({
       setError(
         cause instanceof Error
           ? cause.message
-          : "Sesi perangkat tidak dapat diperiksa. Coba lagi.",
+          : "Sesi perangkat tidak dapat diperiksa. Silakan coba kembali.",
       );
     } finally {
       setChecking(false);
@@ -76,22 +76,22 @@ export function LoginPageClient({
           <Bot size={30} className="text-ink" />
         </div>
         <h1 className="mb-2 text-[22px] font-bold tracking-[-.02em] text-ink">
-          Login / Register
+          Sign in
         </h1>
         <p className="mb-7 text-[13.5px] leading-relaxed text-ink-soft">
-          Masuk dengan akun Telegram untuk membuka dashboard CheyaVerse.
+          Masuk menggunakan akun Telegram untuk membuka dashboard CheyaVerse.
           Akun Telegram menjadi identitas akun web Anda.
         </p>
         {checking ? (
           <div role="status" className="min-h-11 text-[13px] text-ink-mute">
-            Memeriksa sesi perangkat…
+            Checking device session…
           </div>
         ) : ready ? (
           botUsername ? (
             <Suspense
               fallback={
                 <div className="min-h-11 text-[13px] text-ink-mute">
-                  Memuat login Telegram…
+                  Loading Telegram sign-in…
                 </div>
               }
             >
@@ -110,14 +110,14 @@ export function LoginPageClient({
               onClick={() => void restoreSession()}
               className="w-full rounded-xl bg-ink px-4 py-3 text-[13px] font-semibold text-white"
             >
-              Coba lagi
+              Try again
             </button>
             <button
               type="button"
               onClick={() => setReady(true)}
               className="text-[12px] font-medium text-ink-soft underline"
             >
-              Tetap masuk dengan Telegram
+              Continue with Telegram
             </button>
           </div>
         ) : null}

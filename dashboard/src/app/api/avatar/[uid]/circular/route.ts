@@ -48,7 +48,7 @@ export async function GET(
   let sourceUrl: string;
 
   if (id === "system" || id === "bot") {
-    sourceUrl = `${origin}/icon.png`;
+    sourceUrl = `${origin}/push-icon.png`;
   } else {
     const uid = Number(id);
     if (!Number.isInteger(uid) || uid <= 0) {

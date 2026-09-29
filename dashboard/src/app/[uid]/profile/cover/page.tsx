@@ -18,8 +18,8 @@ export default async function CoverPage({
   return (
     <>
       <SubPageHeader
-        title="Sampul Profil"
-        subtitle="Warna, ikon, atau foto"
+        title="Profile Cover"
+        subtitle="Atur foto, warna, atau ikon profil."
         backHref={`/${params.uid}/profile`}
       />
       <CoverClient uid={params.uid} initialCover={cover} />

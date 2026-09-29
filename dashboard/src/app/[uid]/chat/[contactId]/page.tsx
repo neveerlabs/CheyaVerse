@@ -8,6 +8,7 @@ import {
   markDirectMessagesRead,
 } from "@/lib/storage";
 import { broadcastToUid } from "@/lib/realtime";
+import { config } from "@/lib/config";
 import { ChatRoomClient } from "./ChatRoomClient";
 import { DirectChatRoomClient } from "./DirectChatRoomClient";
 
@@ -72,6 +73,7 @@ export default async function ChatRoomPage({
         }}
         ownPhotoUrl={currentUser?.photo_url ?? null}
         ownName={ownName}
+        contactIsAdmin={config.adminTelegramIds.has(contact.uid)}
         firstUnreadId={firstUnreadId}
         initialMessages={messages}
       />

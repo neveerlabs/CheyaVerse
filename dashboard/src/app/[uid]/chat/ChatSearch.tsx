@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Search, UserPlus } from "lucide-react";
 import { TelegramAvatar } from "@/components/TelegramAvatar";
+import { VerifiedName } from "@/components/VerifiedName";
 
 type SearchUser = {
   uid: number;
@@ -11,6 +12,7 @@ type SearchUser = {
   first_name: string | null;
   last_name: string | null;
   photo_url: string | null;
+  is_admin?: boolean;
 };
 
 function displayName(user: SearchUser): string {
@@ -52,7 +54,7 @@ export function ChatSearch({ uid }: { uid: string }) {
         );
         const result = await response.json();
         if (!response.ok || result?.ok !== true) {
-          throw new Error("Pencarian akun gagal. Coba lagi.");
+          throw new Error("Pencarian akun gagal. Silakan coba lagi.");
         }
         setUsers(Array.isArray(result.users) ? result.users : []);
       } catch (cause) {
@@ -100,12 +102,12 @@ export function ChatSearch({ uid }: { uid: string }) {
           type="search"
           inputMode="search"
           autoComplete="off"
-          placeholder="Cari kontak"
+          placeholder="Search contacts"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
-          aria-label="Cari kontak Telegram"
+          aria-label="Search Telegram contacts"
           aria-controls="chat-search-results"
           className="min-w-0 flex-1 bg-transparent text-[14px] text-ink outline-none placeholder:text-ink-mute"
         />
@@ -116,7 +118,7 @@ export function ChatSearch({ uid }: { uid: string }) {
           className="absolute left-0 right-0 top-[calc(100%+8px)] z-50 max-h-[min(60dvh,420px)] overflow-y-auto overscroll-contain rounded-2xl border border-line bg-white shadow-[0_12px_35px_-18px_rgba(0,0,0,.3)]"
         >
           {loading && (
-            <p className="px-4 py-3 text-[13px] text-ink-mute">Mencari akun…</p>
+            <p className="px-4 py-3 text-[13px] text-ink-mute">Searching accounts…</p>
           )}
           {!loading &&
             users.map((user) => (
@@ -130,9 +132,18 @@ export function ChatSearch({ uid }: { uid: string }) {
                   <TelegramAvatar src={user.photo_url || `/api/avatar/${user.uid}`} />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[13.5px] font-semibold text-ink">
-                    {displayName(user)}
-                  </span>
+                  {user.is_admin ? (
+                    <VerifiedName
+                      name={displayName(user)}
+                      size="sm"
+                      wrap
+                      nameClassName="text-[13.5px]"
+                    />
+                  ) : (
+                    <span className="block truncate text-[13.5px] font-semibold text-ink">
+                      {displayName(user)}
+                    </span>
+                  )}
                   {user.username && (
                     <span className="block truncate text-[12px] text-ink-mute">
                       @{user.username}
@@ -153,7 +164,7 @@ export function ChatSearch({ uid }: { uid: string }) {
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 rounded-lg bg-ink px-3 py-2 text-[12.5px] font-semibold text-white"
               >
-                <UserPlus size={15} /> Undang lewat Telegram
+                <UserPlus size={15} /> Invite via Telegram
               </a>
             </div>
           )}

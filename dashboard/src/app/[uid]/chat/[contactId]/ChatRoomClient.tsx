@@ -30,7 +30,8 @@ import { ChatComposer } from "@/components/ChatComposer";
 import { ChatMessageBubble, chatMessageTime } from "@/components/ChatMessageBubble";
 import { TelegramAvatar } from "@/components/TelegramAvatar";
 import { VerifiedName } from "@/components/VerifiedName";
-import { playSendSound } from "@/lib/chat-sounds";
+import { playReceiveSound, playSendSound } from "@/lib/chat-sounds";
+import { chatPreviewText } from "@/lib/chat-preview";
 
 type Notification = {
   id: string;
@@ -112,20 +113,6 @@ type ViewportState = {
   keyboard: boolean;
   keyboardInset: number;
 };
-
-function chatPreviewText(content: string): string {
-  return content
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/(?:p|div|li)>/gi, "\n")
-    .replace(/<[^>]*>/g, "")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
-    .trim();
-}
 
 function formatDateSeparator(iso: string): string {
   const date = new Date(iso);
@@ -871,6 +858,7 @@ export function ChatRoomClient({
       return;
     }
     if (event.type === "notification:new") {
+      playReceiveSound();
       markReadRef.current?.();
       router.refresh();
       return;
@@ -1383,21 +1371,21 @@ export function ChatRoomClient({
             <button
               type="button"
               onClick={exitSelectMode}
-              aria-label="Tutup pilihan"
+              aria-label="Close selection"
               className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full border border-[#dfe3e8] bg-white text-ink-soft shadow-sm transition-transform active:scale-90"
             >
               <X size={21} />
             </button>
             <div className="flex h-11 min-w-0 flex-1 items-center rounded-full border border-[#dfe3e8] bg-white px-4 shadow-sm">
               <span className="truncate text-[14px] font-semibold text-ink">
-                {selectedIds.size} Selected
+                {selectedIds.size} selected
               </span>
             </div>
             <div className="flex h-11 flex-shrink-0 items-center overflow-hidden rounded-full border border-[#dfe3e8] bg-white shadow-sm">
               <button
                 type="button"
                 onClick={() => void copySelected()}
-                aria-label="Salin pesan"
+                aria-label="Copy messages"
                 className="flex h-full w-10 items-center justify-center text-ink-soft transition-colors active:bg-[#f5f5f5]"
               >
                 <Copy size={17} strokeWidth={2.2} />
@@ -1405,7 +1393,7 @@ export function ChatRoomClient({
               <button
                 type="button"
                 onClick={openForwardFromSelection}
-                aria-label="Teruskan pesan"
+                aria-label="Forward messages"
                 className="flex h-full w-10 items-center justify-center text-ink-soft transition-colors active:bg-[#f5f5f5]"
               >
                 <Forward size={17} strokeWidth={2.2} />
@@ -1414,7 +1402,7 @@ export function ChatRoomClient({
                 <button
                   type="button"
                   onClick={editSelected}
-                  aria-label="Edit pesan"
+                  aria-label="Edit message"
                   className="flex h-full w-10 items-center justify-center text-ink-soft transition-colors active:bg-[#f5f5f5]"
                 >
                   <Pencil size={17} strokeWidth={2.2} />
@@ -1423,7 +1411,7 @@ export function ChatRoomClient({
               <button
                 type="button"
                 onClick={() => void deleteSelected()}
-                aria-label="Hapus pesan"
+                aria-label="Delete messages"
                 className="flex h-full w-10 items-center justify-center text-danger transition-colors active:bg-[#f5f5f5]"
               >
                 <Trash2 size={17} strokeWidth={2.2} />
@@ -1435,7 +1423,7 @@ export function ChatRoomClient({
             <div className="flex items-center gap-2 -mx-3">
               <Link
                 href={`/${uid}/chat`}
-                aria-label="Kembali ke chat"
+                aria-label="Back to chat"
                 className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full border border-[#dfe3e8] bg-white text-ink-soft transition-transform active:scale-90"
               >
                 <ArrowLeft size={21} />
@@ -1479,7 +1467,7 @@ export function ChatRoomClient({
                   onClick={enterSelectModeEmpty}
                   className="flex w-full items-center gap-2 px-4 py-3 text-left text-[13px] text-ink"
                 >
-                  <ListChecks size={15} /> Select chat
+                  <ListChecks size={15} /> Select messages
                 </button>
                 <button
                   type="button"
@@ -1493,7 +1481,7 @@ export function ChatRoomClient({
                   onClick={() => void clearMessagesForAll()}
                   className="flex w-full items-center gap-2 px-4 py-3 text-left text-[13px] text-danger"
                 >
-                  <Trash2 size={15} /> Clear for all
+                  <Trash2 size={15} /> Clear for everyone
                 </button>
                 <button
                   type="button"
@@ -1562,7 +1550,7 @@ export function ChatRoomClient({
           <button
             type="button"
             onClick={scrollToBottom}
-            aria-label="Ke pesan terbaru"
+            aria-label="Jump to latest message"
             className="pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full border border-line bg-white/90 text-ink-soft shadow-[0_2px_8px_-2px_rgba(0,0,0,.18)] backdrop-blur-md transition-all duration-200 hover:bg-white hover:text-ink hover:shadow-[0_4px_12px_-2px_rgba(0,0,0,.22)] active:scale-95 md:h-11 md:w-11"
           >
             <ArrowDown size={18} strokeWidth={2.2} />
@@ -1572,7 +1560,7 @@ export function ChatRoomClient({
       <ChatComposer
         value={text}
         sending={sending}
-        sendLabel={editingId ? "Simpan edit" : "Kirim pesan"}
+        sendLabel={editingId ? "Save edit" : "Send message"}
         inputRef={taRef}
         onChange={handleTextChange}
         onSend={() => void sendMessage()}
@@ -1594,7 +1582,7 @@ export function ChatRoomClient({
               </div>
               <button
                 type="button"
-                aria-label="Batal membalas"
+                aria-label="Cancel reply"
                 onClick={() => setReplyingTo(null)}
                 className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full bg-black/[.05] text-ink-mute transition-colors active:bg-black/10"
               >
@@ -1606,14 +1594,14 @@ export function ChatRoomClient({
         above={
           editingId ? (
             <div className="flex items-center justify-between rounded-lg bg-[#f5f5f5] px-3 py-1.5 text-[11px] text-ink-soft">
-              <span>Mengedit pesan</span>
+              <span>Editing message</span>
               <button
                 type="button"
                 onClick={() => {
                   setEditingId(null);
                   setText("");
                 }}
-                aria-label="Batalkan edit"
+                aria-label="Cancel edit"
               >
                 <X size={14} />
               </button>
@@ -1651,12 +1639,12 @@ export function ChatRoomClient({
               autoFocus
               value={searchText}
               onChange={(event) => setSearchText(event.target.value)}
-              placeholder="Cari isi pesan"
+              placeholder="Search messages"
               className="min-w-0 flex-1 bg-transparent py-1 text-[13px] outline-none"
             />
             <button
               type="button"
-              aria-label="Tutup pencarian"
+              aria-label="Close search"
               onClick={() => {
                 setSearchOpen(false);
                 setSearchText("");
@@ -1674,7 +1662,7 @@ export function ChatRoomClient({
           {visibleChatItems.length === 0 ? (
             <div className="flex flex-1 flex-col items-center justify-center py-16 text-center">
               <p className="mb-1 text-[14px] font-medium text-ink">
-                {searchText ? "Pesan tidak ditemukan" : "Belum ada pesan"}
+                {searchText ? "No messages found" : "No messages yet"}
               </p>
               {!searchText && (
                 <p className="text-[12.5px] text-ink-mute">
@@ -1703,6 +1691,7 @@ export function ChatRoomClient({
                   <button
                     type="button"
                     onClick={(event) => {
+                      if (selectMode) return;
                       event.stopPropagation();
                       scrollToChatItem(item.reply_to_id!);
                     }}
@@ -1713,11 +1702,21 @@ export function ChatRoomClient({
                     }`}
                   >
                     <span
-                      className={`block truncate text-[11px] font-semibold leading-none ${
+                      className={`block min-w-0 break-words text-[11px] font-semibold leading-tight ${
                         isUser ? "text-white/95" : "text-ink"
                       }`}
                     >
-                      {repliedName}
+                      {reply?.sender === "bot" ? (
+                        <VerifiedName
+                          name={repliedName}
+                          size="sm"
+                          nameClassName={`text-[11px] leading-none ${
+                            isUser ? "text-white/95" : "text-ink"
+                          }`}
+                        />
+                      ) : (
+                        repliedName
+                      )}
                     </span>
                     <span
                       className={`mt-0.5 block text-[12.5px] leading-tight ${
@@ -1741,7 +1740,7 @@ export function ChatRoomClient({
                         isUser ? "text-white/95" : "text-ink"
                       }`}
                     >
-                      Pesan
+                      Message
                     </span>
                     <span
                       className={`mt-0.5 block text-[12.5px] leading-tight ${
@@ -1749,7 +1748,7 @@ export function ChatRoomClient({
                       }`}
                       style={clampStyle}
                     >
-                      Balasan
+                      Reply
                     </span>
                   </span>
                 )
@@ -1809,7 +1808,7 @@ export function ChatRoomClient({
                             readAt={item.read_at}
                           />
                         }
-                        label={`Pesan dari ${isUser ? "Anda" : "CheyaVerse"}`}
+                        label={`Message from ${isUser ? "you" : "CheyaVerse"}`}
                         pending={item._pending}
                         deleted={Boolean(item.deleted_at)}
                         edited={Boolean(item.edited_at && !item.deleted_at)}
@@ -1871,12 +1870,12 @@ export function ChatRoomClient({
           <section
             role="dialog"
             aria-modal="true"
-            aria-label="Forward to"
+            aria-label="Forward message"
             onClick={(event) => event.stopPropagation()}
             className="flex w-full max-w-[600px] flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl md:max-w-[520px] md:rounded-2xl"
           >
             <div className="flex items-center justify-between border-b border-line px-4 py-3">
-              <h2 className="text-[14px] font-semibold text-ink">Forward to</h2>
+              <h2 className="text-[14px] font-semibold text-ink">Forward message</h2>
               <button
                 type="button"
                 aria-label="Close"

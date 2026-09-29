@@ -96,9 +96,9 @@ export function CoverClient({ uid, initialCover }: Props) {
       });
       const j = await res.json().catch(() => ({}));
       if (res.ok && j?.cover) refreshAll(j.cover);
-      else showToast("Gagal menyimpan");
+      else showToast("Pengaturan sampul tidak dapat disimpan.");
     } catch {
-      showToast("Network error");
+      showToast("Koneksi bermasalah. Silakan coba kembali.");
     } finally {
       setBusy(false);
     }
@@ -153,11 +153,11 @@ export function CoverClient({ uid, initialCover }: Props) {
     e.target.value = "";
     if (!file) return;
     if (!file.type.startsWith("image/")) {
-      showToast("Hanya foto");
+      showToast("Pilih file gambar.");
       return;
     }
     if (file.size > 5 * 1024 * 1024) {
-      showToast("Maks 5 MB");
+      showToast("Ukuran gambar maksimum 5 MB.");
       return;
     }
 
@@ -173,12 +173,12 @@ export function CoverClient({ uid, initialCover }: Props) {
       const j = await res.json().catch(() => ({}));
       if (res.ok && j?.cover) {
         refreshAll(j.cover);
-        showToast("Sampul diperbarui");
+        showToast("Sampul berhasil diperbarui.");
       } else {
-        showToast("Gagal upload");
+        showToast("Gambar tidak dapat diunggah.");
       }
     } catch {
-      showToast("Network error");
+      showToast("Koneksi bermasalah. Silakan coba kembali.");
     } finally {
       setBusy(false);
     }
@@ -195,14 +195,14 @@ export function CoverClient({ uid, initialCover }: Props) {
       const j = await res.json().catch(() => ({}));
       if (res.ok && j?.cover) {
         refreshAll(j.cover);
-        showToast("Sampul dari Telegram");
+        showToast("Foto profil Telegram berhasil digunakan.");
       } else if (j?.error === "no_telegram_photo") {
-        showToast("Foto Telegram tidak ditemukan");
+        showToast("Foto profil Telegram tidak ditemukan.");
       } else {
-        showToast("Gagal mengambil foto");
+        showToast("Foto profil tidak dapat dimuat.");
       }
     } catch {
-      showToast("Network error");
+      showToast("Koneksi bermasalah. Silakan coba kembali.");
     } finally {
       setBusy(false);
     }
@@ -214,12 +214,12 @@ export function CoverClient({ uid, initialCover }: Props) {
       const res = await fetch(`/api/cover/${uid}`, { method: "DELETE" });
       if (res.ok) {
         refreshAll(null);
-        showToast("Sampul dihapus");
+        showToast("Sampul berhasil dihapus.");
       } else {
-        showToast("Gagal reset");
+        showToast("Sampul tidak dapat dihapus.");
       }
     } catch {
-      showToast("Network error");
+      showToast("Koneksi bermasalah. Silakan coba kembali.");
     } finally {
       setBusy(false);
     }
@@ -241,13 +241,13 @@ export function CoverClient({ uid, initialCover }: Props) {
       const j = await res.json().catch(() => ({}));
       if (res.ok && j?.cover) {
         refreshAll(j.cover);
-        showToast("Crop disimpan");
+        showToast("Posisi foto berhasil disimpan.");
         setCropDirty(false);
       } else {
-        showToast("Gagal simpan crop");
+        showToast("Posisi foto tidak dapat disimpan.");
       }
     } catch {
-      showToast("Network error");
+      showToast("Koneksi bermasalah. Silakan coba kembali.");
     } finally {
       setBusy(false);
     }
@@ -324,7 +324,7 @@ export function CoverClient({ uid, initialCover }: Props) {
           }}
           className="relative w-full rounded-2xl overflow-hidden border border-line bg-[#f5f5f5] select-none"
           role={showCrop ? "button" : undefined}
-          aria-label={showCrop ? "Drag untuk atur posisi" : undefined}
+          aria-label={showCrop ? "Drag to adjust position" : undefined}
         >
           <div className="relative w-full" style={{ aspectRatio: "2 / 1" }}>
             {isImage ? (
@@ -373,7 +373,7 @@ export function CoverClient({ uid, initialCover }: Props) {
           {showCrop && (
             <div className="absolute top-2 right-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/55 backdrop-blur-md text-white text-[10.5px] font-semibold pointer-events-none">
               <Move size={11} strokeWidth={2.4} />
-              Drag untuk atur posisi
+              Drag to adjust position
             </div>
           )}
         </div>
@@ -395,7 +395,7 @@ export function CoverClient({ uid, initialCover }: Props) {
             className="inline-flex items-center justify-center gap-2 px-3 py-3 rounded-xl bg-[#fafafa] border border-line text-ink text-[12.5px] font-semibold active:scale-[.97] transition-transform disabled:opacity-60"
           >
             <Send size={15} strokeWidth={2.2} />
-            Telegram
+            From Telegram
           </button>
           <button
             type="button"
@@ -420,7 +420,7 @@ export function CoverClient({ uid, initialCover }: Props) {
         <section className="mt-6 animate-fade-up">
           <h2 className="text-[11.5px] font-semibold tracking-[.08em] uppercase text-ink-mute px-3 mb-2 inline-flex items-center gap-1.5">
             <ZoomIn size={13} strokeWidth={2.2} />
-            Atur Tampilan
+            Adjust display
           </h2>
           <div className="rounded-2xl bg-white border border-line p-4">
             <div className="mb-3">
@@ -453,7 +453,7 @@ export function CoverClient({ uid, initialCover }: Props) {
               />
             </div>
             <p className="text-[11.5px] text-ink-mute leading-relaxed mb-3">
-              Geser langsung di preview untuk memindahkan posisi foto.
+              Seret pratinjau untuk mengatur posisi foto.
             </p>
             <button
               type="button"
@@ -465,7 +465,7 @@ export function CoverClient({ uid, initialCover }: Props) {
                   : "bg-[#fafafa] border border-line text-ink-mute"
               }`}
             >
-              {cropDirty ? "Simpan Crop" : "Tersimpan"}
+              {cropDirty ? "Save crop" : "Saved"}
             </button>
           </div>
         </section>
@@ -473,7 +473,7 @@ export function CoverClient({ uid, initialCover }: Props) {
 
       <section className="mt-6 animate-fade-up">
         <h2 className="text-[11.5px] font-semibold tracking-[.08em] uppercase text-ink-mute px-3 mb-2">
-          Warna
+          Colors
         </h2>
         <div className="rounded-2xl bg-white border border-line p-3">
           <div className="grid grid-cols-8 gap-2">
@@ -488,7 +488,7 @@ export function CoverClient({ uid, initialCover }: Props) {
                   type="button"
                   onClick={() => pickColor(sw)}
                   disabled={busy}
-                  aria-label={sw.id}
+                  aria-label={`Color ${sw.id.startsWith("g-") ? "gradient" : "solid"} ${sw.id.slice(2)}`}
                   className={`relative aspect-square rounded-full transition-transform active:scale-90 disabled:opacity-60 ${
                     active ? "ring-2 ring-offset-2 ring-ink" : ""
                   }`}
@@ -512,7 +512,7 @@ export function CoverClient({ uid, initialCover }: Props) {
 
       <section className="mt-6 animate-fade-up">
         <h2 className="text-[11.5px] font-semibold tracking-[.08em] uppercase text-ink-mute px-3 mb-2">
-          Ikon
+          Icons
         </h2>
         <div className="rounded-2xl bg-white border border-line p-3">
           <div className="grid grid-cols-6 sm:grid-cols-8 gap-1.5">
@@ -562,12 +562,12 @@ export function CoverClient({ uid, initialCover }: Props) {
       </section>
 
       <p className="text-center text-[11px] text-ink-mute py-6 font-normal">
-        Sampul tampil di header profil
+        Sampul ditampilkan pada header profil.
       </p>
 
       {busy && (
         <div className="fixed left-1/2 top-4 -translate-x-1/2 z-[200] px-3 py-2 rounded-xl bg-ink/95 text-white text-[12px] font-semibold shadow-2xl inline-flex items-center gap-2 animate-fade-up">
-          <Loader2 size={13} className="animate-spin" /> Menyimpan…
+          <Loader2 size={13} className="animate-spin" /> Saving…
         </div>
       )}
 

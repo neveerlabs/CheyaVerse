@@ -4,7 +4,7 @@ import { listPushSubscriptions, deletePushSubscription } from "./storage";
 
 let configured = false;
 
-const MAX_BODY_LENGTH = 140;
+const MAX_BODY_LENGTH = 90;
 const TRUNCATE_SUFFIX = "…";
 
 function ensureConfigured(): boolean {
@@ -48,6 +48,8 @@ export type PushPayload = {
   body: string;
   icon?: string;
   badge?: string;
+  vibrate?: number[];
+  silent?: boolean;
   tag?: string;
   renotify?: boolean;
   data?: Record<string, unknown>;
@@ -72,7 +74,7 @@ export type BuildPushOptions = {
 };
 
 export const DEFAULT_PUSH_ACTIONS: PushAction[] = [
-  { action: "mark-read", title: "Mark as Read" },
+  { action: "mark-read", title: "Mark as read" },
   { action: "reply", type: "text", title: "Reply", placeholder: "Type a message..." },
 ];
 
@@ -106,17 +108,26 @@ export function buildSystemPush(
   body: string,
   extras?: { notifId?: string; msgId?: string },
 ): PushPayload {
-  return buildPushNotification({
+  const payload = buildPushNotification({
     uid,
     contact: {
       id: "system",
       name: "CheyaVerse",
+      avatarUrl: "/icon.png",
     },
     body,
     url: `/${uid}/chat/system`,
     notifId: extras?.notifId,
     msgId: extras?.msgId,
   });
+  return {
+    ...payload,
+    title: "CheyaVerse · Web",
+    icon: "/push-icon.png",
+    badge: "/push-icon.png",
+    silent: false,
+    vibrate: [200, 100, 200],
+  };
 }
 
 export async function sendPushToUid(uid: number, payload: PushPayload): Promise<number> {

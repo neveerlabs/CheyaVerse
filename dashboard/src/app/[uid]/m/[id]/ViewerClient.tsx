@@ -6,9 +6,10 @@ import Link from "next/link";
 import ReCAPTCHA from "react-google-recaptcha";
 import {
   Image as ImageIcon, Download, Maximize2, Minimize2, Copy,
-  Play, Pause, Home, AlertCircle, Trash2, Rewind, FastForward, Check,
+  Play, Pause, Home, AlertCircle, Trash2, Rewind, FastForward, Check, QrCode,
 } from "lucide-react";
 import { config } from "@/lib/config";
+import { MediaQrModal } from "@/components/MediaQrModal";
 
 type Props = {
   uid?: string;
@@ -387,15 +388,15 @@ function MetaRow({
   copied?: boolean;
 }) {
   return (
-    <div className="grid grid-cols-[112px_1fr] border-b border-divider last:border-b-0">
-      <div className="flex items-center py-3 pr-3 border-r border-divider">
-        <span className="text-[11px] font-medium uppercase tracking-[.09em] text-ink-mute truncate">
+    <div className="grid grid-cols-[82px_minmax(0,1fr)] items-center gap-3 border-b border-black/[.055] py-3 last:border-b-0">
+      <div className="min-w-0">
+        <span className="text-[11px] font-medium text-ink-mute">
           {label}
         </span>
       </div>
-      <div className="flex items-center gap-2 min-w-0 py-3 pl-4">
+      <div className="flex min-w-0 items-center gap-2">
         <span
-          className={`flex-1 min-w-0 text-[13px] text-ink truncate ${
+          className={`min-w-0 flex-1 break-words text-[13px] text-ink ${
             mono ? "font-mono tracking-[-.005em]" : ""
           }`}
         >
@@ -443,6 +444,7 @@ export default function ViewerClient({
   const [zoomPop, setZoomPop] = useState(false);
   const [seekFx, setSeekFx] = useState<{ side: "left" | "right"; key: number } | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [qrOpen, setQrOpen] = useState(false);
 
   const [currentExpiresAt, setCurrentExpiresAt] = useState<string>(expiresAt ?? "");
   const [editExpiresOpen, setEditExpiresOpen] = useState(false);
@@ -873,12 +875,12 @@ export default function ViewerClient({
   function onCaptchaSuccess(value: string | null) {
     if (!value) return;
     setModalOpen(false);
-    showToast("Verifikasi berhasil");
+    showToast("Verification successful");
     triggerDownload(value);
   }
 
   function onCaptchaExpired() {
-    showToast("Verifikasi expired, coba lagi");
+    showToast("Verification expired. Please try again");
   }
 
   async function copyText(text: string, label: string, key: string) {
@@ -896,9 +898,9 @@ export default function ViewerClient({
         document.body.removeChild(ta);
       }
       flashCopied(key);
-      showToast(`${label} disalin`);
+      showToast(`${label} copied`);
     } catch {
-      showToast("Gagal menyalin");
+      showToast("Unable to copy");
     }
   }
 
@@ -920,7 +922,7 @@ export default function ViewerClient({
       flashCopied("url");
       showToast("URL copied");
     } catch {
-      showToast("Gagal menyalin URL");
+      showToast("Unable to copy URL");
     }
   }
 
@@ -932,15 +934,15 @@ export default function ViewerClient({
         method: "DELETE",
       });
       if (res.ok) {
-        showToast("Media dihapus");
+        showToast("Media deleted");
         setTimeout(() => { window.location.href = `/${uid}/media`; }, 500);
       } else {
-        showToast("Gagal menghapus media");
+        showToast("Unable to delete media");
         setDeleting(false);
         setConfirmDelete(false);
       }
     } catch {
-      showToast("Gagal menghapus media");
+      showToast("Unable to delete media");
       setDeleting(false);
       setConfirmDelete(false);
     }
@@ -950,7 +952,7 @@ export default function ViewerClient({
     if (!uid || savingExpires) return;
     const deviceId = readDeviceId();
     if (!deviceId) {
-      showToast("DeviceID tidak ditemukan");
+      showToast("Device ID not found");
       return;
     }
     setSavingExpires(true);
@@ -966,10 +968,10 @@ export default function ViewerClient({
         setEditExpiresOpen(false);
         showToast("Expiry updated");
       } else {
-        showToast("Gagal update expiry");
+        showToast("Unable to update expiry");
       }
     } catch {
-      showToast("Gagal update expiry");
+      showToast("Unable to update expiry");
     } finally {
       setSavingExpires(false);
     }
@@ -1011,13 +1013,13 @@ export default function ViewerClient({
             <img src="/assets/model.gif" alt="Lost" draggable={false}
                  className="protect w-full h-full object-contain" />
           </div>
-          <h2 className="text-[15px] font-semibold mb-1.5 text-ink">File tidak ditemukan</h2>
+          <h2 className="text-[15px] font-semibold mb-1.5 text-ink">File not found</h2>
           <p className="text-[12.5px] text-ink-soft mb-5">
-            Kemungkinan URL invalid, file sudah expired, atau telah dihapus.
+            URL mungkin tidak valid, atau berkas telah kedaluwarsa dan dihapus.
           </p>
           <Link href={homeHref}
                 className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-ink text-white text-[13px] font-semibold">
-            <Home size={15} /> Beranda
+            <Home size={15} /> Home
           </Link>
         </div>
       </>
@@ -1066,7 +1068,7 @@ export default function ViewerClient({
               <span className="relative w-11 h-11 rounded-full border-2 border-white/15 border-t-white/90 animate-spin" />
             </div>
             <span className="absolute bottom-6 left-1/2 -translate-x-1/2 text-white/40 text-[10.5px] font-semibold tracking-[.2em] uppercase">
-              Memuat
+              Loading
             </span>
           </div>
         )}
@@ -1104,7 +1106,7 @@ export default function ViewerClient({
             <div className="absolute inset-0 flex flex-col items-center justify-center px-6 py-14 text-center">
               <ImageIcon size={32} className="text-white/40 mb-2" />
               <p className="text-[13px] text-white/70">
-                Preview tidak tersedia untuk tipe file ini
+                Pratinjau tidak tersedia untuk jenis berkas ini.
               </p>
             </div>
           )}
@@ -1166,27 +1168,38 @@ export default function ViewerClient({
       </div>
 
       {bodyReady && (
-        <div className="flex gap-2 mb-3 animate-fade-up">
+        <div className={`mb-3 grid gap-2 animate-fade-up ${canDelete ? "grid-cols-5" : "grid-cols-4"}`}>
           <button
             type="button"
             onClick={startDownload}
-            className="flex-1 inline-flex items-center justify-center gap-2 px-3 py-3.5 rounded-xl bg-ink sm:hover:bg-accent-hover text-white text-[13px] font-semibold transition-all active:scale-[.97]"
+            className="inline-flex min-w-0 flex-col items-center justify-center gap-1 rounded-xl bg-ink px-1 py-2.5 text-[10px] font-semibold text-white transition-all active:scale-[.97] sm:hover:bg-accent-hover"
           >
-            <Download size={15} strokeWidth={2.4} /> Download
+            <Download size={16} strokeWidth={2.4} />
+            <span>Download</span>
           </button>
           <button
             type="button"
             onClick={toggleFs}
-            className="flex-1 inline-flex items-center justify-center gap-2 px-3 py-3.5 rounded-xl bg-[#fafafa] sm:hover:bg-[#f0f0f0] border border-line text-ink text-[13px] font-semibold transition-all active:scale-[.97]"
+            className="inline-flex min-w-0 flex-col items-center justify-center gap-1 rounded-xl border border-line bg-[#fafafa] px-1 py-2.5 text-[10px] font-semibold text-ink transition-all active:scale-[.97] sm:hover:bg-[#f0f0f0]"
           >
-            {isFs ? <Minimize2 size={15} strokeWidth={2.4} /> : <Maximize2 size={15} strokeWidth={2.4} />}
-            {isFs ? "Exit" : "Raw"}
+            {isFs ? <Minimize2 size={16} strokeWidth={2.4} /> : <Maximize2 size={16} strokeWidth={2.4} />}
+            <span>{isFs ? "Exit" : "Raw"}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setQrOpen(true)}
+            aria-label="Show QR code"
+            title="QR code"
+            className="inline-flex min-w-0 flex-col items-center justify-center gap-1 rounded-xl border border-line bg-[#fafafa] px-1 py-2.5 text-[10px] font-semibold text-ink transition-all active:scale-[.97] sm:hover:bg-[#f0f0f0]"
+          >
+            <QrCode size={18} strokeWidth={2} />
+            <span>QR</span>
           </button>
           <button
             type="button"
             onClick={copyLink}
             aria-label="Copy Link"
-            className="w-11 inline-flex items-center justify-center rounded-xl bg-[#fafafa] sm:hover:bg-[#f0f0f0] border border-line text-ink transition-all active:scale-[.97] flex-shrink-0"
+            className="inline-flex min-w-0 flex-col items-center justify-center gap-1 rounded-xl border border-line bg-[#fafafa] px-1 py-2.5 text-[10px] font-semibold text-ink transition-all active:scale-[.97] sm:hover:bg-[#f0f0f0]"
           >
             {copiedKey === "url" ? (
               <span className="animate-copy-pop inline-flex">
@@ -1195,52 +1208,70 @@ export default function ViewerClient({
             ) : (
               <Copy size={17} strokeWidth={2.2} />
             )}
+            <span>Copy</span>
           </button>
           {canDelete && (
             <button
               type="button"
               onClick={() => setConfirmDelete(true)}
-              aria-label="Hapus"
-              className="w-11 inline-flex items-center justify-center rounded-xl bg-[#fafafa] sm:hover:bg-[#fff0f0] border border-line text-danger transition-all active:scale-[.97] flex-shrink-0"
+              aria-label="Delete"
+              className="inline-flex min-w-0 flex-col items-center justify-center gap-1 rounded-xl border border-line bg-[#fafafa] px-1 py-2.5 text-[10px] font-semibold text-danger transition-all active:scale-[.97] sm:hover:bg-[#fff0f0]"
             >
               <Trash2 size={17} strokeWidth={2.2} />
+              <span>Delete</span>
             </button>
           )}
         </div>
       )}
 
       {uid && bodyReady && (
-        <div className="mt-5 mb-4 animate-fade-up border-t border-b border-divider">
-          <MetaRow
-            label="ID"
-            value={mediaId}
-            mono
-            copied={copiedKey === "id"}
-            onCopy={() => copyText(mediaId, "ID", "id")}
-          />
-          <MetaRow label="Owner" value={ownerDisplay} mono />
-          <MetaRow
-            label="Filename"
-            value={filename}
-            copied={copiedKey === "filename"}
-            onCopy={() => copyText(filename, "Filename", "filename")}
-          />
-          <MetaRow label="Content" value={contentDisplay} />
-          <MetaRow label="Size" value={sizeDisplay} />
-          <MetaRow
-            label="Expires"
-            value={expiresDisplay}
-            action={
-              <button
-                type="button"
-                onClick={() => setEditExpiresOpen(true)}
-                className="flex-shrink-0 text-[11px] font-semibold uppercase tracking-[.06em] text-ink-soft sm:hover:text-ink active:opacity-60 px-2 py-1 rounded-md sm:hover:bg-[#f5f5f5] transition-colors"
-              >
-                Edit
-              </button>
-            }
-          />
+        <div className="mt-5 mb-4 animate-fade-up overflow-hidden rounded-[22px] border border-black/[.06] bg-white px-4 shadow-[0_8px_24px_-22px_rgba(0,0,0,.3)]">
+          <div className="border-b border-black/[.06] py-3">
+            <h2 className="text-[14px] font-semibold text-ink">Media metadata</h2>
+            <p className="mt-0.5 text-[11.5px] text-ink-mute">
+              Informasi file dan masa penyimpanannya.
+            </p>
+          </div>
+          <div className="py-1">
+            <MetaRow
+              label="ID"
+              value={mediaId}
+              mono
+              copied={copiedKey === "id"}
+              onCopy={() => copyText(mediaId, "ID", "id")}
+            />
+            <MetaRow label="Owner" value={ownerDisplay} mono />
+            <MetaRow
+              label="Filename"
+              value={filename}
+              copied={copiedKey === "filename"}
+              onCopy={() => copyText(filename, "Filename", "filename")}
+            />
+            <MetaRow label="Content" value={contentDisplay} />
+            <MetaRow label="Size" value={sizeDisplay} />
+            <MetaRow
+              label="Expires"
+              value={expiresDisplay}
+              action={
+                <button
+                  type="button"
+                  onClick={() => setEditExpiresOpen(true)}
+                  className="flex-shrink-0 rounded-lg px-3 py-1.5 text-[11px] font-semibold text-ink-soft transition-colors sm:hover:bg-[#f5f5f5] sm:hover:text-ink active:opacity-60"
+                >
+                  Edit
+                </button>
+              }
+            />
+          </div>
         </div>
+      )}
+
+      {qrOpen && (
+        <MediaQrModal
+          mediaId={mediaId}
+          onClose={() => setQrOpen(false)}
+          onToast={showToast}
+        />
       )}
 
       {modalOpen && (
@@ -1252,10 +1283,10 @@ export default function ViewerClient({
             {siteKey ? (
               <>
                 <h2 className="text-[16px] font-semibold text-center mb-1 text-ink">
-                  Verifikasi Diperlukan
+                  Verification Required
                 </h2>
                 <p className="text-[12.5px] text-ink-soft text-center mb-5">
-                  Selesaikan verifikasi untuk mengunduh file.
+                  Selesaikan verifikasi untuk mengunduh berkas.
                 </p>
                 <div className="flex justify-center mb-4">
                   <ReCAPTCHA
@@ -1270,10 +1301,10 @@ export default function ViewerClient({
             ) : (
               <>
                 <h2 className="text-[16px] font-semibold text-center mb-1 text-ink">
-                  Verifikasi Tidak Tersedia
+                  Verification Unavailable
                 </h2>
                 <p className="text-[12.5px] text-ink-soft text-center mb-5 leading-relaxed">
-                  Fitur verifikasi sedang dalam masalah, silakan hubungi admin!
+                  Fitur verifikasi sedang bermasalah. Silakan hubungi administrator.
                 </p>
               </>
             )}
@@ -1282,7 +1313,7 @@ export default function ViewerClient({
               onClick={() => setModalOpen(false)}
               className="w-full px-4 py-3 rounded-xl bg-[#fafafa] border border-line text-ink text-[13px] font-semibold active:scale-[.97] transition-transform"
             >
-              Batal
+              Cancel
             </button>
           </div>
         </div>
@@ -1300,7 +1331,7 @@ export default function ViewerClient({
               Set expiry
             </h2>
             <p className="text-[12.5px] text-ink-soft text-center mb-4">
-              Pilih masa aktif media ini
+              Pilih masa berlaku media ini.
             </p>
             <div className="flex flex-col gap-1.5 mb-4">
               {EXPIRY_OPTIONS.map((o) => (
@@ -1337,10 +1368,10 @@ export default function ViewerClient({
               <Trash2 size={22} className="text-danger" strokeWidth={2} />
             </div>
             <h2 className="text-[16px] font-semibold text-center mb-1.5 text-ink">
-              Hapus media ini?
+              Delete this media?
             </h2>
             <p className="text-[12.5px] text-ink-soft text-center mb-5 leading-relaxed">
-              File akan dihapus permanen dari server. Tindakan ini tidak bisa dibatalkan.
+              File ini akan dihapus secara permanen dari server. Tindakan ini tidak dapat dibatalkan.
             </p>
             <div className="flex gap-2.5">
               <button
@@ -1349,7 +1380,7 @@ export default function ViewerClient({
                 disabled={deleting}
                 className="flex-1 px-4 py-3 rounded-xl bg-[#fafafa] border border-line text-ink text-[13px] font-semibold active:scale-[.97] transition-transform disabled:opacity-60"
               >
-                Batal
+                Cancel
               </button>
               <button
                 type="button"
@@ -1357,7 +1388,7 @@ export default function ViewerClient({
                 disabled={deleting}
                 className="flex-1 px-4 py-3 rounded-xl bg-danger sm:hover:bg-[#b91c1c] text-white text-[13px] font-semibold active:scale-[.97] transition-all disabled:opacity-60"
               >
-                {deleting ? "Menghapus…" : "Hapus"}
+                {deleting ? "Deleting…" : "Delete"}
               </button>
             </div>
           </div>

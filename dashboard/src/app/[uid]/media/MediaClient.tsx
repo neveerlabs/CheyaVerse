@@ -36,8 +36,8 @@ function formatDate(iso: string): string {
     const diff = d.getTime() - Date.now();
     const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
     if (days <= 0) return "expired";
-    if (days === 1) return "1 hari lagi";
-    return `${days} hari lagi`;
+    if (days === 1) return "1 day remaining";
+    return `${days} days remaining`;
   } catch {
     return "—";
   }
@@ -194,7 +194,7 @@ export function MediaClient({
       });
       if (res.ok) {
         setLocalItems((prev) => prev.filter((x) => x.id !== item.id));
-        showToast("Media dihapus");
+        showToast("Media deleted");
         setDeleteItem(null);
         closeMenu();
         router.refresh();
@@ -203,14 +203,14 @@ export function MediaClient({
       const j = await res.json().catch(() => ({}));
       const reason = (j as { error?: string })?.error;
       if (res.status === 404 || reason === "not_found") {
-        showToast("Media udah nggak ada");
+        showToast("Media no longer exists");
         setLocalItems((prev) => prev.filter((x) => x.id !== item.id));
       } else if (res.status === 403 || reason === "forbidden") {
-        showToast("Bukan media lo");
+        showToast("This media does not belong to you");
       } else if (reason === "db_error") {
-        showToast("Gagal hapus (cek policy DELETE)");
+        showToast("Unable to delete media (check DELETE policy)");
       } else {
-        showToast(`Gagal menghapus (${res.status})`);
+        showToast(`Unable to delete media (${res.status})`);
       }
       setDeleteItem(null);
       closeMenu();
@@ -225,8 +225,8 @@ export function MediaClient({
     const url = `${window.location.origin}/m/${item.id}`;
     if (navigator.clipboard?.writeText && window.isSecureContext) {
       navigator.clipboard.writeText(url).then(
-        () => showToast("Link disalin"),
-        () => showToast("Gagal menyalin"),
+        () => showToast("Link copied"),
+        () => showToast("Unable to copy link"),
       );
     } else {
       const ta = document.createElement("textarea");
@@ -237,9 +237,9 @@ export function MediaClient({
       ta.select();
       try {
         document.execCommand("copy");
-        showToast("Link disalin");
+        showToast("Link copied");
       } catch {
-        showToast("Gagal menyalin");
+        showToast("Unable to copy link");
       }
       document.body.removeChild(ta);
     }
@@ -260,7 +260,7 @@ export function MediaClient({
   }
 
   function onCaptchaExpired() {
-    showToast("Verifikasi expired, coba lagi");
+    showToast("Verification expired. Please try again");
   }
 
   function openDelete(item: Item) {
@@ -274,9 +274,9 @@ export function MediaClient({
         <div className="w-14 h-14 rounded-full bg-[#f5f5f5] mx-auto mb-4 flex items-center justify-center">
           <ImageIcon size={22} className="text-ink-mute" strokeWidth={1.8} />
         </div>
-        <p className="text-[14.5px] font-medium text-ink mb-1.5">Belum ada media</p>
+        <p className="text-[14.5px] font-medium text-ink mb-1.5">No media yet</p>
         <p className="text-[12.5px] text-ink-mute font-normal leading-relaxed">
-          Upload foto/video ke bot dengan caption /qr
+          Unggah foto atau video ke bot dengan caption /qr.
         </p>
       </div>
     );
@@ -464,7 +464,7 @@ export function MediaClient({
             </div>
             <MenuItem
               icon={<ExternalLink size={18} strokeWidth={1.9} />}
-              label="Buka"
+              label="Open"
               onClick={() => {
                 window.location.href = `/${uid}/m/${menuItem.id}`;
               }}
@@ -481,7 +481,7 @@ export function MediaClient({
             />
             <MenuItem
               icon={<Trash2 size={18} strokeWidth={1.9} />}
-              label="Hapus"
+              label="Delete"
               danger
               onClick={() => openDelete(menuItem)}
             />
@@ -491,7 +491,7 @@ export function MediaClient({
               className="w-full mt-1 px-4 py-3 rounded-xl bg-[#fafafa] border border-line
                          text-ink text-[13px] font-semibold active:scale-[.97] transition-transform"
             >
-              Batal
+              Cancel
             </button>
           </div>
         </div>
@@ -510,7 +510,7 @@ export function MediaClient({
           <div className="p-1">
             <DropdownItem
               icon={<ExternalLink size={16} strokeWidth={1.9} />}
-              label="Buka"
+              label="Open"
               onClick={() => {
                 window.location.href = `/${uid}/m/${menuItem.id}`;
               }}
@@ -527,7 +527,7 @@ export function MediaClient({
             />
             <DropdownItem
               icon={<Trash2 size={16} strokeWidth={1.9} />}
-              label="Hapus"
+              label="Delete"
               danger
               onClick={() => openDelete(menuItem)}
             />
@@ -546,12 +546,12 @@ export function MediaClient({
             <div className="w-12 h-12 rounded-full bg-[#fff0f0] mx-auto mb-4 flex items-center justify-center">
               <Trash2 size={22} className="text-danger" strokeWidth={2} />
             </div>
-            <h2 className="text-[16px] font-semibold text-center mb-1.5 text-ink">Hapus media ini?</h2>
+            <h2 className="text-[16px] font-semibold text-center mb-1.5 text-ink">Delete this media?</h2>
             <p className="text-[12.5px] text-ink-soft text-center mb-1.5 leading-relaxed">
               <span className="font-semibold text-ink break-all">{deleteItem.filename}</span>
             </p>
             <p className="text-[12px] text-ink-mute text-center mb-5 leading-relaxed">
-              File akan dihapus permanen dari server. Tindakan ini tidak bisa dibatalkan.
+              File ini akan dihapus secara permanen dari server. Tindakan ini tidak dapat dibatalkan.
             </p>
             <div className="flex gap-2.5">
               <button
@@ -561,7 +561,7 @@ export function MediaClient({
                 className="flex-1 px-4 py-3 rounded-xl bg-[#fafafa] border border-line text-ink
                            text-[13px] font-semibold active:scale-[.97] transition-transform disabled:opacity-60"
               >
-                Batal
+                Cancel
               </button>
               <button
                 type="button"
@@ -570,7 +570,7 @@ export function MediaClient({
                 className="flex-1 px-4 py-3 rounded-xl bg-danger hover:bg-[#b91c1c] text-white
                            text-[13px] font-semibold active:scale-[.97] transition-all disabled:opacity-60"
               >
-                {busy ? "Menghapus…" : "Hapus"}
+                {busy ? "Deleting…" : "Delete"}
               </button>
             </div>
           </div>
@@ -587,12 +587,12 @@ export function MediaClient({
           <div className="w-full max-w-[380px] rounded-2xl bg-white border border-line p-6 animate-fade-up">
             <div className="flex items-center justify-between mb-1">
               <h2 className="text-[16px] font-semibold text-ink">
-                {config.recaptchaSiteKey ? "Verifikasi Diperlukan" : "Verifikasi Tidak Tersedia"}
+                {config.recaptchaSiteKey ? "Verification Required" : "Verification Unavailable"}
               </h2>
               <button
                 type="button"
                 onClick={() => setCaptchaItem(null)}
-                aria-label="Tutup"
+                aria-label="Close"
                 className="w-7 h-7 rounded-full flex items-center justify-center text-ink-mute hover:text-ink hover:bg-[#f5f5f5] transition-colors"
               >
                 <X size={16} strokeWidth={2.2} />
@@ -601,7 +601,7 @@ export function MediaClient({
             {config.recaptchaSiteKey ? (
               <>
                 <p className="text-[12.5px] text-ink-soft mb-5 leading-relaxed">
-                  Selesaikan verifikasi untuk mengunduh file.
+                  Selesaikan verifikasi untuk mengunduh berkas.
                 </p>
                 <div className="flex justify-center mb-4">
                   <ReCAPTCHA
@@ -615,7 +615,7 @@ export function MediaClient({
               </>
             ) : (
               <p className="text-[12.5px] text-ink-soft mb-5 leading-relaxed">
-                Fitur verifikasi sedang dalam masalah, silakan hubungi admin.
+                Fitur verifikasi sedang bermasalah. Silakan hubungi administrator.
               </p>
             )}
             <button
@@ -623,7 +623,7 @@ export function MediaClient({
               onClick={() => setCaptchaItem(null)}
               className="w-full px-4 py-3 rounded-xl bg-[#fafafa] border border-line text-ink text-[13px] font-semibold active:scale-[.97] transition-transform"
             >
-              Batal
+              Cancel
             </button>
           </div>
         </div>

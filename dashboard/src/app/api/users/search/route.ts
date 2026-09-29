@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserSession } from "@/lib/auth-request";
 import { searchTelegramUsers } from "@/lib/storage";
+import { config } from "@/lib/config";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,6 +23,7 @@ export async function GET(request: NextRequest) {
         first_name,
         last_name,
         photo_url,
+        is_admin: config.adminTelegramIds.has(uid),
       })),
     });
   } catch (error) {

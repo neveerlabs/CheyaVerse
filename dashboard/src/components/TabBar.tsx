@@ -136,7 +136,7 @@ export function TabBar({ uid }: { uid: string }) {
               homeActive ? "font-semibold text-ink" : "text-ink-mute"
             }`}
           >
-            Beranda
+            Home
           </span>
         </Link>
 
@@ -218,7 +218,7 @@ export function TabBar({ uid }: { uid: string }) {
               cartActive ? "font-semibold text-ink" : "text-ink-mute"
             }`}
           >
-            Keranjang
+            Cart
           </span>
         </Link>
 
@@ -237,7 +237,7 @@ export function TabBar({ uid }: { uid: string }) {
               profileActive ? "font-semibold text-ink" : "text-ink-mute"
             }`}
           >
-            Profil
+            Profile
           </span>
         </Link>
       </div>

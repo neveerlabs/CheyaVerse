@@ -20,6 +20,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="id">
       <head>
         <link rel="preload" href="/assets/centang.png" as="image" />
+        <link rel="preload" href="/sounds/sent.mp3" as="audio" type="audio/mpeg" />
+        <link rel="preload" href="/sounds/received.mp3" as="audio" type="audio/mpeg" />
+        <link rel="preload" href="/sounds/notification.mp3" as="audio" type="audio/mpeg" />
       </head>
       <body className="font-sans bg-white text-ink">
         {children}
