@@ -56,6 +56,7 @@ export default function PrivacyPage({
         title="Privacy Policy"
         subtitle="Pembaruan terakhir: 22 September 2026"
         backHref={`/${params.uid}/profile`}
+        cornerLabel="PRIVACY POLICY"
       />
 
       <article className="animate-fade-up">

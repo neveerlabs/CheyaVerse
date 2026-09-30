@@ -64,6 +64,7 @@ export default function AgreementPage({
         title="User Agreement"
         subtitle="Pembaruan terakhir: 22 September 2026"
         backHref={`/${params.uid}/profile`}
+        cornerLabel="USER AGREEMENT"
       />
 
       <article className="animate-fade-up">

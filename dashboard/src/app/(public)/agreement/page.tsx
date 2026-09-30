@@ -55,6 +55,7 @@ export default function AgreementPage() {
       <AppHeader
         title="User Agreement"
         subtitle="Pembaruan terakhir: 22 September 2026"
+        cornerLabel="USER AGREEMENT"
       />
 
       <article className="animate-fade-up">

@@ -47,6 +47,7 @@ export default function PrivacyPolicyPage() {
       <AppHeader
         title="Privacy Policy"
         subtitle="Pembaruan terakhir: 22 September 2026"
+        cornerLabel="PRIVACY POLICY"
       />
 
       <article className="animate-fade-up">
