@@ -402,6 +402,8 @@ async def send_telegram_chat_reply(
 
 
 def _http_url() -> str:
+    if TURSO_URL.startswith("turso://"):
+        return "https://" + TURSO_URL[len("turso://"):]
     if TURSO_URL.startswith("libsql://"):
         return "https://" + TURSO_URL[len("libsql://"):]
     if TURSO_URL.startswith("wss://"):

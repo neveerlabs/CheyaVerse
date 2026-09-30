@@ -46,6 +46,8 @@ ADMIN_TELEGRAM_IDS=
 BROADCAST_WEB_SECRET=
 ```
 
+`TURSO_URL` dan `TURSO_AUTH_TOKEN` harus diambil dari **database Turso yang sama** dengan yang dipakai web. URL database Turso bisa ditampilkan sebagai `turso://...` atau `libsql://...`; keduanya didukung aplikasi ini. Contoh URL yang ada di konfigurasi lokal saat panduan ini diperbarui adalah `libsql://cheyaverse-neverlabs.aws-ap-northeast-1.turso.io`. Jangan mengisi URL dengan nama database saja, dan jangan menaruh auth token di URL.
+
 `ADMIN_TELEGRAM_IDS` hanya untuk bot (bukan web): isi ID numerik akun admin, pisahkan dengan koma, dan biarkan key ini tetap di `.env` yang tidak di-commit. Bot mencatat ID numerik setiap akun Telegram yang mengirim pesan atau command ke bot dalam tabel `telegram_bot_user_ids`; ID unik dan trigger database menolak operasi update/delete. Saat tabel pertama kali dibuat, bot juga memasukkan ID akun yang sudah tercatat di tabel akun web. Interaksi Telegram lama yang tidak pernah masuk database akun tidak dapat dipulihkan oleh Bot API; ID pengirim baru akan tercatat setelah bot diperbarui dan dijalankan.
 
 `BROADCAST_WEB_SECRET` harus memakai nilai rahasia acak yang sama di `.env` bot dan environment web (local dan deployment). Jangan commit atau membagikan nilainya. Bot memakai key ini untuk memanggil endpoint internal web saat broadcast.
@@ -93,8 +95,19 @@ ADMIN_TELEGRAM_IDS=
 NEXT_PUBLIC_VAPID_PUBLIC_KEY=
 VAPID_PRIVATE_KEY=
 VAPID_SUBJECT=mailto:admin@example.com
-BLOB_READ_WRITE_TOKEN=
 ```
+
+### 4. Buat database dan tabel Turso melalui web
+
+1. Buka [Turso Dashboard](https://app.turso.tech/) lalu masuk ke akun Turso.
+2. Dari menu **Databases**, pilih **Create Database**. Masukkan nama database (contoh: `cheyaverse`) dan pilih lokasi/region yang tersedia. Tunggu sampai database selesai dibuat.
+3. Buka database yang baru dibuat, masuk ke **Shell** atau **SQL** (nama menu dapat berubah mengikuti versi dashboard).
+4. Salin seluruh blok SQL pada bagian [SQL skema awal](#sql-skema-awal) di bawah, tempel ke editor, lalu jalankan. Blok ini membuat tabel dasar dan index dengan `IF NOT EXISTS`, sehingga aman dijalankan ulang.
+5. Pada halaman database, buka **Connect** atau detail koneksi. Salin **Database URL** dan buat/salin **Auth Token**. URL dapat diawali `turso://` pada dashboard baru atau `libsql://` pada tampilan/akun lama; jangan mengubah hostname-nya. Aplikasi menerima kedua prefix tersebut.
+6. Isi `TURSO_URL` dan `TURSO_AUTH_TOKEN` di `.env` dashboard **dan** `.env` bot dengan URL/token dari database yang sama. Jangan commit atau membagikan token. Untuk deployment, isi kedua variabel itu di Environment Variables hosting web dan di environment tempat bot dijalankan.
+7. Restart bot dan web. Aplikasi membuat tabel tambahan serta kolom migrasi yang diperlukan secara otomatis saat fitur terkait pertama kali digunakan.
+
+> Pada konfigurasi dashboard lokal saat ini, URL yang terbaca adalah `libsql://cheyaverse-neverlabs.aws-ap-northeast-1.turso.io`. Jika detail koneksi database baru menampilkan `turso://cheyaverse-neverlabs.aws-ap-northeast-1.turso.io`, gunakan URL yang diberikan untuk database baru tersebut dan pastikan URL identik dipasang di konfigurasi bot serta web. Auth token lama tidak dapat dipakai untuk database baru.
 
 `ADMIN_TELEGRAM_IDS` di `.env` dashboard berisi ID Telegram numerik admin, dipisahkan koma jika lebih dari satu. Akun-akun ini mendapat lencana admin terverifikasi di daftar pencarian/chat dan ruang chat.
 
@@ -114,9 +127,9 @@ Untuk push saat bot menghapus media yang kedaluwarsa, isi `VAPID_PUBLIC_KEY`, `V
 
 Push dari CheyaVerse web ditandai **Web** dan setiap pesan memakai tag unik agar browser tidak mengganti pesan sebelumnya. Browser atau OS dapat mengelompokkan notifikasi secara visual sesuai dukungannya. Suara dan getar push mengikuti dukungan serta pengaturan notifikasi browser/OS; halaman web memakai audio lokal ketika browser mengizinkan pemutaran. QR cadangan di viewer media dibuat dan dikustomisasi di browser, tanpa menyimpan desainnya di server.
 
-Beranda web menyediakan **Library** virtual pada path `/home/{username}`. Path ini hanya struktur data aplikasi di Turso, bukan akses ke filesystem server. Pengguna dapat mengelola folder, file teks (maksimal 1 MB), dan file gambar/video (maksimal 30 MiB per file); media diunggah langsung dari browser sebagai private object di Vercel Blob, sementara metadata/path disimpan di Turso. Tambahkan `BLOB_READ_WRITE_TOKEN` dari Blob Store dan pastikan `PUBLIC_URL` dashboard mengarah ke URL publik HTTPS agar callback upload dapat dijangkau. Penghapusan folder menghapus seluruh isinya; data library dibatasi pada akun pemilik dan ikut dihapus saat akun web dihapus. Halaman Statistik telah dihapus.
+Beranda web menyediakan **Library** virtual pada path `/home/{username}`. Path ini hanya struktur data aplikasi di Turso, bukan akses ke filesystem server. Pengguna dapat mengelola folder, file teks (maksimal 1 MB), dan file gambar/video (maksimal 4 MiB per file); media disimpan di Telegram Storage melalui `TELEGRAM_BOT_TOKEN` dan `TELEGRAM_STORAGE_CHAT_ID`, sementara metadata/path disimpan di Turso. Vercel Blob tidak digunakan dan `BLOB_READ_WRITE_TOKEN` tidak diperlukan. Penghapusan folder menghapus seluruh isinya; data library dibatasi pada akun pemilik dan ikut dihapus saat akun web dihapus. Halaman Statistik telah dihapus.
 
-### 4. Buat tabel di Turso
+### SQL skema awal
 
 ```sql
 CREATE TABLE IF NOT EXISTS media (
@@ -261,7 +274,7 @@ CREATE TABLE IF NOT EXISTS user_covers (
   updated_at TEXT
 );
 ```
-> **Pemberitahuan:** *Pastikan database sudah terbuat dengan nama `cheyaverse` di turso*
+> **Pemberitahuan:** Database dibuat terlebih dahulu dari menu **Create Database** di dashboard Turso; blok SQL di atas dijalankan pada Shell/SQL milik database tersebut. Sesuaikan nama database jika tidak memakai `cheyaverse`.
 > Aplikasi membuat/memigrasikan tabel akun `"akun-telegram"`, `direct_messages`, challenge login, presence, pin, dan penghapusan pesan secara otomatis. Kolom tambahan untuk edit/hapus/forward, balasan, dan pesan suara juga dimigrasikan saat akses pertama. Kolom fingerprint device yang baru juga dimigrasikan otomatis. Jangan drop tabel atau reset database untuk menerapkan pembaruan ini.
 
 Chat langsung menyinkronkan pesan dan tanda dibaca saat room terbuka. Status online didasarkan pada heartbeat web aktif; untuk penerima offline, pesan tetap tersimpan di web dan bot mengirim notifikasi Telegram dengan tombol **Dibaca** serta **Balas**. Pesan dari kontak tidak memicu notifikasi browser atau web-push; notifikasi browser hanya digunakan untuk pemberitahuan CheyaVerse. Balasan Telegram masuk ke room web yang sama.
