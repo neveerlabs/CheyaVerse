@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, forwardRef } from "react";
 import type { ReactNode } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import ReCAPTCHA from "react-google-recaptcha";
 import {
   Image as ImageIcon, Download, Maximize2, Minimize2, Copy,
@@ -20,6 +21,11 @@ type Props = {
   ownerId?: number;
   fileSize?: number;
   expiresAt?: string;
+};
+
+type LockableScreenOrientation = ScreenOrientation & {
+  lock?: (orientation: "landscape" | "portrait") => Promise<void>;
+  unlock?: () => void;
 };
 
 const VID_EXT = ["mp4", "webm", "mov", "mkv", "avi", "m4v"];
@@ -95,6 +101,7 @@ type VideoProps = {
   src: string;
   onReady: () => void;
   onError: () => void;
+  onDimensions: (width: number, height: number) => void;
   controlsHidden: boolean;
   onSeek: (clientX: number) => void;
 };
@@ -103,7 +110,7 @@ const DOUBLE_TAP_MS = 280;
 const EDGE_GUARD_SEC = 0.08;
 
 const VideoPlayer = forwardRef<HTMLVideoElement, VideoProps>(
-  function VideoPlayer({ src, onReady, onError, controlsHidden, onSeek }, externalRef) {
+  function VideoPlayer({ src, onReady, onError, onDimensions, controlsHidden, onSeek }, externalRef) {
     const localRef = useRef<HTMLVideoElement | null>(null);
     const readySent = useRef(false);
     const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -117,11 +124,11 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoProps>(
     const [ct, setCt] = useState(0);
     const [dur, setDur] = useState(0);
 
-    function markReady() {
+    const markReady = useCallback(() => {
       if (readySent.current) return;
       readySent.current = true;
       onReady();
-    }
+    }, [onReady]);
 
     useEffect(() => {
       if (typeof externalRef === "function") externalRef(localRef.current);
@@ -138,6 +145,7 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoProps>(
         if (v.readyState >= 1 && isFinite(v.duration) && v.duration > 0) {
           setDur(v.duration);
           if (isFinite(v.currentTime)) setCt(v.currentTime);
+          onDimensions(v.videoWidth, v.videoHeight);
           markReady();
           return true;
         }
@@ -148,7 +156,7 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoProps>(
         if (trySync()) window.clearInterval(iv);
       }, 250);
       return () => window.clearInterval(iv);
-    }, []);
+    }, [markReady, onDimensions]);
 
     useEffect(() => {
       return () => {
@@ -296,6 +304,7 @@ const VideoPlayer = forwardRef<HTMLVideoElement, VideoProps>(
           onLoadedMetadata={(e) => {
             const v = e.currentTarget;
             if (isFinite(v.duration)) setDur(v.duration);
+            onDimensions(v.videoWidth, v.videoHeight);
             markReady();
           }}
           onLoadedData={markReady}
@@ -428,6 +437,7 @@ export default function ViewerClient({
   uid, mediaId, signedUrl, filename, contentType,
   ownerId, fileSize, expiresAt,
 }: Props) {
+  const router = useRouter();
   const kind = detectKind(filename, contentType);
   const siteKey = config.recaptchaSiteKey;
   const homeHref = uid ? `/${uid}` : "/";
@@ -438,6 +448,8 @@ export default function ViewerClient({
   const [modalOpen, setModalOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [isFs, setIsFs] = useState(false);
+  const [isCssFullscreen, setIsCssFullscreen] = useState(false);
+  const [mediaOrientation, setMediaOrientation] = useState<"landscape" | "portrait" | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [controlsHidden, setControlsHidden] = useState(false);
@@ -463,6 +475,7 @@ export default function ViewerClient({
   const tyRef = useRef(0);
   const suppressClickRef = useRef(false);
   const isFsRef = useRef(false);
+  const mediaOrientationRef = useRef<"landscape" | "portrait" | null>(null);
   const kindRef = useRef(kind);
 
   useEffect(() => {
@@ -472,6 +485,23 @@ export default function ViewerClient({
   useEffect(() => {
     isFsRef.current = isFs;
   }, [isFs]);
+
+  const setOrientationFromDimensions = useCallback(
+    (width: number, height: number) => {
+      if (width <= 0 || height <= 0) return;
+      const orientation = width > height ? "landscape" : "portrait";
+      mediaOrientationRef.current = orientation;
+      setMediaOrientation(orientation);
+      const orientationApi = screen.orientation as LockableScreenOrientation;
+      if (isFsRef.current && typeof orientationApi.lock === "function") {
+        orientationApi.lock(orientation).catch((error) => {
+          console.warn("[media-viewer] orientation lock unavailable:", error);
+        });
+      }
+    },
+    [],
+  );
+  const handleVideoReady = useCallback(() => setReady(true), []);
 
   useEffect(() => {
     setCurrentExpiresAt(expiresAt ?? "");
@@ -514,7 +544,17 @@ export default function ViewerClient({
   useEffect(() => {
     function onFs() {
       const doc = document as Document & { webkitFullscreenElement?: Element };
-      setIsFs(!!(document.fullscreenElement || doc.webkitFullscreenElement));
+      const fullscreen = !!(document.fullscreenElement || doc.webkitFullscreenElement);
+      if (isCssFullscreen) return;
+      setIsFs(fullscreen);
+      const orientationApi = screen.orientation as LockableScreenOrientation;
+      if (fullscreen && mediaOrientationRef.current && typeof orientationApi.lock === "function") {
+        orientationApi.lock(mediaOrientationRef.current).catch((error) => {
+          console.warn("[media-viewer] orientation lock unavailable:", error);
+        });
+      } else if (!fullscreen && typeof orientationApi.unlock === "function") {
+        orientationApi.unlock();
+      }
     }
     document.addEventListener("fullscreenchange", onFs);
     document.addEventListener("webkitfullscreenchange", onFs);
@@ -522,7 +562,23 @@ export default function ViewerClient({
       document.removeEventListener("fullscreenchange", onFs);
       document.removeEventListener("webkitfullscreenchange", onFs);
     };
-  }, []);
+  }, [isCssFullscreen]);
+
+  useEffect(() => {
+    if (!isCssFullscreen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setIsCssFullscreen(false);
+      setIsFs(false);
+    };
+    window.addEventListener("keydown", onEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onEscape);
+    };
+  }, [isCssFullscreen]);
 
   useEffect(() => {
     if (!seekFx) return;
@@ -760,7 +816,7 @@ export default function ViewerClient({
     };
   }, []);
 
-  function toggleFs() {
+  const toggleFs = useCallback(() => {
     const el = mediaRef.current;
     if (!el) return;
     type FsEl = HTMLElement & { webkitRequestFullscreen?: () => void };
@@ -769,26 +825,60 @@ export default function ViewerClient({
       webkitFullscreenElement?: Element;
     };
     if (isFs) {
+      if (isCssFullscreen) {
+        setIsCssFullscreen(false);
+        setIsFs(false);
+        return;
+      }
       const doc = document as FsDoc;
       try {
         (document.exitFullscreen || doc.webkitExitFullscreen)?.call(document);
-      } catch {}
+      } catch (error) {
+        console.error("[media-viewer] could not exit fullscreen:", error);
+      }
       return;
     }
+    const lockOrientation = () => {
+      const orientationApi = screen.orientation as LockableScreenOrientation;
+      if (!mediaOrientationRef.current || typeof orientationApi.lock !== "function") return;
+      orientationApi.lock(mediaOrientationRef.current).catch((error) => {
+        console.warn("[media-viewer] orientation lock unavailable:", error);
+      });
+    };
     try {
       if (typeof el.requestFullscreen === "function") {
-        el.requestFullscreen({ navigationUI: "hide" }).catch(() => {
+        el.requestFullscreen({ navigationUI: "hide" }).then(lockOrientation).catch((error) => {
           try {
             const anyEl = el as FsEl;
-            anyEl.webkitRequestFullscreen?.();
-          } catch {}
+            if (anyEl.webkitRequestFullscreen) {
+              anyEl.webkitRequestFullscreen();
+              lockOrientation();
+            } else {
+              console.warn("[media-viewer] native fullscreen unavailable; using page fullscreen:", error);
+              setIsCssFullscreen(true);
+              setIsFs(true);
+            }
+          } catch (fallbackError) {
+            console.warn("[media-viewer] native fullscreen unavailable; using page fullscreen:", fallbackError);
+            setIsCssFullscreen(true);
+            setIsFs(true);
+          }
         });
       } else {
         const anyEl = el as FsEl;
-        anyEl.webkitRequestFullscreen?.();
+        if (anyEl.webkitRequestFullscreen) {
+          anyEl.webkitRequestFullscreen();
+          lockOrientation();
+        } else {
+          setIsCssFullscreen(true);
+          setIsFs(true);
+        }
       }
-    } catch {}
-  }
+    } catch (error) {
+      console.error("[media-viewer] fullscreen request failed:", error);
+      showToast("Fullscreen is unavailable on this device.");
+    }
+  }, [isCssFullscreen, isFs, showToast]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -862,7 +952,7 @@ export default function ViewerClient({
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [modalOpen, isFs, confirmDelete, editExpiresOpen]);
+  }, [modalOpen, isFs, confirmDelete, editExpiresOpen, toggleFs]);
 
   function triggerDownload(recaptchaToken: string) {
     window.location.href = `/download/${encodeURIComponent(mediaId)}?token=${encodeURIComponent(recaptchaToken)}`;
@@ -935,7 +1025,7 @@ export default function ViewerClient({
       });
       if (res.ok) {
         showToast("Media deleted");
-        setTimeout(() => { window.location.href = `/${uid}/media`; }, 500);
+        setTimeout(() => router.replace(`/${uid}/media`), 500);
       } else {
         showToast("Unable to delete media");
         setDeleting(false);
@@ -1057,7 +1147,25 @@ export default function ViewerClient({
             ? "-translate-y-1 scale-[1.05] shadow-[0_30px_80px_-14px_rgba(0,0,0,.55),0_12px_32px_-8px_rgba(0,0,0,.35)]"
             : "translate-y-0 scale-100 shadow-[0_0_0_0_rgba(0,0,0,0)]"
         }`}
-        style={{ aspectRatio: "4 / 3", maxHeight: "70vh" }}
+        data-media-orientation={mediaOrientation ?? undefined}
+        data-css-fullscreen={isCssFullscreen ? "true" : undefined}
+        style={{
+          aspectRatio: "4 / 3",
+          maxHeight: "70vh",
+          ...(isCssFullscreen
+            ? {
+                position: "fixed",
+                inset: 0,
+                zIndex: 1000,
+                width: "100vw",
+                height: "100dvh",
+                maxHeight: "none",
+                aspectRatio: "auto",
+                margin: 0,
+                borderRadius: 0,
+              }
+            : {}),
+        }}
       >
         {!ready && kind !== "other" && (
           <div className="absolute inset-0 z-[5] pointer-events-none overflow-hidden bg-[#0a0a0a]">
@@ -1082,8 +1190,9 @@ export default function ViewerClient({
             <VideoPlayer
               ref={videoRef}
               src={signedUrl}
-              onReady={() => setReady(true)}
+              onReady={handleVideoReady}
               onError={() => setFailed(true)}
+              onDimensions={setOrientationFromDimensions}
               controlsHidden={controlsHidden}
               onSeek={handleSeek}
             />
@@ -1094,7 +1203,13 @@ export default function ViewerClient({
               src={signedUrl}
               alt={filename}
               draggable={false}
-              onLoad={() => setReady(true)}
+              onLoad={(event) => {
+                setOrientationFromDimensions(
+                  event.currentTarget.naturalWidth,
+                  event.currentTarget.naturalHeight,
+                );
+                setReady(true);
+              }}
               onError={() => setFailed(true)}
               className={`protect absolute inset-0 w-full h-full object-contain transition-opacity duration-500 ${
                 ready ? "opacity-100" : "opacity-0"

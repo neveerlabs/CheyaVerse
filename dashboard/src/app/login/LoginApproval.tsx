@@ -39,7 +39,9 @@ export function LoginApproval({ botUsername }: { botUsername: string }) {
               ? "Bot Telegram belum dikonfigurasi oleh administrator."
               : result.error === "rate_limited"
                 ? "Terlalu banyak permintaan masuk. Silakan tunggu satu menit, lalu coba kembali."
-              : "Permintaan masuk tidak dapat dibuat. Silakan coba kembali.",
+                : result.error === "database_unavailable"
+                  ? "Layanan login sementara tidak tersedia. Silakan coba lagi beberapa saat."
+                  : "Permintaan masuk tidak dapat dibuat. Silakan coba kembali.",
           );
         }
         if (stopped) return;

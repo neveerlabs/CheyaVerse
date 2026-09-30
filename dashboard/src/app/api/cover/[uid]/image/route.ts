@@ -49,9 +49,7 @@ export async function GET(
     "Content-Type",
     cover.content_type || upstream.headers.get("Content-Type") || "image/jpeg",
   );
-  headers.set("Cache-Control", "no-store, no-cache, must-revalidate");
-  headers.set("Pragma", "no-cache");
-  headers.set("Expires", "0");
+  headers.set("Cache-Control", "private, max-age=86400, stale-while-revalidate=604800");
 
   return new NextResponse(upstream.body, { status: 200, headers });
 }

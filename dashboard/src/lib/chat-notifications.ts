@@ -7,12 +7,6 @@ function escapeHtml(value: string): string {
     .replace(/>/g, "&gt;");
 }
 
-function centeredSenderMarkup(senderName: string): string {
-  const visualLength = [...senderName].length;
-  const padding = Math.max(0, Math.floor((30 - visualLength) / 2));
-  return `${"&#160;".repeat(padding)}<b>${escapeHtml(senderName)}</b>`;
-}
-
 const DIVIDER = "─".repeat(26);
 
 async function sendTelegramNotification(
@@ -24,7 +18,7 @@ async function sendTelegramNotification(
   if (!config.telegram.botToken) {
     throw new Error("TELEGRAM_BOT_TOKEN is not configured");
   }
-  const text = `${centeredSenderMarkup(senderName)}\n${DIVIDER}\n${escapeHtml(content)}`;
+  const text = `<b>${escapeHtml(senderName)}</b>\n${DIVIDER}\n${escapeHtml(content)}`;
   const response = await fetch(
     `https://api.telegram.org/bot${config.telegram.botToken}/sendMessage`,
     {

@@ -18,9 +18,11 @@ export default async function ProfilePage({
   const uid = Number(params.uid);
   if (!Number.isInteger(uid) || uid <= 0) notFound();
 
-  const [account, cover] = await Promise.all([
+  const [account, cover, stats, raw] = await Promise.all([
     getTelegramUser(uid),
-    getCover(uid).catch(() => null),
+    getCover(uid),
+    getStats(uid),
+    listRecentMedia(uid, 9),
   ]);
   const info = account
     ? {
@@ -30,17 +32,7 @@ export default async function ProfilePage({
         username: account.username ?? undefined,
         photo_url: account.photo_url ?? undefined,
       }
-    : await getTelegramChatInfo(uid).catch(() => null);
-
-  let stats = { total: 0, active: 0, expired: 0 };
-  try {
-    stats = await getStats(uid);
-  } catch {}
-
-  let raw: Awaited<ReturnType<typeof listRecentMedia>> = [];
-  try {
-    raw = await listRecentMedia(uid, 9);
-  } catch {}
+    : await getTelegramChatInfo(uid);
 
   const media = raw.map((m) => ({
     id: m.id,
@@ -53,6 +45,7 @@ export default async function ProfilePage({
   return (
     <ProfileClient
       uid={params.uid}
+      isAdmin={account?.role === "admin"}
       info={info}
       stats={stats}
       media={media}

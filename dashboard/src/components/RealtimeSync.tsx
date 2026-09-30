@@ -9,10 +9,28 @@ export function RealtimeSync({ uid }: { uid: string }) {
   const router = useRouter();
   const pathname = usePathname();
   const pathnameRef = useRef(pathname);
+  const lastPathnameRef = useRef(pathname);
 
   useEffect(() => {
     pathnameRef.current = pathname;
   }, [pathname]);
+
+  useEffect(() => {
+    if (lastPathnameRef.current === pathname) return;
+    lastPathnameRef.current = pathname;
+    router.refresh();
+  }, [pathname, router]);
+
+  useEffect(() => {
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) router.refresh();
+    };
+
+    window.addEventListener("pageshow", onPageShow);
+    return () => {
+      window.removeEventListener("pageshow", onPageShow);
+    };
+  }, [router]);
 
   useRealtime(uid, (event) => {
     const inChatRoom = /^\/[^/]+\/chat\/[^/]+\/?$/.test(pathnameRef.current);

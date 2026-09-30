@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserSession, hasValidSameOrigin } from "@/lib/auth-request";
-import { getLibraryNode, setLibraryThumbnail } from "@/lib/library";
+import { getLibraryNode, setLibraryThumbnailStorage } from "@/lib/library";
+import {
+  deleteTelegramMessage,
+  fetchTelegramFile,
+  uploadDocumentToStorage,
+} from "@/lib/telegram";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,9 +24,23 @@ export async function GET(
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
   const node = await getLibraryNode(uid, params.id);
-  if (!node?.thumbnail_content || node.kind !== "media") {
+  if (!node || node.kind !== "media") {
     return new NextResponse(null, { status: 404 });
   }
+  if (node.thumbnail_file_id) {
+    const upstream = await fetchTelegramFile(node.thumbnail_file_id);
+    if (!upstream?.body) {
+      return NextResponse.json({ error: "Thumbnail is temporarily unavailable." }, { status: 502 });
+    }
+    return new NextResponse(upstream.body, {
+      headers: {
+        "Content-Type": "image/jpeg",
+        "Cache-Control": "private, max-age=3600",
+        "X-Content-Type-Options": "nosniff",
+      },
+    });
+  }
+  if (!node.thumbnail_content) return new NextResponse(null, { status: 404 });
   const bytes = Buffer.from(node.thumbnail_content, "base64");
   return new NextResponse(bytes, {
     headers: {
@@ -63,8 +82,33 @@ export async function PUT(
   if (bytes.length === 0 || bytes.length > MAX_THUMBNAIL_BYTES) {
     return NextResponse.json({ error: "Thumbnail is too large." }, { status: 413 });
   }
-  const saved = await setLibraryThumbnail(uid, params.id, bytes.toString("base64"));
-  return saved
-    ? NextResponse.json({ ok: true })
-    : NextResponse.json({ error: "Thumbnail could not be saved." }, { status: 500 });
+  const uploaded = await uploadDocumentToStorage(
+    new Blob([bytes], { type: "image/jpeg" }),
+    `${node.id}-thumbnail.jpg`,
+  );
+  if (!uploaded) {
+    return NextResponse.json({ error: "Thumbnail could not be saved." }, { status: 503 });
+  }
+  try {
+    const saved = await setLibraryThumbnailStorage(
+      uid,
+      params.id,
+      uploaded.file_id,
+      uploaded.message_id,
+    );
+    if (!saved) {
+      await deleteTelegramMessage(uploaded.message_id);
+      return NextResponse.json({ error: "Thumbnail could not be saved." }, { status: 500 });
+    }
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    const cleanedUp = await deleteTelegramMessage(uploaded.message_id);
+    if (!cleanedUp) {
+      console.error(
+        `[library/thumbnail] Telegram storage message ${uploaded.message_id} could not be cleaned up after metadata save failed.`,
+      );
+    }
+    console.error("[library/thumbnail] Could not save Telegram thumbnail metadata:", error);
+    return NextResponse.json({ error: "Thumbnail could not be saved." }, { status: 500 });
+  }
 }

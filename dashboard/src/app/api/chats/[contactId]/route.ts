@@ -111,6 +111,7 @@ export async function POST(
     const repliedMessage = await getDirectMessageById(replyToId);
     if (
       !repliedMessage ||
+      repliedMessage.deleted_at ||
       !(
         (repliedMessage.sender_uid === session.uid &&
           repliedMessage.recipient_uid === contactUid) ||

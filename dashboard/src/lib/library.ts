@@ -10,8 +10,10 @@ export type LibraryNode = {
   name: string;
   content: string | null;
   content_type: string | null;
-  storage_url: string | null;
+  storage_file_id: string | null;
   thumbnail_content: string | null;
+  thumbnail_file_id: string | null;
+  thumbnail_message_id: number | null;
   storage_message_id: number | null;
   file_size: number;
   created_at: number;
@@ -26,9 +28,14 @@ function mapNode(row: Record<string, unknown>): LibraryNode {
     name: String(row.name),
     content: row.content == null ? null : String(row.content),
     content_type: row.content_type == null ? null : String(row.content_type),
-    storage_url: row.storage_url == null ? null : String(row.storage_url),
+    storage_file_id:
+      row.storage_file_id == null ? null : String(row.storage_file_id),
     thumbnail_content:
       row.thumbnail_content == null ? null : String(row.thumbnail_content),
+    thumbnail_file_id:
+      row.thumbnail_file_id == null ? null : String(row.thumbnail_file_id),
+    thumbnail_message_id:
+      row.thumbnail_message_id == null ? null : Number(row.thumbnail_message_id),
     storage_message_id:
       row.storage_message_id == null ? null : Number(row.storage_message_id),
     file_size: Number(row.file_size ?? 0),
@@ -47,8 +54,10 @@ async function ensureLibraryTable(): Promise<void> {
       name TEXT NOT NULL,
       content TEXT,
       content_type TEXT,
-      storage_url TEXT,
+      storage_file_id TEXT,
       thumbnail_content TEXT,
+      thumbnail_file_id TEXT,
+      thumbnail_message_id INTEGER,
       storage_message_id INTEGER,
       file_size INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL,
@@ -60,8 +69,10 @@ async function ensureLibraryTable(): Promise<void> {
     columns.rows.map((row) => String(row.name ?? "")),
   );
   for (const [name, definition] of [
-    ["storage_url", "TEXT"],
+    ["storage_file_id", "TEXT"],
     ["thumbnail_content", "TEXT"],
+    ["thumbnail_file_id", "TEXT"],
+    ["thumbnail_message_id", "INTEGER"],
     ["storage_message_id", "INTEGER"],
   ] as const) {
     if (!existingColumns.has(name)) {
@@ -156,8 +167,7 @@ export async function createLibraryNode(input: {
   name: string;
   content?: string | null;
   contentType?: string | null;
-  storageUrl?: string | null;
-  thumbnailContent?: string | null;
+  storageFileId?: string | null;
   storageMessageId?: number | null;
   fileSize?: number;
 }): Promise<LibraryNode> {
@@ -168,9 +178,9 @@ export async function createLibraryNode(input: {
   const now = Date.now();
   await getTurso().execute({
     sql: `INSERT INTO library_nodes
-          (id, owner_uid, parent_id, kind, name, content, content_type, storage_url,
-           thumbnail_content, storage_message_id, file_size, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          (id, owner_uid, parent_id, kind, name, content, content_type,
+           storage_file_id, storage_message_id, file_size, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       id,
       input.ownerUid,
@@ -179,8 +189,7 @@ export async function createLibraryNode(input: {
       input.name,
       input.content ?? null,
       input.contentType ?? null,
-      input.storageUrl ?? null,
-      input.thumbnailContent ?? null,
+      input.storageFileId ?? null,
       input.storageMessageId ?? null,
       input.fileSize ?? 0,
       now,
@@ -192,30 +201,42 @@ export async function createLibraryNode(input: {
   return node;
 }
 
-export async function setLibraryThumbnail(
+export async function setLibraryThumbnailStorage(
   ownerUid: number,
   id: string,
-  thumbnailContent: string,
+  thumbnailFileId: string,
+  thumbnailMessageId: number,
 ): Promise<boolean> {
   await ensureLibraryTable();
   const result = await getTurso().execute({
-    sql: `UPDATE library_nodes SET thumbnail_content = ?, updated_at = ?
+    sql: `UPDATE library_nodes
+          SET thumbnail_file_id = ?, thumbnail_message_id = ?, updated_at = ?
           WHERE id = ? AND owner_uid = ? AND kind = 'media'`,
-    args: [thumbnailContent, Date.now(), id, ownerUid],
+    args: [thumbnailFileId, thumbnailMessageId, Date.now(), id, ownerUid],
   });
   return result.rowsAffected === 1;
 }
 
-export async function listLibraryBlobUrls(ownerUid: number): Promise<string[]> {
+export async function listLibraryTelegramMessageIds(
+  ownerUid: number,
+): Promise<number[]> {
   await ensureLibraryTable();
   const result = await getTurso().execute({
-    sql: `SELECT storage_url FROM library_nodes
-          WHERE owner_uid = ? AND storage_url IS NOT NULL`,
+    sql: `SELECT storage_message_id, thumbnail_message_id FROM library_nodes
+          WHERE owner_uid = ?
+            AND (storage_message_id IS NOT NULL OR thumbnail_message_id IS NOT NULL)`,
     args: [ownerUid],
   });
-  return result.rows
-    .map((row) => String(row.storage_url ?? ""))
-    .filter(Boolean);
+  return Array.from(
+    new Set(
+      result.rows
+        .flatMap((row) => [
+          Number(row.storage_message_id),
+          Number(row.thumbnail_message_id),
+        ])
+        .filter((id) => Number.isSafeInteger(id) && id > 0),
+    ),
+  );
 }
 
 export async function updateLibraryNode(
@@ -268,7 +289,10 @@ export async function updateLibraryNode(
 export async function deleteLibraryNode(
   ownerUid: number,
   id: string,
-): Promise<{ deleted: boolean; storageUrls: string[] }> {
+): Promise<{
+  deleted: boolean;
+  storageMessageIds: number[];
+}> {
   await ensureLibraryTable();
   const descendants = await getTurso().execute({
     sql: `WITH RECURSIVE descendants(id) AS (
@@ -278,9 +302,10 @@ export async function deleteLibraryNode(
             JOIN descendants parent ON child.parent_id = parent.id
             WHERE child.owner_uid = ?
           )
-          SELECT node.storage_url FROM library_nodes node
+          SELECT node.storage_message_id, node.thumbnail_message_id
+          FROM library_nodes node
           JOIN descendants ON descendants.id = node.id
-          WHERE node.owner_uid = ? AND node.storage_url IS NOT NULL`,
+          WHERE node.owner_uid = ?`,
     args: [id, ownerUid, ownerUid, ownerUid],
   });
   const result = await getTurso().execute({
@@ -297,8 +322,15 @@ export async function deleteLibraryNode(
   });
   return {
     deleted: result.rowsAffected > 0,
-    storageUrls: descendants.rows
-      .map((row) => String(row.storage_url ?? ""))
-      .filter(Boolean),
+    storageMessageIds: Array.from(
+      new Set(
+        descendants.rows
+          .flatMap((row) => [
+            Number(row.storage_message_id),
+            Number(row.thumbnail_message_id),
+          ])
+          .filter((messageId) => Number.isSafeInteger(messageId) && messageId > 0),
+      ),
+    ),
   };
 }

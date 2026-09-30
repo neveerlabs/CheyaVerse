@@ -48,7 +48,13 @@ export async function POST(request: NextRequest) {
     }
   } catch (error) {
     console.error("[auth/challenge] failed to create challenge:", error);
-    return NextResponse.json({ error: "challenge_creation_failed" }, { status: 500 });
+    return NextResponse.json(
+      { error: "database_unavailable", message: "Login service is temporarily unavailable. Please retry shortly." },
+      {
+        status: 503,
+        headers: { "Cache-Control": "no-store", "Retry-After": "5" },
+      },
+    );
   }
 
   return NextResponse.json(

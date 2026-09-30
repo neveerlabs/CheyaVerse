@@ -4,7 +4,7 @@ import { listPushSubscriptions, deletePushSubscription } from "./storage";
 
 let configured = false;
 
-const MAX_BODY_LENGTH = 90;
+const MAX_BODY_LENGTH = 180;
 const TRUNCATE_SUFFIX = "…";
 
 function ensureConfigured(): boolean {
@@ -24,10 +24,21 @@ function ensureConfigured(): boolean {
 }
 
 function truncateBody(input: string): string {
-  const flat = String(input || "").replace(/\s+/g, " ").trim();
-  if (!flat) return "";
-  if (flat.length <= MAX_BODY_LENGTH) return flat;
-  return flat.slice(0, MAX_BODY_LENGTH).trimEnd() + TRUNCATE_SUFFIX;
+  const formatted = String(input || "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(?:p|div|li)>/gi, "\n")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  if (formatted.length <= MAX_BODY_LENGTH) return formatted;
+  return formatted.slice(0, MAX_BODY_LENGTH).trimEnd() + TRUNCATE_SUFFIX;
 }
 
 function uniqueTag(contactId: string): string {
@@ -87,8 +98,12 @@ export function buildPushNotification(opts: BuildPushOptions): PushPayload {
   const targetUrl = opts.url ?? `/${opts.uid}/chat/${opts.contact.id}`;
   const tag = opts.tag ?? uniqueTag(opts.contact.id);
   return {
-    title: opts.contact.name,
-    body: truncateBody(opts.body),
+    title: "CheyaVerse · Web",
+    body: truncateBody(
+      opts.contact.id === "system"
+        ? opts.body
+        : `${opts.contact.name}\n${opts.body}`,
+    ),
     icon,
     tag,
     renotify: true,

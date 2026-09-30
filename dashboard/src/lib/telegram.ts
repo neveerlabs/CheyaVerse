@@ -11,14 +11,22 @@ const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 800;
 const FETCH_TIMEOUT_MS = 20000;
 
+type FetchRetryOptions = {
+  maxAttempts?: number;
+  timeoutMs?: number;
+};
+
 async function fetchWithRetry(
   input: RequestInfo | URL,
   init?: RequestInit,
+  options: FetchRetryOptions = {},
 ): Promise<Response | null> {
+  const maxAttempts = options.maxAttempts ?? MAX_RETRIES;
+  const timeoutMs = options.timeoutMs ?? FETCH_TIMEOUT_MS;
   let lastErr: unknown = null;
-  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const res = await fetch(input, { ...init, signal: controller.signal });
       clearTimeout(timer);
@@ -26,7 +34,7 @@ async function fetchWithRetry(
     } catch (err) {
       clearTimeout(timer);
       lastErr = err;
-      if (attempt < MAX_RETRIES - 1) {
+      if (attempt < maxAttempts - 1) {
         await new Promise((r) => setTimeout(r, RETRY_DELAY_MS * (attempt + 1)));
       }
     }
@@ -34,6 +42,11 @@ async function fetchWithRetry(
   console.error("Telegram fetch failed after retries:", lastErr);
   return null;
 }
+
+const FAST_LOOKUP_OPTIONS: FetchRetryOptions = {
+  maxAttempts: 1,
+  timeoutMs: 8_000,
+};
 
 export async function getTelegramFileUrl(fileId: string): Promise<string | null> {
   if (!config.telegram.botToken) {
@@ -44,6 +57,7 @@ export async function getTelegramFileUrl(fileId: string): Promise<string | null>
     const res = await fetchWithRetry(
       `https://api.telegram.org/bot${config.telegram.botToken}/getFile?file_id=${encodeURIComponent(fileId)}`,
       { cache: "no-store" },
+      FAST_LOOKUP_OPTIONS,
     );
     if (!res || !res.ok) return null;
     const data = await res.json();
@@ -59,7 +73,11 @@ export async function fetchTelegramFile(fileId: string): Promise<Response | null
   const url = await getTelegramFileUrl(fileId);
   if (!url) return null;
   try {
-    const upstream = await fetchWithRetry(url, { cache: "no-store" });
+    const upstream = await fetchWithRetry(
+      url,
+      { cache: "no-store" },
+      FAST_LOOKUP_OPTIONS,
+    );
     if (!upstream || !upstream.ok || !upstream.body) return null;
     return upstream;
   } catch (err) {
@@ -134,6 +152,7 @@ export async function getTelegramAvatarFileId(
     const res = await fetchWithRetry(
       `https://api.telegram.org/bot${config.telegram.botToken}/getUserProfilePhotos?user_id=${encodeURIComponent(String(userId))}&limit=1`,
       { cache: "no-store" },
+      FAST_LOOKUP_OPTIONS,
     );
     if (!res || !res.ok) return null;
     const data = await res.json();
@@ -225,6 +244,48 @@ export async function uploadAudioToStorage(
     };
   } catch (error) {
     console.error("Telegram audio upload error:", error);
+    return null;
+  }
+}
+
+export async function uploadDocumentToStorage(
+  file: Blob,
+  filename: string,
+): Promise<{ message_id: number; file_id: string } | null> {
+  if (!config.telegram.botToken || !config.telegram.storageChatId) {
+    console.error("Telegram bot token or storage chat is not configured");
+    return null;
+  }
+  try {
+    const form = new FormData();
+    form.append("chat_id", config.telegram.storageChatId);
+    form.append("document", file, filename);
+    const response = await fetchWithRetry(
+      `https://api.telegram.org/bot${config.telegram.botToken}/sendDocument`,
+      { method: "POST", body: form, cache: "no-store" },
+    );
+    if (!response) {
+      console.error("Telegram document upload did not receive a response");
+      return null;
+    }
+    const data = await response.json();
+    const document = data?.result?.document;
+    const messageId = Number(data?.result?.message_id);
+    if (
+      !response.ok ||
+      data?.ok !== true ||
+      typeof document?.file_id !== "string" ||
+      !Number.isSafeInteger(messageId) ||
+      messageId <= 0
+    ) {
+      console.error(
+        `Telegram document upload failed (${response.status}): ${data?.description ?? "invalid Telegram API response"}`,
+      );
+      return null;
+    }
+    return { message_id: messageId, file_id: document.file_id };
+  } catch (error) {
+    console.error("Telegram document upload error:", error);
     return null;
   }
 }

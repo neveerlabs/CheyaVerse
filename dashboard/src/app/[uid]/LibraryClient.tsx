@@ -25,7 +25,6 @@ import {
   Video,
   X,
 } from "lucide-react";
-import { upload } from "@vercel/blob/client";
 import Image from "next/image";
 
 type LibraryNode = {
@@ -35,7 +34,6 @@ type LibraryNode = {
   name: string;
   content: string | null;
   content_type: string | null;
-  storage_url: string | null;
   thumbnail_content: string | null;
   storage_message_id: number | null;
   file_size: number;
@@ -209,8 +207,8 @@ export function LibraryClient({ uid, username }: { uid: string; username: string
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
-    if (file.size > 30 * 1024 * 1024) {
-      setMessage("Ukuran media maksimal 30 MiB per file.");
+    if (file.size > 4 * 1024 * 1024) {
+      setMessage("Ukuran media maksimal 4 MiB per file.");
       return;
     }
     if (!file.type.startsWith("image/") && !file.type.startsWith("video/")) {
@@ -226,24 +224,20 @@ export function LibraryClient({ uid, username }: { uid: string; username: string
     try {
       thumbnail = await createMediaThumbnail(file);
       setUploadProgress(0);
-      await upload(
-        `library/${uid}/${nodeId}`,
-        file,
-        {
-          access: "private",
-          contentType: file.type,
-          handleUploadUrl: `/api/library/${uid}/upload`,
-          clientPayload: JSON.stringify({
-            nodeId,
-            parentId,
-            name: file.name,
-            contentType: file.type,
-          }),
-          multipart: file.size >= 5 * 1024 * 1024,
-          onUploadProgress: ({ percentage }) =>
-            setUploadProgress(Math.round(percentage)),
-        },
-      );
+      const form = new FormData();
+      form.append("nodeId", nodeId);
+      form.append("parentId", parentId ?? "");
+      form.append("name", file.name);
+      form.append("file", file, file.name);
+      const response = await fetch(`/api/library/${uid}/upload`, {
+        method: "POST",
+        body: form,
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.error || "File could not be uploaded.");
+      }
+      setUploadProgress(100);
       if (thumbnail) {
         const response = await fetch(
           `/api/library/${uid}/${encodeURIComponent(nodeId)}/thumbnail`,
@@ -345,7 +339,7 @@ export function LibraryClient({ uid, username }: { uid: string; username: string
   };
 
   return (
-    <div className="relative -ml-5 left-1/2 w-[calc(100vw-2rem)] max-w-[1200px] -translate-x-1/2 overflow-x-hidden pt-5 sm:pt-7">
+    <div className="relative mx-auto min-w-0 w-full max-w-[600px] overflow-x-clip px-3 pt-4 sm:px-4 sm:pt-6">
       <header className="mb-6 sm:mb-7">
         <div className="flex min-w-0 items-start justify-between gap-3">
           <div>

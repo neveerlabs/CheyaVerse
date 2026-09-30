@@ -182,7 +182,7 @@ export async function DELETE(
   if (!message) {
     return NextResponse.json({ ok: false, error: "message_not_found" }, { status: 404 });
   }
-  if (scope === "everyone" && message.sender !== "user") {
+  if (scope === "everyone" && message.sender !== "user" && !message.deleted_at) {
     return NextResponse.json({ ok: false, error: "cannot_delete_others_message" }, { status: 403 });
   }
   const deleted = await deleteChatMessage(uid, messageId, scope);
@@ -190,7 +190,7 @@ export async function DELETE(
     return NextResponse.json({ ok: false, error: "message_not_deletable" }, { status: 409 });
   }
   broadcastToUid(uid, {
-    type: scope === "me" ? "message:hidden" : "message:deleted",
+    type: scope === "me" && !message.deleted_at ? "message:hidden" : "message:deleted",
     messageId,
   });
   return NextResponse.json({ ok: true });

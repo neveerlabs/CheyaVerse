@@ -115,8 +115,8 @@ export async function GET(req: NextRequest) {
   } catch (err) {
     console.error("[events/poll] error:", err);
     return NextResponse.json(
-      { ok: false, error: "server_error" },
-      { status: 200 },
+      { ok: false, error: "database_unavailable" },
+      { status: 503, headers: { "Cache-Control": "no-store", "Retry-After": "5" } },
     );
   }
 }

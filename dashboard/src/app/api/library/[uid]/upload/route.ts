@@ -1,10 +1,4 @@
-import { head } from "@vercel/blob";
-import {
-  handleUpload,
-  type HandleUploadBody,
-} from "@vercel/blob/client";
 import { NextRequest, NextResponse } from "next/server";
-import { randomUUID } from "node:crypto";
 import { getUserSession, hasValidSameOrigin } from "@/lib/auth-request";
 import { config } from "@/lib/config";
 import {
@@ -13,6 +7,7 @@ import {
   LIBRARY_MEDIA_LIMIT,
   validateLibraryDestination,
 } from "@/lib/library";
+import { deleteTelegramMessage, uploadDocumentToStorage } from "@/lib/telegram";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,50 +29,41 @@ function cleanName(value: unknown): string | null {
   return name;
 }
 
-function parseClientPayload(value: string | null): {
+function parseUploadFields(form: FormData): {
   nodeId: string;
   parentId: string | null;
   name: string;
-  contentType: string;
-} {
-  if (!value || value.length > 1024) throw new Error("INVALID_UPLOAD");
-  const payload = JSON.parse(value) as Record<string, unknown>;
-  const nodeId = typeof payload.nodeId === "string" ? payload.nodeId : "";
+  file: File;
+} | null {
+  const nodeId = form.get("nodeId");
+  const rawParentId = form.get("parentId");
+  const rawName = form.get("name");
+  const file = form.get("file");
   const parentId =
-    payload.parentId === null ||
-    payload.parentId === undefined ||
-    payload.parentId === ""
+    rawParentId === null || rawParentId === ""
       ? null
-      : typeof payload.parentId === "string" && payload.parentId.length <= 64
-        ? payload.parentId
+      : typeof rawParentId === "string" && rawParentId.length <= 64
+        ? rawParentId
         : undefined;
-  const name = cleanName(payload.name);
-  const contentType =
-    typeof payload.contentType === "string" &&
-    payload.contentType.length <= 200 &&
-    (payload.contentType.startsWith("image/") ||
-      payload.contentType.startsWith("video/")) &&
-    !/[\r\n]/.test(payload.contentType)
-      ? payload.contentType
-      : "";
-  if (!UUID_RE.test(nodeId) || parentId === undefined || !name || !contentType) {
-    throw new Error("INVALID_UPLOAD");
+  const name = cleanName(rawName);
+  if (
+    typeof nodeId !== "string" ||
+    !UUID_RE.test(nodeId) ||
+    parentId === undefined ||
+    !name ||
+    typeof file === "string" ||
+    !file ||
+    typeof file.arrayBuffer !== "function" ||
+    file.name.length > 180 ||
+    file.size > LIBRARY_MEDIA_LIMIT ||
+    !file.type ||
+    file.type.length > 200 ||
+    (!file.type.startsWith("image/") && !file.type.startsWith("video/")) ||
+    /[\r\n]/.test(file.type)
+  ) {
+    return null;
   }
-  return { nodeId, parentId, name, contentType };
-}
-
-function parseSignedPayload(value: string | null): {
-  uid: number;
-  nodeId: string;
-  parentId: string | null;
-  name: string;
-  contentType: string;
-} {
-  if (!value || value.length > 1024) throw new Error("INVALID_UPLOAD");
-  const payload = JSON.parse(value) as Record<string, unknown>;
-  const uid = Number(payload.uid);
-  if (!Number.isSafeInteger(uid) || uid <= 0) throw new Error("INVALID_UPLOAD");
-  return { uid, ...parseClientPayload(value) };
+  return { nodeId, parentId, name, file };
 }
 
 export async function POST(
@@ -88,78 +74,81 @@ export async function POST(
   if (!Number.isSafeInteger(uid) || uid <= 0) {
     return NextResponse.json({ error: "Invalid account." }, { status: 400 });
   }
+  if (!(await getUserSession(request, uid))) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+  if (!hasValidSameOrigin(request)) {
+    return NextResponse.json({ error: "Invalid request origin." }, { status: 403 });
+  }
+  if (!config.telegram.botToken || !config.telegram.storageChatId) {
+    return NextResponse.json(
+      { error: "Media storage is not configured. Set TELEGRAM_BOT_TOKEN and TELEGRAM_STORAGE_CHAT_ID." },
+      { status: 503 },
+    );
+  }
+  const contentType = request.headers.get("content-type") ?? "";
+  if (!contentType.toLowerCase().startsWith("multipart/form-data;")) {
+    return NextResponse.json({ error: "Invalid upload details." }, { status: 400 });
+  }
+
+  let form: FormData;
+  try {
+    form = await request.formData();
+  } catch {
+    return NextResponse.json({ error: "Invalid upload details." }, { status: 400 });
+  }
+  const upload = parseUploadFields(form);
+  if (!upload) {
+    const file = form.get("file");
+    if (
+      file &&
+      typeof file !== "string" &&
+      typeof file.size === "number" &&
+      file.size > LIBRARY_MEDIA_LIMIT
+    ) {
+      return NextResponse.json(
+        { error: `Media must be ${LIBRARY_MEDIA_LIMIT / (1024 * 1024)} MB or smaller.` },
+        { status: 413 },
+      );
+    }
+    return NextResponse.json({ error: "Invalid upload details." }, { status: 400 });
+  }
 
   try {
-    const body = (await request.json()) as HandleUploadBody;
-    if (body.type === "blob.generate-client-token") {
-      if (!(await getUserSession(request, uid))) {
-        return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-      }
-      if (!hasValidSameOrigin(request)) {
-        return NextResponse.json({ error: "Invalid request origin." }, { status: 403 });
-      }
-      if (!config.publicUrl.startsWith("https://")) {
-        return NextResponse.json(
-          { error: "Set PUBLIC_URL to a public HTTPS dashboard URL for media uploads." },
-          { status: 503 },
+    if (await getLibraryNode(uid, upload.nodeId)) {
+      return NextResponse.json({ error: "A file or folder with that name already exists." }, { status: 409 });
+    }
+    await validateLibraryDestination(uid, upload.parentId, upload.name);
+
+    const uploaded = await uploadDocumentToStorage(upload.file, upload.name);
+    if (!uploaded) {
+      return NextResponse.json({ error: "Media upload failed. Please retry." }, { status: 503 });
+    }
+
+    try {
+      const node = await createLibraryNode({
+        id: upload.nodeId,
+        ownerUid: uid,
+        parentId: upload.parentId,
+        kind: "media",
+        name: upload.name,
+        contentType: upload.file.type,
+        storageFileId: uploaded.file_id,
+        storageMessageId: uploaded.message_id,
+        fileSize: upload.file.size,
+      });
+      return NextResponse.json({ node }, { status: 201 });
+    } catch (error) {
+      const cleanedUp = await deleteTelegramMessage(uploaded.message_id);
+      if (!cleanedUp) {
+        console.error(
+          `[library/upload] Telegram storage message ${uploaded.message_id} could not be cleaned up after metadata save failed.`,
         );
       }
-    } else if (body.type !== "blob.upload-completed") {
-      return NextResponse.json({ error: "Invalid upload event." }, { status: 400 });
+      throw error;
     }
-    const result = await handleUpload({
-      request,
-      body,
-      onBeforeGenerateToken: async (pathname, clientPayload) => {
-        const metadata = parseClientPayload(clientPayload);
-        const expectedPath = `library/${uid}/${metadata.nodeId}`;
-        if (pathname !== expectedPath) throw new Error("INVALID_UPLOAD");
-        const existing = await getLibraryNode(uid, metadata.nodeId);
-        if (existing) throw new Error("UPLOAD_ALREADY_EXISTS");
-        await validateLibraryDestination(uid, metadata.parentId, metadata.name);
-        return {
-          allowedContentTypes: ["image/*", "video/*"],
-          maximumSizeInBytes: LIBRARY_MEDIA_LIMIT,
-          validUntil: Date.now() + 60 * 60 * 1000,
-          addRandomSuffix: false,
-          allowOverwrite: false,
-          callbackUrl: `${config.publicUrl}/api/library/${uid}/upload`,
-          tokenPayload: JSON.stringify({ uid, ...metadata }),
-        };
-      },
-      onUploadCompleted: async ({ blob, tokenPayload }) => {
-        if (!tokenPayload) {
-          throw new Error("INVALID_UPLOAD");
-        }
-        const signed = parseSignedPayload(tokenPayload);
-        if (signed.uid !== uid) throw new Error("INVALID_UPLOAD");
-        if (blob.pathname !== `library/${uid}/${signed.nodeId}`) {
-          throw new Error("INVALID_UPLOAD");
-        }
-        const storedBlob = await head(blob.url);
-        if (storedBlob.size > LIBRARY_MEDIA_LIMIT) {
-          throw new Error("INVALID_UPLOAD");
-        }
-        const existing = await getLibraryNode(signed.uid, signed.nodeId);
-        if (existing) return;
-        await createLibraryNode({
-          id: signed.nodeId,
-          ownerUid: signed.uid,
-          parentId: signed.parentId,
-          kind: "media",
-          name: signed.name,
-          contentType: signed.contentType || blob.contentType,
-          storageUrl: blob.url,
-          fileSize: storedBlob.size,
-        });
-      },
-    });
-    return NextResponse.json(result);
   } catch (error) {
     const code = error instanceof Error ? error.message : "";
-    if (code === "INVALID_UPLOAD") {
-      return NextResponse.json({ error: "Invalid upload details." }, { status: 400 });
-    }
     if (code === "PARENT_NOT_FOUND") {
       return NextResponse.json({ error: "Destination folder not found." }, { status: 404 });
     }
@@ -169,14 +158,7 @@ export async function POST(
         { status: 409 },
       );
     }
-    console.error("[library/upload] Blob upload failed:", error);
-    return NextResponse.json(
-      {
-        error: process.env.BLOB_READ_WRITE_TOKEN
-          ? "Media upload failed. Please retry."
-          : "Media storage is not configured. Set BLOB_READ_WRITE_TOKEN in the dashboard environment.",
-      },
-      { status: 503 },
-    );
+    console.error("[library/upload] Telegram upload failed:", error);
+    return NextResponse.json({ error: "Media upload failed. Please retry." }, { status: 503 });
   }
 }

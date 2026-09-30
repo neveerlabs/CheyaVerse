@@ -11,11 +11,7 @@ export default async function MediaPage({ params }: { params: { uid: string } })
   if (!Number.isInteger(uid) || uid <= 0) notFound();
 
   const initialView = getViewPreferenceServer();
-
-  let raw: Awaited<ReturnType<typeof listRecentMedia>> = [];
-  try {
-    raw = await listRecentMedia(uid, 50);
-  } catch {}
+  const raw = await listRecentMedia(uid, 50);
 
   const items = raw.map((m) => ({
     id: m.id,

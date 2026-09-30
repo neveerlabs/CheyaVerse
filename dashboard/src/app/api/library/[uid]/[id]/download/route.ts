@@ -1,7 +1,7 @@
-import { get } from "@vercel/blob";
 import { NextRequest, NextResponse } from "next/server";
 import { getUserSession } from "@/lib/auth-request";
 import { getLibraryNode } from "@/lib/library";
+import { fetchTelegramFile } from "@/lib/telegram";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,26 +22,26 @@ export async function GET(
     return NextResponse.json({ error: "Media not found." }, { status: 404 });
   }
   const safeName = node.name.replace(/["\\\r\n]/g, "_");
-  if (node.storage_url) {
+  if (node.storage_file_id) {
     try {
-      const blob = await get(node.storage_url, { access: "private" });
-      if (!blob || blob.statusCode !== 200) {
+      const upstream = await fetchTelegramFile(node.storage_file_id);
+      if (!upstream?.body) {
         return NextResponse.json(
           { error: "Media is temporarily unavailable." },
           { status: 502 },
         );
       }
-      return new NextResponse(blob.stream, {
+      return new NextResponse(upstream.body, {
         headers: {
           "Content-Type": "application/octet-stream",
-          "Content-Length": String(blob.blob.size),
+          "Content-Length": String(node.file_size),
           "Content-Disposition": `attachment; filename="${safeName}"`,
           "Cache-Control": "private, no-store",
           "X-Content-Type-Options": "nosniff",
         },
       });
     } catch (error) {
-      console.error("[library/download] Blob download failed:", error);
+      console.error("[library/download] Telegram download failed:", error);
       return NextResponse.json(
         { error: "Media is temporarily unavailable." },
         { status: 502 },

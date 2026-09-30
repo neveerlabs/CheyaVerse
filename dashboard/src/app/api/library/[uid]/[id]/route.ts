@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { del } from "@vercel/blob";
 import { getUserSession, hasValidSameOrigin } from "@/lib/auth-request";
 import {
   deleteLibraryNode,
@@ -7,6 +6,7 @@ import {
   LIBRARY_MEDIA_LIMIT,
   updateLibraryNode,
 } from "@/lib/library";
+import { deleteTelegramMessage } from "@/lib/telegram";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -119,18 +119,23 @@ export async function DELETE(
   if (!deleted.deleted) {
     return NextResponse.json({ error: "Item not found." }, { status: 404 });
   }
-  const cleanup = await Promise.allSettled(
-    deleted.storageUrls.map((url) => del(url)),
+  const telegramCleanup = await Promise.allSettled(
+    deleted.storageMessageIds.map((messageId) => deleteTelegramMessage(messageId)),
   );
-  const storageCleanupFailed = cleanup.filter(
-    (result) => result.status === "rejected",
-  ).length;
-  if (storageCleanupFailed) {
+  const telegramStorageCleanupFailed =
+    telegramCleanup.filter(
+      (result) => result.status === "rejected" || result.value !== true,
+    ).length;
+  if (telegramStorageCleanupFailed) {
     console.error(
-      `[library/delete] ${storageCleanupFailed} Blob object(s) could not be deleted for account ${uid}.`,
+      `[library/delete] ${telegramStorageCleanupFailed} Telegram storage message(s) could not be deleted for account ${uid}.`,
     );
   }
-  return NextResponse.json({ ok: true, storageCleanupFailed });
+  return NextResponse.json({
+    ok: true,
+    storageCleanupFailed: telegramStorageCleanupFailed,
+    telegramStorageCleanupFailed,
+  });
 }
 
 export async function HEAD(

@@ -217,7 +217,6 @@ export function SettingsClient({
       const result = (await response.json()) as {
         ok?: boolean;
         storageCleanupFailed?: number;
-        blobStorageCleanupFailed?: number;
       };
       if (!response.ok || !result.ok) {
         throw new Error(
@@ -234,8 +233,8 @@ export function SettingsClient({
       setDeleteOpen(false);
       setDeleteText("");
       setNotice(
-        result.storageCleanupFailed || result.blobStorageCleanupFailed
-          ? `Akun telah dihapus. ${result.storageCleanupFailed ?? 0} file Telegram dan ${result.blobStorageCleanupFailed ?? 0} file media cloud gagal dibersihkan.`
+        result.storageCleanupFailed
+          ? `Akun telah dihapus. ${result.storageCleanupFailed} file Telegram gagal dibersihkan.`
           : "Akun dan data web telah dihapus. Anda akan diarahkan ke halaman masuk.",
       );
       window.setTimeout(() => {

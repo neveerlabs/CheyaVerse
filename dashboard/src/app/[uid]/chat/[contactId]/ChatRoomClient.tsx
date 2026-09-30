@@ -28,6 +28,7 @@ import {
 import { useRealtime } from "@/lib/use-realtime";
 import { ChatComposer } from "@/components/ChatComposer";
 import { ChatMessageBubble, chatMessageTime } from "@/components/ChatMessageBubble";
+import { ClearChatsDialog } from "@/components/ClearChatsDialog";
 import { TelegramAvatar } from "@/components/TelegramAvatar";
 import { VerifiedName } from "@/components/VerifiedName";
 import { playReceiveSound, playSendSound } from "@/lib/chat-sounds";
@@ -248,6 +249,7 @@ export function ChatRoomClient({
   const [contactsLoading, setContactsLoading] = useState(false);
   const [contactsLoaded, setContactsLoaded] = useState(false);
   const [toast, setToast] = useState("");
+  const [clearDialogMode, setClearDialogMode] = useState<"all" | "selected" | null>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [swipe, setSwipe] = useState<{ id: string; offset: number } | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
@@ -787,13 +789,7 @@ export function ChatRoomClient({
     if (event.type === "message:deleted") {
       const messageId = typeof event.messageId === "string" ? event.messageId : "";
       if (!messageId) return;
-      setMessages((prev) =>
-        prev.map((message) =>
-          message.id === messageId
-            ? { ...message, content: "", deleted_at: new Date().toISOString() }
-            : message,
-        ),
-      );
+      setMessages((prev) => prev.filter((message) => message.id !== messageId));
       return;
     }
     if (event.type === "message:hidden") {
@@ -1077,7 +1073,8 @@ export function ChatRoomClient({
 
   async function copySelected() {
     const texts = selectedItemsList
-      .map((it) => chatPreviewText(it.deleted_at ? "Pesan dihapus" : it.content))
+      .filter((it) => !it.deleted_at)
+      .map((it) => chatPreviewText(it.content))
       .filter(Boolean);
     if (texts.length === 0) return;
     try {
@@ -1106,35 +1103,18 @@ export function ChatRoomClient({
       { method: "DELETE" },
     );
     if (!response.ok) throw new Error("Pesan gagal dihapus.");
-    if (scope === "me") {
-      setMessages((current) =>
-        current.filter((message) => message.id !== item.messageId),
-      );
-    } else {
-      setMessages((current) =>
-        current.map((message) =>
-          message.id === item.messageId
-            ? { ...message, content: "", deleted_at: new Date().toISOString() }
-            : message,
-        ),
-      );
-    }
+    setMessages((current) =>
+      current.filter((message) => message.id !== item.messageId),
+    );
   }
 
   async function deleteSelected() {
     if (selectedItemsList.length === 0) return;
-    const allOwnMessages = selectedItemsList.every(
-      (it) => it.source === "message" && it.sender === "user" && !it.deleted_at,
-    );
-    const hasNotifications = selectedItemsList.some(
-      (it) => it.source === "notification",
-    );
-    const useEveryone = allOwnMessages && !hasNotifications;
-    if (useEveryone) {
-      if (!window.confirm("Delete selected messages for everyone?")) return;
-    }
+    setClearDialogMode("selected");
+  }
+
+  async function deleteSelectedWithScope(scope: "me" | "everyone") {
     const snapshot = selectedItemsList.slice();
-    const scope: "me" | "everyone" = useEveryone ? "everyone" : "me";
 
     const notifIds = snapshot
       .filter((it) => it.source === "notification" && it.notificationId)
@@ -1143,18 +1123,7 @@ export function ChatRoomClient({
       .filter((it) => it.source === "message" && it.messageId)
       .map((it) => it.messageId!);
 
-    if (scope === "me") {
-      setMessages((current) =>
-        current.filter((m) => !msgIds.includes(m.id)),
-      );
-    } else {
-      const now = new Date().toISOString();
-      setMessages((current) =>
-        current.map((m) =>
-          msgIds.includes(m.id) ? { ...m, content: "", deleted_at: now } : m,
-        ),
-      );
-    }
+    setMessages((current) => current.filter((m) => !msgIds.includes(m.id)));
     if (notifIds.length > 0) {
       setHiddenNotificationIds((current) => {
         const next = new Set(current);
@@ -1189,16 +1158,19 @@ export function ChatRoomClient({
     }
   }
 
-  async function clearMessagesForMe() {
+  async function clearMessages(scope: "me" | "everyone") {
     if (clearing) return;
     const list = chatItemsRef.current.slice();
     if (list.length === 0) {
       setMenuOpen(false);
+      setClearDialogMode(null);
       return;
     }
-    if (!window.confirm("Clear all messages for you? This cannot be undone.")) return;
+    const messageSnapshot = messages.slice();
+    const hiddenSnapshot = hiddenNotificationIds;
     setClearing(true);
     setMenuOpen(false);
+    setClearDialogMode(null);
     setMessages([]);
     setHiddenNotificationIds(new Set(notifications.map((n) => n.id)));
     try {
@@ -1208,66 +1180,26 @@ export function ChatRoomClient({
             return fetch(
               `/api/notifications/${encodeURIComponent(uid)}?id=${encodeURIComponent(item.notificationId)}`,
               { method: "DELETE" },
-            ).catch(() => {});
+            ).then((response) => {
+              if (!response.ok) throw new Error("Some messages could not be cleared.");
+            });
           }
           if (item.messageId) {
-            return fetch(
-              `/api/messages/${encodeURIComponent(uid)}?messageId=${encodeURIComponent(item.messageId)}&scope=me`,
-              { method: "DELETE" },
-            ).catch(() => {});
-          }
-          return Promise.resolve();
-        }),
-      );
-      showToast("Chat cleared for you.");
-    } catch (error) {
-      console.error("[chat-room] clear for me failed:", error);
-      showToast("Failed to clear chat.");
-    } finally {
-      setClearing(false);
-    }
-  }
-
-  async function clearMessagesForAll() {
-    if (clearing) return;
-    const list = chatItemsRef.current.slice();
-    if (list.length === 0) {
-      setMenuOpen(false);
-      return;
-    }
-    if (
-      !window.confirm(
-        "Clear all messages for everyone? This will remove them for both sides.",
-      )
-    )
-      return;
-    setClearing(true);
-    setMenuOpen(false);
-    setMessages([]);
-    setHiddenNotificationIds(new Set(notifications.map((n) => n.id)));
-    try {
-      await Promise.all(
-        list.map((item) => {
-          if (item.source === "notification" && item.notificationId) {
-            return fetch(
-              `/api/notifications/${encodeURIComponent(uid)}?id=${encodeURIComponent(item.notificationId)}`,
-              { method: "DELETE" },
-            ).catch(() => {});
-          }
-          if (item.messageId) {
-            const scope =
-              item.sender === "user" && !item.deleted_at ? "everyone" : "me";
             return fetch(
               `/api/messages/${encodeURIComponent(uid)}?messageId=${encodeURIComponent(item.messageId)}&scope=${scope}`,
               { method: "DELETE" },
-            ).catch(() => {});
+            ).then((response) => {
+              if (!response.ok) throw new Error("Some messages could not be cleared.");
+            });
           }
           return Promise.resolve();
         }),
       );
-      showToast("Chat cleared for everyone.");
+      showToast(scope === "everyone" ? "Chat cleared for everyone." : "Chat cleared for you.");
     } catch (error) {
-      console.error("[chat-room] clear for everyone failed:", error);
+      setMessages(messageSnapshot);
+      setHiddenNotificationIds(hiddenSnapshot);
+      console.error("[chat-room] clear for me failed:", error);
       showToast("Failed to clear chat.");
     } finally {
       setClearing(false);
@@ -1336,6 +1268,7 @@ export function ChatRoomClient({
     selectedItemsList[0].source === "message" &&
     selectedItemsList[0].sender === "user" &&
     !selectedItemsList[0].deleted_at;
+  const hasUndeletedSelection = selectedItemsList.some((item) => !item.deleted_at);
 
   const filteredContacts = useMemo(() => {
     const term = forwardQuery.trim().toLowerCase();
@@ -1382,22 +1315,26 @@ export function ChatRoomClient({
               </span>
             </div>
             <div className="flex h-11 flex-shrink-0 items-center overflow-hidden rounded-full border border-[#dfe3e8] bg-white shadow-sm">
-              <button
-                type="button"
-                onClick={() => void copySelected()}
-                aria-label="Copy messages"
-                className="flex h-full w-10 items-center justify-center text-ink-soft transition-colors active:bg-[#f5f5f5]"
-              >
-                <Copy size={17} strokeWidth={2.2} />
-              </button>
-              <button
-                type="button"
-                onClick={openForwardFromSelection}
-                aria-label="Forward messages"
-                className="flex h-full w-10 items-center justify-center text-ink-soft transition-colors active:bg-[#f5f5f5]"
-              >
-                <Forward size={17} strokeWidth={2.2} />
-              </button>
+              {hasUndeletedSelection && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => void copySelected()}
+                    aria-label="Copy messages"
+                    className="flex h-full w-10 items-center justify-center text-ink-soft transition-colors active:bg-[#f5f5f5]"
+                  >
+                    <Copy size={17} strokeWidth={2.2} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={openForwardFromSelection}
+                    aria-label="Forward messages"
+                    className="flex h-full w-10 items-center justify-center text-ink-soft transition-colors active:bg-[#f5f5f5]"
+                  >
+                    <Forward size={17} strokeWidth={2.2} />
+                  </button>
+                </>
+              )}
               {canEditSelected && (
                 <button
                   type="button"
@@ -1471,17 +1408,13 @@ export function ChatRoomClient({
                 </button>
                 <button
                   type="button"
-                  onClick={() => void clearMessagesForMe()}
-                  className="flex w-full items-center gap-2 px-4 py-3 text-left text-[13px] text-ink"
-                >
-                  <Trash2 size={15} /> Clear for me
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void clearMessagesForAll()}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setClearDialogMode("all");
+                  }}
                   className="flex w-full items-center gap-2 px-4 py-3 text-left text-[13px] text-danger"
                 >
-                  <Trash2 size={15} /> Clear for everyone
+                  <Trash2 size={15} /> Clear chats
                 </button>
                 <button
                   type="button"
@@ -1522,7 +1455,7 @@ export function ChatRoomClient({
             : "calc(8px + env(safe-area-inset-bottom))",
         }}
       >
-        {selectedIds.size === 1 && (
+        {selectedIds.size === 1 && hasUndeletedSelection && (
           <button
             type="button"
             onClick={replySelected}
@@ -1531,13 +1464,15 @@ export function ChatRoomClient({
             <Reply size={18} strokeWidth={2.2} /> Reply
           </button>
         )}
-        <button
-          type="button"
-          onClick={openForwardFromSelection}
-          className="flex flex-1 items-center justify-center gap-2 rounded-[22px] border border-line bg-white py-2.5 text-[14px] font-semibold text-ink shadow-sm transition-colors active:bg-[#f5f5f5]"
-        >
-          <Forward size={18} strokeWidth={2.2} /> Forward
-        </button>
+        {hasUndeletedSelection && (
+          <button
+            type="button"
+            onClick={openForwardFromSelection}
+            className="flex flex-1 items-center justify-center gap-2 rounded-[22px] border border-line bg-white py-2.5 text-[14px] font-semibold text-ink shadow-sm transition-colors active:bg-[#f5f5f5]"
+          >
+            <Forward size={18} strokeWidth={2.2} /> Forward
+          </button>
+        )}
       </div>
     </footer>
   ) : (
@@ -1568,7 +1503,7 @@ export function ChatRoomClient({
         reply={
           replyingTo ? (
             <div className="relative flex items-stretch gap-2.5 border-b border-line bg-gradient-to-r from-[#f6f6f6] to-[#fafafa] px-3 py-2 pr-10">
-              <span className="w-[3px] flex-shrink-0 rounded-full bg-ink" />
+              <span className="w-1 flex-shrink-0 rounded-full bg-ink" />
               <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                 <span className="truncate text-[11.5px] font-semibold leading-none tracking-[-.005em] text-ink">
                   Reply to {replyingTo.sender === "user" ? ownName : "CheyaVerse"}
@@ -1695,7 +1630,7 @@ export function ChatRoomClient({
                       event.stopPropagation();
                       scrollToChatItem(item.reply_to_id!);
                     }}
-                    className={`mb-1.5 block w-full max-w-full overflow-hidden rounded-lg border-l-[3px] px-2 py-1 text-left transition-colors ${
+                    className={`mb-1.5 block w-full max-w-full overflow-hidden rounded-xl border-l-4 px-2.5 py-1.5 text-left transition-colors ${
                       isUser
                         ? "border-white/50 bg-white/[.12] active:bg-white/[.22]"
                         : "border-ink/40 bg-black/[.04] active:bg-black/[.09]"
@@ -1729,7 +1664,7 @@ export function ChatRoomClient({
                   </button>
                 ) : (
                   <span
-                    className={`mb-1.5 block max-w-full overflow-hidden rounded-lg border-l-[3px] px-2 py-1 ${
+                    className={`mb-1.5 block max-w-full overflow-hidden rounded-xl border-l-4 px-2.5 py-1.5 ${
                       isUser
                         ? "border-white/50 bg-white/[.12]"
                         : "border-ink/40 bg-black/[.04]"
@@ -1944,6 +1879,42 @@ export function ChatRoomClient({
           </section>
         </div>
       )}
+
+      <ClearChatsDialog
+        open={clearDialogMode !== null}
+        title={clearDialogMode === "selected" ? "Delete selected messages?" : "Clear chats?"}
+        description={
+          clearDialogMode === "selected"
+            ? `Remove ${selectedItemsList.length} selected item${selectedItemsList.length === 1 ? "" : "s"} from this chat.`
+            : "Remove all items from this chat. This action cannot be undone."
+        }
+        confirmLabel={clearDialogMode === "selected" ? "Delete messages" : "Clear chats"}
+        allowEveryone={
+          clearDialogMode === "selected"
+            ? selectedItemsList.length > 0 &&
+              selectedItemsList.every(
+                (item) =>
+                  item.source === "message" &&
+                  (item.sender === "user" || Boolean(item.deleted_at)),
+              )
+            : chatItemsRef.current.length > 0 &&
+              chatItemsRef.current.every(
+                (item) =>
+                  item.source === "message" &&
+                  (item.sender === "user" || Boolean(item.deleted_at)),
+              )
+        }
+        busy={clearing}
+        onClose={() => setClearDialogMode(null)}
+        onConfirm={(forEveryone) => {
+          if (clearDialogMode === "selected") {
+            setClearDialogMode(null);
+            void deleteSelectedWithScope(forEveryone ? "everyone" : "me");
+          } else {
+            void clearMessages(forEveryone ? "everyone" : "me");
+          }
+        }}
+      />
 
       {toast && (
         <div

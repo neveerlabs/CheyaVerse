@@ -1445,24 +1445,61 @@ export async function deleteChatMessage(
   await ensureChatMessageActions();
   const message = await getChatMessage(uid, id);
   if (!message) return false;
+  if (message.deleted_at) {
+    const results = await getTurso().batch(
+      [
+        {
+          sql: "DELETE FROM chat_message_pins WHERE uid = ? AND message_id = ?",
+          args: [uid, id],
+        },
+        {
+          sql: "DELETE FROM chat_message_hides WHERE message_id = ?",
+          args: [id],
+        },
+        {
+          sql: "DELETE FROM messages WHERE uid = ? AND id = ?",
+          args: [uid, id],
+        },
+      ],
+      "write",
+    );
+    return results[2].rowsAffected > 0;
+  }
   if (scope === "everyone") {
     if (message.sender !== "user" || message.deleted_at) return false;
-    const result = await getTurso().execute({
-      sql: `UPDATE messages SET content = '', deleted_at = ?
-            WHERE uid = ? AND id = ? AND sender = 'user' AND deleted_at IS NULL`,
-      args: [new Date().toISOString(), uid, id],
-    });
-    return result.rowsAffected > 0;
+    const results = await getTurso().batch(
+      [
+        {
+          sql: "DELETE FROM chat_message_pins WHERE uid = ? AND message_id = ?",
+          args: [uid, id],
+        },
+        {
+          sql: "DELETE FROM chat_message_hides WHERE message_id = ?",
+          args: [id],
+        },
+        {
+          sql: "DELETE FROM messages WHERE uid = ? AND id = ? AND sender = 'user'",
+          args: [uid, id],
+        },
+      ],
+      "write",
+    );
+    return results[2].rowsAffected > 0;
   }
-  await getTurso().execute({
-    sql: `INSERT OR IGNORE INTO chat_message_hides (uid, message_id, created_at)
-          VALUES (?, ?, ?)`,
-    args: [uid, id, new Date().toISOString()],
-  });
-  await getTurso().execute({
-    sql: "DELETE FROM chat_message_pins WHERE uid = ? AND message_id = ?",
-    args: [uid, id],
-  });
+  await getTurso().batch(
+    [
+      {
+        sql: `INSERT OR IGNORE INTO chat_message_hides (uid, message_id, created_at)
+              VALUES (?, ?, ?)`,
+        args: [uid, id, new Date().toISOString()],
+      },
+      {
+        sql: "DELETE FROM chat_message_pins WHERE uid = ? AND message_id = ?",
+        args: [uid, id],
+      },
+    ],
+    "write",
+  );
   return true;
 }
 
@@ -1865,16 +1902,107 @@ export async function editDirectMessage(
 }
 
 export async function deleteDirectMessageForEveryone(
-  senderUid: number,
+  userUid: number,
   messageId: string,
 ): Promise<boolean> {
   await ensureDirectMessagesTable();
-  const result = await getTurso().execute({
-    sql: `UPDATE direct_messages SET deleted_at = ?, content = ''
-          WHERE id = ? AND sender_uid = ? AND deleted_at IS NULL`,
-    args: [new Date().toISOString(), messageId, senderUid],
-  });
-  return result.rowsAffected === 1;
+  const results = await getTurso().batch(
+    [
+      {
+        sql: "DELETE FROM direct_message_pins WHERE message_id = ?",
+        args: [messageId],
+      },
+      {
+        sql: "DELETE FROM direct_message_hides WHERE message_id = ?",
+        args: [messageId],
+      },
+      {
+        sql: `DELETE FROM direct_messages
+              WHERE id = ? AND (
+                (sender_uid = ? AND deleted_at IS NULL)
+                OR (deleted_at IS NOT NULL AND (sender_uid = ? OR recipient_uid = ?))
+              )`,
+        args: [messageId, userUid, userUid, userUid],
+      },
+    ],
+    "write",
+  );
+  return results[2].rowsAffected === 1;
+}
+
+export async function clearDirectMessagesForEveryone(
+  uid: number,
+  contactUid: number,
+): Promise<void> {
+  await ensureDirectMessagesTable();
+  const pair = `((sender_uid = ? AND recipient_uid = ?) OR (sender_uid = ? AND recipient_uid = ?))`;
+  await getTurso().batch(
+    [
+      {
+        sql: `DELETE FROM direct_message_pins WHERE message_id IN (
+                SELECT id FROM direct_messages WHERE ${pair}
+              )`,
+        args: [uid, contactUid, contactUid, uid],
+      },
+      {
+        sql: `DELETE FROM direct_message_hides WHERE message_id IN (
+                SELECT id FROM direct_messages WHERE ${pair}
+              )`,
+        args: [uid, contactUid, contactUid, uid],
+      },
+      {
+        sql: `DELETE FROM direct_messages WHERE ${pair}`,
+        args: [uid, contactUid, contactUid, uid],
+      },
+    ],
+    "write",
+  );
+}
+
+export async function clearDirectMessagesForUser(
+  uid: number,
+  contactUid: number,
+): Promise<void> {
+  await ensureDirectMessagesTable();
+  const pair = `((sender_uid = ? AND recipient_uid = ?) OR (sender_uid = ? AND recipient_uid = ?))`;
+  const pairArgs = [uid, contactUid, contactUid, uid];
+  const now = new Date().toISOString();
+  await getTurso().batch(
+    [
+      {
+        sql: `DELETE FROM direct_message_pins
+              WHERE uid = ? AND message_id IN (
+                SELECT id FROM direct_messages WHERE ${pair}
+              )`,
+        args: [uid, ...pairArgs],
+      },
+      {
+        sql: `INSERT OR IGNORE INTO direct_message_hides (uid, message_id, created_at)
+              SELECT ?, id, ? FROM direct_messages
+              WHERE ${pair} AND deleted_at IS NULL`,
+        args: [uid, now, ...pairArgs],
+      },
+      {
+        sql: `DELETE FROM direct_message_pins WHERE message_id IN (
+                SELECT id FROM direct_messages
+                WHERE ${pair} AND deleted_at IS NOT NULL
+              )`,
+        args: pairArgs,
+      },
+      {
+        sql: `DELETE FROM direct_message_hides WHERE message_id IN (
+                SELECT id FROM direct_messages
+                WHERE ${pair} AND deleted_at IS NOT NULL
+              )`,
+        args: pairArgs,
+      },
+      {
+        sql: `DELETE FROM direct_messages WHERE ${pair} AND deleted_at IS NOT NULL`,
+        args: pairArgs,
+      },
+    ],
+    "write",
+  );
 }
 
 export async function hideDirectMessage(
@@ -1888,15 +2016,41 @@ export async function hideDirectMessage(
     args: [messageId, uid, uid],
   });
   if (!result.rows.length) return false;
-  await getTurso().execute({
-    sql: `INSERT OR IGNORE INTO direct_message_hides (uid, message_id, created_at)
-          VALUES (?, ?, ?)`,
-    args: [uid, messageId, new Date().toISOString()],
-  });
-  await getTurso().execute({
-    sql: "DELETE FROM direct_message_pins WHERE uid = ? AND message_id = ?",
-    args: [uid, messageId],
-  });
+  const message = await getDirectMessageById(messageId);
+  if (message?.deleted_at) {
+    const results = await getTurso().batch(
+      [
+        {
+          sql: "DELETE FROM direct_message_pins WHERE message_id = ?",
+          args: [messageId],
+        },
+        {
+          sql: "DELETE FROM direct_message_hides WHERE message_id = ?",
+          args: [messageId],
+        },
+        {
+          sql: "DELETE FROM direct_messages WHERE id = ? AND deleted_at IS NOT NULL",
+          args: [messageId],
+        },
+      ],
+      "write",
+    );
+    return results[2].rowsAffected > 0;
+  }
+  await getTurso().batch(
+    [
+      {
+        sql: `INSERT OR IGNORE INTO direct_message_hides (uid, message_id, created_at)
+              VALUES (?, ?, ?)`,
+        args: [uid, messageId, new Date().toISOString()],
+      },
+      {
+        sql: "DELETE FROM direct_message_pins WHERE uid = ? AND message_id = ?",
+        args: [uid, messageId],
+      },
+    ],
+    "write",
+  );
   return true;
 }
 

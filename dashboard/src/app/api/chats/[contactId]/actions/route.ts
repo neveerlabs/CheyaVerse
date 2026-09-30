@@ -4,6 +4,8 @@ import { broadcastToUid } from "@/lib/realtime";
 import { sendOfflineDirectMessageNotifications } from "@/lib/chat-notifications";
 import {
   createDirectMessage,
+  clearDirectMessagesForEveryone,
+  clearDirectMessagesForUser,
   getDirectMessageById,
   getTelegramUser,
   isTelegramUserOnline,
@@ -38,6 +40,26 @@ export async function POST(
   }
   if (!body || typeof body !== "object") {
     return NextResponse.json({ ok: false, error: "invalid_request" }, { status: 400 });
+  }
+  if ("action" in body && body.action === "clear") {
+    await clearDirectMessagesForEveryone(session.uid, contactUid);
+    broadcastToUid(session.uid, {
+      type: "direct-message:cleared",
+      contactUid,
+    });
+    broadcastToUid(contactUid, {
+      type: "direct-message:cleared",
+      contactUid: session.uid,
+    });
+    return NextResponse.json({ ok: true });
+  }
+  if ("action" in body && body.action === "clear-for-me") {
+    await clearDirectMessagesForUser(session.uid, contactUid);
+    broadcastToUid(session.uid, {
+      type: "direct-message:cleared-for-me",
+      contactUid,
+    });
+    return NextResponse.json({ ok: true });
   }
   if (
     !("messageId" in body) ||

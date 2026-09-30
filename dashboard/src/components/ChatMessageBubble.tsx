@@ -2,7 +2,7 @@
 
 import type { ReactNode, PointerEventHandler } from "react";
 import type { MouseEventHandler } from "react";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, Pin } from "lucide-react";
 import { TelegramAvatar } from "@/components/TelegramAvatar";
 import { LinkPreview } from "@/components/LinkPreview";
@@ -72,6 +72,13 @@ export function ChatMessageBubble({
   onDoubleClick,
 }: ChatMessageBubbleProps) {
   const messageContentRef = useRef<HTMLDivElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const canExpand = !deleted && content.length > 1000;
+
+  useEffect(() => {
+    setExpanded(false);
+  }, [content]);
+
   const meta = (
     <>
       {edited && <span>diedit</span>}
@@ -102,6 +109,7 @@ export function ChatMessageBubble({
 
   const hasCodeBlock =
     !deleted && (content.includes("```") || /<pre\b/i.test(content));
+  const stacksMessageMeta = hasCodeBlock || Boolean(prefix);
 
   const previewUrl = useMemo(() => {
     if (!linkPreview || deleted || richText) return null;
@@ -123,7 +131,9 @@ export function ChatMessageBubble({
       )}
       <div
         ref={messageContentRef}
-        className="relative block min-w-0"
+        className={`relative block min-w-0 ${
+          canExpand && !expanded ? "max-h-[20.3em] overflow-hidden" : ""
+        }`}
       >
         {richText ? (
           <div
@@ -149,6 +159,20 @@ export function ChatMessageBubble({
           </span>
         )}
       </div>
+      {canExpand && !expanded && (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            setExpanded(true);
+          }}
+          className={`mt-1 text-[12px] font-semibold underline underline-offset-2 ${
+            outgoing ? "text-white/80" : "text-ink-soft"
+          }`}
+        >
+          See more...
+        </button>
+      )}
     </div>
   );
 
@@ -239,7 +263,7 @@ export function ChatMessageBubble({
       {selectMode && outgoing && <span aria-hidden className="flex-1" />}
       <div
         className={`w-fit min-w-0 ${
-          outgoing ? "max-w-[86%]" : "max-w-[calc(100%-40px)]"
+          outgoing ? "max-w-[92%]" : "max-w-[calc(100%-40px)]"
         }`}
       >
         <div
@@ -251,20 +275,20 @@ export function ChatMessageBubble({
           onPointerCancel={onPointerCancel}
           onContextMenu={onContextMenu}
           onDoubleClick={onDoubleClick}
-          className={`inline-flex w-fit min-w-[68px] max-w-full touch-pan-y break-words transition-[transform,box-shadow] duration-200 ease-out [overflow-wrap:anywhere] ${
+          className={`${stacksMessageMeta ? "flex" : "inline-flex"} w-fit min-w-[68px] max-w-full touch-pan-y break-words transition-[transform,box-shadow] duration-200 ease-out [overflow-wrap:anywhere] ${
             selectMode ? "cursor-pointer" : "active:scale-[.985]"
           } ${
             outgoing
-              ? "items-end gap-2 rounded-[18px] rounded-br-[6px] border border-white/[.07] bg-ink px-3 py-1.5 text-white shadow-[0_2px_6px_rgba(0,0,0,.09)]"
-              : "items-end gap-2 rounded-[18px] rounded-bl-[6px] border border-black/[.025] bg-[#f1f2f4] px-3 py-1.5 text-ink shadow-[0_2px_6px_rgba(0,0,0,.04)]"
+              ? `${stacksMessageMeta ? "flex-col" : "items-end gap-2"} rounded-[18px] rounded-br-[6px] border border-white/[.07] bg-ink px-3.5 py-1.5 text-white shadow-[0_2px_6px_rgba(0,0,0,.09)]`
+              : `${stacksMessageMeta ? "flex-col" : "items-end gap-2"} rounded-[18px] rounded-bl-[6px] border border-black/[.025] bg-[#f1f2f4] px-3.5 py-1.5 text-ink shadow-[0_2px_6px_rgba(0,0,0,.04)]`
           } ${pending ? "opacity-70" : ""} ${
             highlight
               ? "ring-[3px] ring-amber-400 shadow-[0_0_18px_rgba(251,191,36,.55)] scale-[1.01]"
               : ""
           }`}
         >
-          {hasCodeBlock ? (
-            <div className="flex min-w-0 flex-1 flex-col gap-1">
+          {stacksMessageMeta ? (
+            <div className="flex min-w-0 flex-1 flex-col">
               {messageBody}
               <div className="flex justify-end">{messageMeta}</div>
             </div>

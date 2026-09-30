@@ -15,6 +15,14 @@ const COLOR_STYLES: QrStyle[] = [
   { name: "Ocean", start: "#087e8b", end: "#54c6a9" },
   { name: "Sunset", start: "#e05d44", end: "#f0a44b" },
   { name: "Forest", start: "#176b45", end: "#91b84b" },
+  { name: "Berry", start: "#8b3d83", end: "#e66b8c" },
+  { name: "Aurora", start: "#176b85", end: "#7b61a8" },
+  { name: "Lagoon", start: "#087f8c", end: "#6265c4" },
+  { name: "Citrus", start: "#db7b18", end: "#a8b83c" },
+  { name: "Rose", start: "#c13f69", end: "#f08a75" },
+  { name: "Twilight", start: "#394e9b", end: "#d65c8a" },
+  { name: "Mint", start: "#318c75", end: "#8bbf91" },
+  { name: "Amethyst", start: "#6247aa", end: "#b15fbc" },
   { name: "Mono", start: "#171923", end: "#545b6b" },
 ];
 

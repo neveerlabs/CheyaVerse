@@ -1,7 +1,7 @@
-import { get } from "@vercel/blob";
 import { NextRequest, NextResponse } from "next/server";
 import { getUserSession } from "@/lib/auth-request";
 import { getLibraryNode } from "@/lib/library";
+import { fetchTelegramFile } from "@/lib/telegram";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,31 +28,35 @@ export async function GET(
 
   const range = request.headers.get("range");
   try {
-    if (node.storage_url) {
-      const blob = await get(node.storage_url, {
-        access: "private",
-        ...(range ? { headers: { Range: range } } : {}),
-      });
-      if (!blob || blob.statusCode !== 200) {
+    if (node.storage_file_id) {
+      const upstream = await fetchTelegramFile(node.storage_file_id);
+      if (!upstream?.body) {
         return NextResponse.json({ error: "Media is temporarily unavailable." }, { status: 502 });
       }
-      const contentRange = blob.headers.get("content-range");
-      const headers = new Headers({
-        "Content-Type": safeType,
-        "Cache-Control": "private, max-age=3600",
-        "Accept-Ranges": "bytes",
-        "X-Content-Type-Options": "nosniff",
-        "Content-Disposition": "inline",
-      });
-      const contentLength = blob.headers.get("content-length");
-      if (contentLength) headers.set("Content-Length", contentLength);
-      if (contentRange) headers.set("Content-Range", contentRange);
-      return new NextResponse(blob.stream, {
-        status: contentRange ? 206 : 200,
-        headers,
+      const bytes = Buffer.from(await upstream.arrayBuffer());
+      const partial = parseByteRange(range, bytes.length);
+      if (range && !partial) {
+        return new NextResponse(null, {
+          status: 416,
+          headers: { "Content-Range": `bytes */${bytes.length}` },
+        });
+      }
+      const start = partial?.start ?? 0;
+      const end = partial?.end ?? bytes.length - 1;
+      const content = bytes.subarray(start, end + 1);
+      return new NextResponse(content, {
+        status: partial ? 206 : 200,
+        headers: {
+          "Content-Type": safeType,
+          "Content-Length": String(content.length),
+          ...(partial ? { "Content-Range": `bytes ${start}-${end}/${bytes.length}` } : {}),
+          "Accept-Ranges": "bytes",
+          "Cache-Control": "private, no-store",
+          "X-Content-Type-Options": "nosniff",
+          "Content-Disposition": "inline",
+        },
       });
     }
-
     if (node.content) {
       const bytes = Buffer.from(node.content, "base64");
       const partial = parseByteRange(range, bytes.length);

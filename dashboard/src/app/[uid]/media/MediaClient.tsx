@@ -284,13 +284,14 @@ export function MediaClient({
 
   return (
     <>
-      <div className="flex items-center justify-end gap-1 px-1 pb-2 animate-fade-up">
+      <div className="flex items-center justify-end gap-1 px-1 pb-3 animate-fade-up">
+        <div className="flex items-center gap-1 rounded-full border border-black/[.05] bg-[#f5f6f7] p-1">
         <button
           type="button"
           onClick={() => setViewMode("list")}
           aria-label="List view"
-          className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${
-            view === "list" ? "bg-[#f0f0f0] text-ink" : "text-ink-mute hover:bg-[#f5f5f5]"
+          className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors ${
+            view === "list" ? "bg-white text-ink shadow-sm" : "text-ink-mute hover:text-ink"
           }`}
         >
           <LayoutList size={17} strokeWidth={2} />
@@ -299,12 +300,13 @@ export function MediaClient({
           type="button"
           onClick={() => setViewMode("grid")}
           aria-label="Grid view"
-          className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${
-            view === "grid" ? "bg-[#f0f0f0] text-ink" : "text-ink-mute hover:bg-[#f5f5f5]"
+          className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors ${
+            view === "grid" ? "bg-white text-ink shadow-sm" : "text-ink-mute hover:text-ink"
           }`}
         >
           <LayoutGrid size={17} strokeWidth={2} />
         </button>
+        </div>
       </div>
 
       {view === "list" ? (
@@ -312,9 +314,7 @@ export function MediaClient({
           {localItems.map((m, idx) => (
             <div
               key={m.id}
-              className="group flex items-center gap-4 py-[15px] relative
-                         before:absolute before:bottom-0 before:left-14 before:right-0
-                         before:h-px before:bg-divider last:before:hidden"
+              className="group relative my-0.5 flex items-center gap-3 rounded-2xl border border-transparent px-2.5 py-3 transition-colors hover:border-black/[.04] hover:bg-[#f8f8f8] active:bg-[#f3f3f3]"
               onTouchStart={() => startLongPress(m)}
               onTouchEnd={cancelLongPress}
               onTouchMove={cancelLongPress}
@@ -330,7 +330,7 @@ export function MediaClient({
                 className="flex-1 min-w-0 flex items-center gap-4 transition-opacity
                            hover:opacity-60 active:opacity-40"
               >
-                <span className="w-10 h-10 sm:w-11 sm:h-11 flex items-center justify-center flex-shrink-0 overflow-hidden rounded-lg bg-[#f5f5f5]">
+                <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[#f1f2f4]">
                   {isImage(m.content_type) && m.thumbnailUrl ? (
                     <img
                       src={m.thumbnailUrl}
@@ -383,7 +383,7 @@ export function MediaClient({
           {localItems.map((m, idx) => (
             <div
               key={m.id}
-              className="relative aspect-square rounded-xl overflow-hidden bg-[#f5f5f5] border border-line"
+              className="relative aspect-square overflow-hidden rounded-2xl border border-black/[.045] bg-[#f4f5f6]"
               onTouchStart={() => startLongPress(m)}
               onTouchEnd={cancelLongPress}
               onTouchMove={cancelLongPress}
@@ -466,7 +466,7 @@ export function MediaClient({
               icon={<ExternalLink size={18} strokeWidth={1.9} />}
               label="Open"
               onClick={() => {
-                window.location.href = `/${uid}/m/${menuItem.id}`;
+                router.push(`/${uid}/m/${menuItem.id}`);
               }}
             />
             <MenuItem
@@ -512,7 +512,7 @@ export function MediaClient({
               icon={<ExternalLink size={16} strokeWidth={1.9} />}
               label="Open"
               onClick={() => {
-                window.location.href = `/${uid}/m/${menuItem.id}`;
+                router.push(`/${uid}/m/${menuItem.id}`);
               }}
             />
             <DropdownItem

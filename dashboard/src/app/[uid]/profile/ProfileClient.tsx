@@ -27,6 +27,7 @@ import { TelegramAvatar } from "@/components/TelegramAvatar";
 import { config } from "@/lib/config";
 import { CoverIcon } from "@/lib/cover-icons";
 import type { CoverConfig } from "@/lib/storage";
+import { VerifiedName } from "@/components/VerifiedName";
 
 type Info = {
   id: number;
@@ -66,12 +67,14 @@ function isVideo(type: string): boolean {
 
 export function ProfileClient({
   uid,
+  isAdmin,
   info,
   stats,
   media,
   cover,
 }: {
   uid: string;
+  isAdmin: boolean;
   info: Info;
   stats: Stats;
   media: MediaItem[];
@@ -816,8 +819,19 @@ export function ProfileClient({
             )}
           </div>
           <div className="pl-3 pb-1 min-w-0 flex-1 translate-y-2">
-            <h1 className="text-[22px] font-bold tracking-[-.03em] text-ink leading-tight truncate">
-              Hi, {greetingName}
+            <h1 className="flex items-center gap-1 text-[22px] font-bold tracking-[-.03em] text-ink leading-tight truncate">
+              {isAdmin ? (
+                <>
+                  <span className="shrink-0">Hi,</span>
+                  <VerifiedName
+                    name={greetingName}
+                    size="sm"
+                    nameClassName="text-[22px] leading-tight"
+                  />
+                </>
+              ) : (
+                `Hi, ${greetingName}`
+              )}
             </h1>
             <p className="text-[13px] text-ink-mute font-normal mt-0.5 truncate">
               Profil perangkat Anda.
@@ -967,7 +981,7 @@ export function ProfileClient({
               icon={<ExternalLink size={18} strokeWidth={1.9} />}
               label="Open"
               onClick={() => {
-                window.location.href = `/${uid}/m/${menuItem.id}`;
+                router.push(`/${uid}/m/${menuItem.id}`);
               }}
             />
             <MenuItem
@@ -1013,7 +1027,7 @@ export function ProfileClient({
               icon={<ExternalLink size={16} strokeWidth={1.9} />}
               label="Open"
               onClick={() => {
-                window.location.href = `/${uid}/m/${menuItem.id}`;
+                router.push(`/${uid}/m/${menuItem.id}`);
               }}
             />
             <DropdownItem

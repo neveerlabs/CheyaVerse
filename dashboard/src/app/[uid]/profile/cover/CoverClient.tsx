@@ -395,7 +395,7 @@ export function CoverClient({ uid, initialCover }: Props) {
             className="inline-flex items-center justify-center gap-2 px-3 py-3 rounded-xl bg-[#fafafa] border border-line text-ink text-[12.5px] font-semibold active:scale-[.97] transition-transform disabled:opacity-60"
           >
             <Send size={15} strokeWidth={2.2} />
-            From Telegram
+            Telegram
           </button>
           <button
             type="button"

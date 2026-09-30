@@ -52,6 +52,9 @@ export async function PATCH(
 ) {
   const auth = await authorize(request, params.contactId, params.messageId);
   if ("error" in auth) return auth.error;
+  if (auth.message.deleted_at) {
+    return responseError("message_deleted", 409);
+  }
   if (auth.message.sender_uid !== auth.session.uid) {
     return responseError("cannot_edit_others_message", 403);
   }
@@ -86,7 +89,10 @@ export async function DELETE(
   if ("error" in auth) return auth.error;
   const scope = request.nextUrl.searchParams.get("scope");
   if (scope === "everyone") {
-    if (auth.message.sender_uid !== auth.session.uid) {
+    if (
+      auth.message.sender_uid !== auth.session.uid &&
+      !auth.message.deleted_at
+    ) {
       return responseError("cannot_delete_others_message", 403);
     }
     const deleted = await deleteDirectMessageForEveryone(
@@ -105,6 +111,22 @@ export async function DELETE(
   } else if (scope === "me") {
     const hidden = await hideDirectMessage(auth.session.uid, auth.message.id);
     if (!hidden) return responseError("message_not_found", 404);
+    if (auth.message.deleted_at) {
+      broadcastToUid(auth.contactUid, {
+        type: "direct-message:deleted",
+        messageId: auth.message.id,
+      });
+      broadcastToUid(auth.session.uid, {
+        type: "direct-message:deleted",
+        messageId: auth.message.id,
+      });
+    } else {
+      broadcastToUid(auth.session.uid, {
+        type: "direct-message:hidden",
+        contactUid: auth.contactUid,
+        messageId: auth.message.id,
+      });
+    }
   } else {
     return responseError("invalid_delete_scope", 400);
   }

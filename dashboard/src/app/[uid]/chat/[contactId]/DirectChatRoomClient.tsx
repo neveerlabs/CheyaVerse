@@ -37,6 +37,8 @@ import { TelegramAvatar } from "@/components/TelegramAvatar";
 import { ChatComposer } from "@/components/ChatComposer";
 import { ChatMessageBubble, chatMessageTime } from "@/components/ChatMessageBubble";
 import { VerifiedName } from "@/components/VerifiedName";
+import { ContactQrModal } from "@/components/ContactQrModal";
+import { ClearChatsDialog } from "@/components/ClearChatsDialog";
 import type { DirectMessage, TelegramUser } from "@/lib/storage";
 import { useRealtime } from "@/lib/use-realtime";
 import { playSendSound, playReceiveSound } from "@/lib/chat-sounds";
@@ -175,6 +177,8 @@ export function DirectChatRoomClient({
   const [contactsLoading, setContactsLoading] = useState(false);
   const [contactsLoaded, setContactsLoaded] = useState(false);
   const [toast, setToast] = useState("");
+  const [contactQrOpen, setContactQrOpen] = useState(false);
+  const [clearDialogMode, setClearDialogMode] = useState<"all" | "selected" | null>(null);
   const [mounted, setMounted] = useState(false);
   const [replyingTo, setReplyingTo] = useState<DirectMessage | null>(null);
   const [muted, setMuted] = useState(false);
@@ -483,7 +487,7 @@ export function DirectChatRoomClient({
   }
 
   function beginReply(message: DirectMessage) {
-    if (contact.role === "deleted") return;
+    if (contact.role === "deleted" || message.deleted_at) return;
     setReplyingTo(message);
     setMenuOpen(false);
     requestAnimationFrame(() => textareaRef.current?.focus());
@@ -919,6 +923,35 @@ export function DirectChatRoomClient({
     }
     if (event.type === "direct-message:deleted") {
       void refreshMessages();
+      return;
+    }
+    if (
+      event.type === "direct-message:cleared" &&
+      Number(event.contactUid) === contact.uid
+    ) {
+      setMessages([]);
+      setPinned(null);
+      return;
+    }
+    if (
+      event.type === "direct-message:cleared-for-me" &&
+      Number(event.contactUid) === contact.uid
+    ) {
+      setMessages([]);
+      setPinned(null);
+      return;
+    }
+    if (
+      event.type === "direct-message:hidden" &&
+      Number(event.contactUid) === contact.uid
+    ) {
+      const messageId = typeof event.messageId === "string" ? event.messageId : "";
+      if (messageId) {
+        setMessages((current) =>
+          current.filter((message) => message.id !== messageId),
+        );
+      }
+      return;
     }
     if (
       event.type === "direct-message:read" ||
@@ -1040,21 +1073,11 @@ export function DirectChatRoomClient({
       { method: "DELETE" },
     );
     if (!response.ok) throw new Error("Pesan gagal dihapus.");
-    if (scope === "me") {
-      setMessages((current) => current.filter((item) => item.id !== message.id));
-    } else {
-      setMessages((current) =>
-        current.map((item) =>
-          item.id === message.id
-            ? { ...item, content: "", deleted_at: new Date().toISOString() }
-            : item,
-        ),
-      );
-    }
+    setMessages((current) => current.filter((item) => item.id !== message.id));
   }
 
   async function copySelected() {
-    const texts = selectedMessages.map((m) =>
+    const texts = selectedMessages.filter((m) => !m.deleted_at).map((m) =>
       m.media_file_id ? "Pesan suara tidak didukung" : m.content,
     );
     if (texts.length === 0) return;
@@ -1070,29 +1093,14 @@ export function DirectChatRoomClient({
 
   async function deleteSelected() {
     if (selectedMessages.length === 0) return;
-    const allOwn = selectedMessages.every(
-      (m) => m.sender_uid === myUid && !m.deleted_at,
-    );
-    const useEveryone = allOwn && selectedMessages.length > 0;
-    if (useEveryone) {
-      if (!window.confirm("Delete selected messages for everyone?")) return;
-    }
+    setClearDialogMode("selected");
+  }
+
+  async function deleteSelectedWithScope(scope: "me" | "everyone") {
     const snapshot = selectedMessages.slice();
-    const scope: "me" | "everyone" = useEveryone ? "everyone" : "me";
-    if (scope === "me") {
-      setMessages((current) =>
-        current.filter((item) => !snapshot.some((m) => m.id === item.id)),
-      );
-    } else {
-      const now = new Date().toISOString();
-      setMessages((current) =>
-        current.map((item) =>
-          snapshot.some((m) => m.id === item.id)
-            ? { ...item, content: "", deleted_at: now }
-            : item,
-        ),
-      );
-    }
+    setMessages((current) =>
+      current.filter((item) => !snapshot.some((m) => m.id === item.id)),
+    );
     exitSelectMode();
     try {
       await Promise.all(
@@ -1111,64 +1119,33 @@ export function DirectChatRoomClient({
     }
   }
 
-  async function clearMessagesForMe() {
+  async function clearMessages(scope: "me" | "everyone") {
     if (clearing) return;
     const list = messagesRef.current.slice();
     if (list.length === 0) {
       setMenuOpen(false);
+      setClearDialogMode(null);
       return;
     }
-    if (!window.confirm("Clear all messages for you? This cannot be undone.")) return;
+    const pinnedSnapshot = pinned;
     setClearing(true);
     setMenuOpen(false);
+    setClearDialogMode(null);
     setMessages([]);
     try {
-      await Promise.all(
-        list.map((msg) =>
-          fetch(
-            `/api/chats/${contact.uid}/messages/${encodeURIComponent(msg.id)}?scope=me`,
-            { method: "DELETE" },
-          ).catch(() => {}),
-        ),
-      );
-      showToast("Chat cleared for you.");
-    } catch (error) {
-      console.error("[direct-chat] clear for me failed:", error);
-      showToast("Failed to clear chat.");
-    } finally {
-      setClearing(false);
-    }
-  }
-
-  async function clearMessagesForAll() {
-    if (clearing) return;
-    const list = messagesRef.current.slice();
-    if (list.length === 0) {
-      setMenuOpen(false);
-      return;
-    }
-    if (
-      !window.confirm(
-        "Clear all messages for everyone? This will remove them for both sides.",
-      )
-    )
-      return;
-    setClearing(true);
-    setMenuOpen(false);
-    setMessages([]);
-    try {
-      await Promise.all(
-        list.map((msg) => {
-          const scope =
-            msg.sender_uid === myUid && !msg.deleted_at ? "everyone" : "me";
-          return fetch(
-            `/api/chats/${contact.uid}/messages/${encodeURIComponent(msg.id)}?scope=${scope}`,
-            { method: "DELETE" },
-          ).catch(() => {});
+      const response = await fetch(`/api/chats/${contact.uid}/actions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: scope === "everyone" ? "clear" : "clear-for-me",
         }),
-      );
-      showToast("Chat cleared for everyone.");
+      });
+      if (!response.ok) throw new Error("Chat could not be cleared.");
+      setPinned(null);
+      showToast(scope === "everyone" ? "Chat cleared for everyone." : "Chat cleared for you.");
     } catch (error) {
+      setMessages(list);
+      setPinned(pinnedSnapshot);
       console.error("[direct-chat] clear for everyone failed:", error);
       showToast("Failed to clear chat.");
     } finally {
@@ -1179,6 +1156,7 @@ export function DirectChatRoomClient({
   function replySelected() {
     if (contact.role === "deleted") return;
     if (selectedMessages.length !== 1) return;
+    if (selectedMessages[0].deleted_at) return;
     beginReply(selectedMessages[0]);
     exitSelectMode();
   }
@@ -1195,8 +1173,11 @@ export function DirectChatRoomClient({
   }
 
   function openForwardFromSelection() {
-    if (selectedMessages.length === 0) return;
-    setForwardTargets(selectedMessages.map((m) => m.id));
+    const messageIds = selectedMessages
+      .filter((message) => !message.deleted_at)
+      .map((message) => message.id);
+    if (messageIds.length === 0) return;
+    setForwardTargets(messageIds);
     setForwardQuery("");
     setForwardUsers([]);
     setForwardOpen(true);
@@ -1254,6 +1235,7 @@ export function DirectChatRoomClient({
     selectedMessages[0].sender_uid === myUid &&
     !selectedMessages[0].deleted_at &&
     !selectedMessages[0].media_file_id;
+  const hasUndeletedSelection = selectedMessages.some((message) => !message.deleted_at);
 
   const filteredContacts = useMemo(() => {
     const term = forwardQuery.trim().toLowerCase();
@@ -1300,22 +1282,26 @@ export function DirectChatRoomClient({
               </span>
             </div>
             <div className="flex h-11 flex-shrink-0 items-center overflow-hidden rounded-full border border-[#dfe3e8] bg-white shadow-sm">
-              <button
-                type="button"
-                onClick={() => void copySelected()}
-                aria-label="Copy messages"
-                className="flex h-full w-10 items-center justify-center text-ink-soft transition-colors active:bg-[#f5f5f5]"
-              >
-                <Copy size={17} strokeWidth={2.2} />
-              </button>
-              <button
-                type="button"
-                onClick={openForwardFromSelection}
-                aria-label="Forward messages"
-                className="flex h-full w-10 items-center justify-center text-ink-soft transition-colors active:bg-[#f5f5f5]"
-              >
-                <Forward size={17} strokeWidth={2.2} />
-              </button>
+              {hasUndeletedSelection && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => void copySelected()}
+                    aria-label="Copy messages"
+                    className="flex h-full w-10 items-center justify-center text-ink-soft transition-colors active:bg-[#f5f5f5]"
+                  >
+                    <Copy size={17} strokeWidth={2.2} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={openForwardFromSelection}
+                    aria-label="Forward messages"
+                    className="flex h-full w-10 items-center justify-center text-ink-soft transition-colors active:bg-[#f5f5f5]"
+                  >
+                    <Forward size={17} strokeWidth={2.2} />
+                  </button>
+                </>
+              )}
               {canEditSelected && contact.role !== "deleted" && (
                 <button
                   type="button"
@@ -1390,7 +1376,10 @@ export function DirectChatRoomClient({
               <div className="absolute right-5 top-[calc(100%-4px)] z-50 w-64 overflow-hidden rounded-2xl border border-line bg-white py-1 shadow-xl animate-fade-up">
                 <button
                   type="button"
-                  onClick={() => setMenuOpen(false)}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setContactQrOpen(true);
+                  }}
                   className="flex w-full items-center gap-2 px-4 py-3 text-left text-[13px] text-ink"
                 >
                   <Share2 size={15} /> Share contact
@@ -1404,17 +1393,13 @@ export function DirectChatRoomClient({
                 </button>
                 <button
                   type="button"
-                  onClick={() => void clearMessagesForMe()}
-                  className="flex w-full items-center gap-2 px-4 py-3 text-left text-[13px] text-ink"
-                >
-                  <Trash2 size={15} /> Clear for me
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void clearMessagesForAll()}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setClearDialogMode("all");
+                  }}
                   className="flex w-full items-center gap-2 px-4 py-3 text-left text-[13px] text-danger"
                 >
-                  <Trash2 size={15} /> Clear for everyone
+                  <Trash2 size={15} /> Clear chats
                 </button>
                 <button
                   type="button"
@@ -1469,7 +1454,7 @@ export function DirectChatRoomClient({
             : "calc(8px + env(safe-area-inset-bottom))",
         }}
       >
-        {selectedIds.size === 1 && (
+        {selectedIds.size === 1 && hasUndeletedSelection && (
           <button
             type="button"
             onClick={replySelected}
@@ -1478,13 +1463,15 @@ export function DirectChatRoomClient({
             <Reply size={18} strokeWidth={2.2} /> Reply
           </button>
         )}
-        <button
-          type="button"
-          onClick={openForwardFromSelection}
-          className="flex flex-1 items-center justify-center gap-2 rounded-[22px] border border-line bg-white py-2.5 text-[14px] font-semibold text-ink shadow-sm transition-colors active:bg-[#f5f5f5]"
-        >
-          <Forward size={18} strokeWidth={2.2} /> Forward
-        </button>
+        {hasUndeletedSelection && (
+          <button
+            type="button"
+            onClick={openForwardFromSelection}
+            className="flex flex-1 items-center justify-center gap-2 rounded-[22px] border border-line bg-white py-2.5 text-[14px] font-semibold text-ink shadow-sm transition-colors active:bg-[#f5f5f5]"
+          >
+            <Forward size={18} strokeWidth={2.2} /> Forward
+          </button>
+        )}
       </div>
     </footer>
   ) : (
@@ -1518,7 +1505,7 @@ export function DirectChatRoomClient({
         reply={
           replyingTo ? (
             <div className="relative flex items-stretch gap-2.5 border-b border-line bg-gradient-to-r from-[#f6f6f6] to-[#fafafa] px-3 py-2 pr-10">
-              <span className="w-[3px] flex-shrink-0 rounded-full bg-ink" />
+              <span className="w-1 flex-shrink-0 rounded-full bg-ink" />
               <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                 <span className="truncate text-[11.5px] font-semibold leading-none tracking-[-.005em] text-ink">
                   Reply to {repliedSenderName(replyingTo)}
@@ -1678,7 +1665,7 @@ export function DirectChatRoomClient({
                           event.stopPropagation();
                           scrollToMessage(reply.id);
                         }}
-                        className={`mb-1.5 block w-full max-w-full overflow-hidden rounded-lg border-l-[3px] px-2 py-1 text-left transition-colors ${
+                        className={`mb-1.5 block w-full max-w-full overflow-hidden rounded-xl border-l-4 px-2.5 py-1.5 text-left transition-colors ${
                           mine
                             ? "border-white/50 bg-white/[.12] active:bg-white/[.22]"
                             : "border-ink/40 bg-black/[.04] active:bg-black/[.09]"
@@ -1712,7 +1699,7 @@ export function DirectChatRoomClient({
                     )}
                     {message.reply_to_id && !reply && (
                       <span
-                        className={`mb-1.5 block max-w-full overflow-hidden rounded-lg border-l-[3px] px-2 py-1 ${
+                        className={`mb-1.5 block max-w-full overflow-hidden rounded-xl border-l-4 px-2.5 py-1.5 ${
                           mine
                             ? "border-white/50 bg-white/[.12]"
                             : "border-ink/40 bg-black/[.04]"
@@ -1859,6 +1846,50 @@ export function DirectChatRoomClient({
         </div>
       </section>
       {mounted && createPortal(footer, document.body)}
+
+      {contactQrOpen && (
+        <ContactQrModal
+          contact={{
+            uid: String(contact.uid),
+            username: contact.username ?? "",
+            first_name: contact.first_name ?? "",
+            last_name: contact.last_name ?? "",
+            photo_url: contact.photo_url ?? undefined,
+          }}
+          currentUid={String(myUid)}
+          onClose={() => setContactQrOpen(false)}
+          onToast={showToast}
+        />
+      )}
+
+      <ClearChatsDialog
+        open={clearDialogMode !== null}
+        title={clearDialogMode === "selected" ? "Delete selected messages?" : "Clear chats?"}
+        description={
+          clearDialogMode === "selected"
+            ? `Remove ${selectedMessages.length} selected message${selectedMessages.length === 1 ? "" : "s"} from this conversation.`
+            : "This will remove all messages in this conversation. This action cannot be undone."
+        }
+        confirmLabel={clearDialogMode === "selected" ? "Delete messages" : "Clear chats"}
+        allowEveryone={
+          clearDialogMode === "all" ||
+          (clearDialogMode === "selected" &&
+            selectedMessages.length > 0 &&
+            selectedMessages.every(
+              (message) => message.deleted_at || message.sender_uid === myUid,
+            ))
+        }
+        busy={clearing}
+        onClose={() => setClearDialogMode(null)}
+        onConfirm={(forEveryone) => {
+          if (clearDialogMode === "selected") {
+            setClearDialogMode(null);
+            void deleteSelectedWithScope(forEveryone ? "everyone" : "me");
+          } else {
+            void clearMessages(forEveryone ? "everyone" : "me");
+          }
+        }}
+      />
 
       {forwardOpen && forwardTargets.length > 0 && (
         <div

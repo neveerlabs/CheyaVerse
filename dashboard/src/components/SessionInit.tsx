@@ -220,11 +220,9 @@ export function SessionInit({ uid }: { uid: string }) {
       if (document.visibilityState === "visible") void checkNow();
     };
     const onFocus = () => void checkNow();
-    const onPopState = () => void checkNow();
 
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", onFocus);
-    window.addEventListener("popstate", onPopState);
 
     return () => {
       cancelled = true;
@@ -232,7 +230,6 @@ export function SessionInit({ uid }: { uid: string }) {
       window.clearInterval(iv);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", onFocus);
-      window.removeEventListener("popstate", onPopState);
     };
   }, [uid]);
 
@@ -243,12 +240,11 @@ export function SessionInit({ uid }: { uid: string }) {
       if (!e.persisted) return;
       if (blockedRef.current) return;
       checkRef.current?.();
-      router.refresh();
     };
 
     window.addEventListener("pageshow", onPageShow);
     return () => window.removeEventListener("pageshow", onPageShow);
-  }, [router]);
+  }, []);
 
   if (!initError) return null;
   return (
