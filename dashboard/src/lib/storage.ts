@@ -481,12 +481,10 @@ export async function countUnreadNotifications(uid: number): Promise<number> {
 }
 
 export async function markNotificationsRead(uid: number): Promise<void> {
-  try {
-    await getTurso().execute({
-      sql: "UPDATE notifications SET read = 1 WHERE uid = ? AND read = 0",
-      args: [uid],
-    });
-  } catch {}
+  await getTurso().execute({
+    sql: "UPDATE notifications SET read = 1 WHERE uid = ? AND read = 0",
+    args: [uid],
+  });
 }
 
 export type DeviceIdRow = {
@@ -2246,9 +2244,14 @@ export async function getLatestDirectMessage(
   await ensureDirectMessagesTable();
   const result = await getTurso().execute({
     sql: `SELECT * FROM direct_messages
-          WHERE sender_uid = ? OR recipient_uid = ?
+          WHERE (sender_uid = ? OR recipient_uid = ?)
+            AND deleted_at IS NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM direct_message_hides h
+              WHERE h.uid = ? AND h.message_id = direct_messages.id
+            )
           ORDER BY created_at DESC LIMIT 1`,
-    args: [uid, uid],
+    args: [uid, uid, uid],
   });
   if (result.rows.length === 0) return null;
   return rowToDirectMessage(

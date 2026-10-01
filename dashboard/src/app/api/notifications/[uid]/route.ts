@@ -55,10 +55,21 @@ export async function POST(
   if (!Number.isInteger(uid) || uid <= 0) {
     return NextResponse.json({ ok: false, error: "invalid_uid" }, { status: 400 });
   }
-  await markNotificationsRead(uid);
-  broadcastToUid(uid, { type: "notification:read" });
-  revalidatePath(`/${uid}/chat`);
-  return NextResponse.json({ ok: true });
+  try {
+    await markNotificationsRead(uid);
+    broadcastToUid(uid, { type: "notification:read" });
+    revalidatePath(`/${uid}/chat`);
+    return NextResponse.json(
+      { ok: true },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  } catch (error) {
+    console.error("[notifications] failed to mark notifications read:", error);
+    return NextResponse.json(
+      { ok: false, error: "notifications_unavailable" },
+      { status: 503, headers: { "Cache-Control": "no-store" } },
+    );
+  }
 }
 
 export async function DELETE(

@@ -71,8 +71,8 @@ export async function GET(req: NextRequest) {
         sql: `SELECT
                 (SELECT COUNT(*) FROM notifications WHERE uid = ? AND read = 0) AS unread,
                 (SELECT COUNT(*) FROM media WHERE owner_id = ?) AS media_count,
-                (SELECT id FROM notifications WHERE uid = ? ORDER BY created_at DESC LIMIT 1) AS notif_last_id,
-                (SELECT created_at FROM notifications WHERE uid = ? ORDER BY created_at DESC LIMIT 1) AS notif_last_at,
+                (SELECT id FROM notifications WHERE uid = ? AND read = 0 ORDER BY created_at DESC LIMIT 1) AS notif_last_id,
+                (SELECT created_at FROM notifications WHERE uid = ? AND read = 0 ORDER BY created_at DESC LIMIT 1) AS notif_last_at,
                 (SELECT id FROM media WHERE owner_id = ? ORDER BY expires_at DESC LIMIT 1) AS media_last_id`,
         args: [uid, uid, uid, uid, uid],
       }),

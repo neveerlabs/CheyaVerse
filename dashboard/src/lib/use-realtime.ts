@@ -44,6 +44,7 @@ const MAX_ERR_LEVEL = 6;
 
 class RealtimeConnection {
   private readonly listeners = new Set<Listener>();
+  private readonly recentDirectMessageIds = new Set<string>();
   private timer: ReturnType<typeof setTimeout> | null = null;
   private inflight: AbortController | null = null;
   private source: EventSource | null = null;
@@ -120,6 +121,19 @@ class RealtimeConnection {
   }
 
   private emit(event: RealtimeEvent): void {
+    if (event.type === "direct-message:new") {
+      const message = event.message as { id?: unknown } | undefined;
+      const messageId = typeof message?.id === "string" ? message.id : null;
+      if (messageId) {
+        if (this.recentDirectMessageIds.has(messageId)) return;
+        this.recentDirectMessageIds.add(messageId);
+        if (this.recentDirectMessageIds.size > 100) {
+          const oldestId = this.recentDirectMessageIds.values().next().value;
+          if (oldestId) this.recentDirectMessageIds.delete(oldestId);
+        }
+      }
+    }
+
     for (const listener of this.listeners) {
       try {
         listener(event);
@@ -199,7 +213,11 @@ class RealtimeConnection {
 
         const currentDirectId = current.directLast?.id ?? "";
         const previousDirectId = this.previous.directLast?.id ?? "";
-        if (currentDirectId && currentDirectId !== previousDirectId) {
+        if (
+          currentDirectId &&
+          currentDirectId !== previousDirectId &&
+          current.directLast?.recipient_uid === Number(this.uid)
+        ) {
           this.emit({
             type: "direct-message:new",
             message: current.directLast,
@@ -225,11 +243,6 @@ class RealtimeConnection {
         ) {
           this.emit({ type: "media:changed" });
         }
-      } else if (current.directLast) {
-        this.emit({
-          type: "direct-message:new",
-          message: current.directLast,
-        });
       }
 
       this.previous = current;
