@@ -1,12 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useRealtime } from "@/lib/use-realtime";
 
 const DEVICE_ID_KEY = "cheya_device_id";
 const BLOCKED_PATH = "/blocked";
-const CHECK_INTERVAL_MS = 30000;
 
 function readDeviceId(): string | null {
   if (typeof window === "undefined") return null;
@@ -74,6 +73,7 @@ function redirectToBlocked() {
 
 export function SessionInit({ uid }: { uid: string }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [initError, setInitError] = useState("");
   const sent = useRef(false);
   const blockedRef = useRef(false);
@@ -130,9 +130,7 @@ export function SessionInit({ uid }: { uid: string }) {
         if (res.status === 401) {
           try {
             window.localStorage.removeItem(DEVICE_ID_KEY);
-          } catch (error) {
-            console.warn("[session] could not clear the invalid device identifier:", error);
-          }
+          } catch {}
           window.location.replace("/login");
           return;
         }
@@ -143,15 +141,12 @@ export function SessionInit({ uid }: { uid: string }) {
         setInitError("");
         try {
           window.localStorage.setItem(DEVICE_ID_KEY, j.deviceId);
-        } catch (error) {
-          console.warn("[session] could not persist the device identifier:", error);
-        }
+        } catch {}
         if (j.state === "welcome") {
           router.refresh();
         }
       })
-      .catch((error) => {
-        console.error("[session] device initialization failed:", error);
+      .catch(() => {
         setInitError("Device gagal didaftarkan. Muat ulang halaman untuk mencoba lagi.");
       });
   }, [router, uid]);
@@ -192,17 +187,14 @@ export function SessionInit({ uid }: { uid: string }) {
           window.location.replace("/login");
           return;
         }
-        if (!res.ok) {
-          console.error("[session] device status check failed:", res.status);
-          return;
-        }
+        if (!res.ok) return;
         const j = await res.json().catch(() => ({}));
         if (j?.blocked === true) {
           blockedRef.current = true;
           redirectToBlocked();
         }
-      } catch (error) {
-        console.error("[session] device status check failed:", error);
+      } catch {
+        return;
       } finally {
         checkInFlight = false;
       }
@@ -213,8 +205,6 @@ export function SessionInit({ uid }: { uid: string }) {
     };
 
     void checkNow();
-
-    const iv = window.setInterval(checkNow, CHECK_INTERVAL_MS);
 
     const onVisible = () => {
       if (document.visibilityState === "visible") void checkNow();
@@ -227,11 +217,10 @@ export function SessionInit({ uid }: { uid: string }) {
     return () => {
       cancelled = true;
       checkRef.current = null;
-      window.clearInterval(iv);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", onFocus);
     };
-  }, [uid]);
+  }, [pathname, uid]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;

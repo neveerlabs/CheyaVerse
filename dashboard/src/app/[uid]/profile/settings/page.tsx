@@ -1,7 +1,6 @@
 import { notFound } from "next/navigation";
 import { SubPageHeader } from "@/components/SubPageHeader";
 import { SettingsClient } from "./SettingsClient";
-import { config } from "@/lib/config";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +19,7 @@ export default function SettingsPage({
         subtitle="Preferensi dan konfigurasi akun."
         backHref={`/${params.uid}/profile`}
       />
-      <SettingsClient uid={params.uid} mediaTtlDays={config.mediaTtlDays} />
+      <SettingsClient uid={params.uid} />
     </>
   );
 }

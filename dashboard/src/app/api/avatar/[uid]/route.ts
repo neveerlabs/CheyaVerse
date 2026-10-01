@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getTelegramUser, upsertTelegramUser } from "@/lib/storage";
 import { getTelegramAvatarFileId, fetchTelegramFile } from "@/lib/telegram";
 
 export const runtime = "nodejs";
@@ -24,7 +25,20 @@ export async function GET(
     return new NextResponse("Invalid uid", { status: 400 });
   }
 
-  const fileId = await getTelegramAvatarFileId(uid);
+  let fileId: string | null = null;
+  try {
+    fileId = (await getTelegramUser(uid))?.photo_file_id ?? null;
+  } catch (error) {
+    console.error("[avatar] failed to load cached Telegram photo:", error);
+  }
+
+  if (!fileId) {
+    fileId = await getTelegramAvatarFileId(uid);
+    if (fileId) {
+      await upsertTelegramUser(uid, { photo_file_id: fileId });
+    }
+  }
+
   if (!fileId) {
     return placeholderResponse();
   }

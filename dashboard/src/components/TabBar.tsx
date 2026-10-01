@@ -23,7 +23,6 @@ export function TabBar({ uid }: { uid: string }) {
       return;
     }
     inflightRef.current = true;
-    let retry = false;
     try {
       const [notificationResponse, chatResponse] = await Promise.all([
         fetch(`/api/notifications/${encodeURIComponent(uid)}`, {
@@ -32,12 +31,6 @@ export function TabBar({ uid }: { uid: string }) {
         fetch("/api/chats/unread", { cache: "no-store" }),
       ]);
       if (!notificationResponse.ok || !chatResponse.ok) {
-        console.error(
-          "[tab-bar] unread count request failed:",
-          notificationResponse.status,
-          chatResponse.status,
-        );
-        retry = true;
         return;
       }
       const [notifications, chats] = await Promise.all([
@@ -45,12 +38,11 @@ export function TabBar({ uid }: { uid: string }) {
         chatResponse.json(),
       ]);
       setUnread(Number(notifications?.unread ?? 0) + Number(chats?.unread ?? 0));
-    } catch (error) {
-      console.error("[tab-bar] failed to load unread counts:", error);
-      retry = true;
+    } catch {
+      return;
     } finally {
       inflightRef.current = false;
-      if (refreshRequestedRef.current || retry) {
+      if (refreshRequestedRef.current) {
         refreshRequestedRef.current = false;
         if (refreshTimerRef.current !== null) {
           window.clearTimeout(refreshTimerRef.current);
@@ -58,7 +50,7 @@ export function TabBar({ uid }: { uid: string }) {
         refreshTimerRef.current = window.setTimeout(() => {
           refreshTimerRef.current = null;
           void loadRef.current();
-        }, retry ? 5000 : 0);
+        }, 0);
       }
     }
   }, [uid]);
@@ -86,6 +78,20 @@ export function TabBar({ uid }: { uid: string }) {
     },
     [],
   );
+
+  useEffect(() => {
+    const refreshWhenConnected = () => {
+      if (document.visibilityState === "visible") scheduleLoad();
+    };
+    window.addEventListener("focus", refreshWhenConnected);
+    window.addEventListener("online", refreshWhenConnected);
+    document.addEventListener("visibilitychange", refreshWhenConnected);
+    return () => {
+      window.removeEventListener("focus", refreshWhenConnected);
+      window.removeEventListener("online", refreshWhenConnected);
+      document.removeEventListener("visibilitychange", refreshWhenConnected);
+    };
+  }, [scheduleLoad]);
 
   useRealtime(uid, (event) => {
     if (event.type === "notification:new") {

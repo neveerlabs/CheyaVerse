@@ -248,7 +248,6 @@ export function LibraryClient({ uid, username }: { uid: string; username: string
           },
         );
         if (!response.ok) {
-          console.error(`[library] Thumbnail save failed for ${nodeId}: ${response.status}`);
           uploadNotice = "File berhasil diunggah, tetapi thumbnail tidak tersimpan.";
         }
       } else {
@@ -775,8 +774,7 @@ async function createMediaThumbnail(file: File): Promise<Blob | null> {
       preview = await canvasToJpeg(thumbnail, 0.5);
     }
     return preview && preview.size <= 120 * 1024 ? preview : null;
-  } catch (error) {
-    console.warn("[library] Could not generate media thumbnail:", error);
+  } catch {
     return null;
   } finally {
     if (video) {

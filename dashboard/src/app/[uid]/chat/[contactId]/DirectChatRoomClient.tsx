@@ -32,6 +32,7 @@ import {
   Share2,
   ListChecks,
   Ban,
+  Send,
 } from "lucide-react";
 import { TelegramAvatar } from "@/components/TelegramAvatar";
 import { ChatComposer } from "@/components/ChatComposer";
@@ -173,6 +174,8 @@ export function DirectChatRoomClient({
   const [forwardUsers, setForwardUsers] = useState<SearchUser[]>([]);
   const [forwardLoading, setForwardLoading] = useState(false);
   const [forwardTargets, setForwardTargets] = useState<string[]>([]);
+  const [forwardSelectedUids, setForwardSelectedUids] = useState<number[]>([]);
+  const [forwarding, setForwarding] = useState(false);
   const [contacts, setContacts] = useState<ChatContact[]>([]);
   const [contactsLoading, setContactsLoading] = useState(false);
   const [contactsLoaded, setContactsLoaded] = useState(false);
@@ -415,9 +418,7 @@ export function DirectChatRoomClient({
       if (!response.ok) {
         throw new Error(`Typing state request failed (${response.status})`);
       }
-    } catch (error) {
-      console.error("[direct-chat] failed to update typing state:", error);
-    }
+    } catch {}
   }
 
   function handleTextChange(value: string) {
@@ -477,11 +478,7 @@ export function DirectChatRoomClient({
           ? "Chat sounds muted for this contact."
           : "Chat sounds enabled for this contact.",
       );
-    } catch (error) {
-      console.error(
-        "[direct-chat] could not save sound preference:",
-        error,
-      );
+    } catch {
       showToast("Could not save notification preference.");
     }
   }
@@ -528,42 +525,46 @@ export function DirectChatRoomClient({
         ),
       );
       setPinned(result.pinned ?? null);
-    } catch (error) {
-      console.error("[direct-chat] failed to refresh messages:", error);
+    } catch {
+      return;
     } finally {
       refreshBusyRef.current = false;
     }
   }, [contact.uid]);
 
-  useEffect(() => {
-    let active = true;
-    const refreshPresence = async () => {
-      try {
-        const response = await fetch(`/api/presence?uid=${contact.uid}`, {
-          cache: "no-store",
-        });
-        if (!response.ok)
-          throw new Error(`Presence request failed (${response.status})`);
-        const result = await response.json();
-        if (active && result?.ok === true) {
-          setContactLastSeen(
-            typeof result.lastSeen === "number" ? result.lastSeen : null,
-          );
-        }
-      } catch (error) {
-        console.error("[direct-chat] failed to refresh contact presence:", error);
+  const refreshPresence = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/presence?uid=${contact.uid}`, {
+        cache: "no-store",
+      });
+      if (!response.ok) return;
+      const result = await response.json();
+      if (result?.ok === true) {
+        setContactLastSeen(
+          typeof result.lastSeen === "number" ? result.lastSeen : null,
+        );
       }
-    };
-    void refreshPresence();
-    const interval = window.setInterval(() => {
-      setPresenceClock((value) => value + 1);
-      void refreshPresence();
-    }, 15_000);
-    return () => {
-      active = false;
-      window.clearInterval(interval);
-    };
+    } catch {}
   }, [contact.uid]);
+
+  useEffect(() => {
+    void refreshPresence();
+    const clock = window.setInterval(() => {
+      setPresenceClock((value) => value + 1);
+    }, 30_000);
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void refreshPresence();
+    };
+    window.addEventListener("focus", refreshWhenVisible);
+    window.addEventListener("online", refreshWhenVisible);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.clearInterval(clock);
+      window.removeEventListener("focus", refreshWhenVisible);
+      window.removeEventListener("online", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [refreshPresence]);
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -575,9 +576,7 @@ export function DirectChatRoomClient({
         window.localStorage.getItem(`cheya-chat-muted:${contact.uid}`) === "1";
       setMuted(value);
       mutedRef.current = value;
-    } catch (error) {
-      console.error("[direct-chat] sound preference unavailable:", error);
-    }
+    } catch {}
   }, [contact.uid]);
 
   useEffect(() => {
@@ -721,9 +720,7 @@ export function DirectChatRoomClient({
           setContacts(json.contacts);
         }
       })
-      .catch((error) => {
-        console.error("[direct-chat] failed to load contacts:", error);
-      })
+      .catch(() => {})
       .finally(() => {
         if (!cancelled) {
           setContactsLoading(false);
@@ -757,9 +754,7 @@ export function DirectChatRoomClient({
         }
         setForwardUsers(Array.isArray(result.users) ? result.users : []);
       } catch (error) {
-        if (!(error instanceof Error && error.name === "AbortError")) {
-          console.error("[direct-chat] forward contact search failed:", error);
-        }
+        if (error instanceof Error && error.name === "AbortError") return;
       } finally {
         if (!controller.signal.aborted) setForwardLoading(false);
       }
@@ -797,9 +792,7 @@ export function DirectChatRoomClient({
       draftReadyRef.current = true;
       try {
         window.localStorage.removeItem(DRAFT_KEY);
-      } catch (error) {
-        console.error("[direct-chat] could not clear deleted account draft:", error);
-      }
+      } catch {}
       window.dispatchEvent(new Event("cheya-draft-change"));
       return;
     }
@@ -835,9 +828,7 @@ export function DirectChatRoomClient({
     if (contact.role === "deleted") {
       try {
         window.localStorage.removeItem(DRAFT_KEY);
-      } catch (error) {
-        console.error("[direct-chat] could not clear deleted account draft:", error);
-      }
+      } catch {}
       window.dispatchEvent(new Event("cheya-draft-change"));
       return;
     }
@@ -861,6 +852,7 @@ export function DirectChatRoomClient({
 
   useRealtime(uid, (event) => {
     if (event.type === "direct-chat:typing" && event.senderUid === contact.uid) {
+      void refreshPresence();
       const typing = event.typing === true;
       setContactTyping(typing);
       if (contactTypingTimeoutRef.current !== null) {
@@ -888,6 +880,7 @@ export function DirectChatRoomClient({
           return;
         const isFromContact =
           incoming.sender_uid === contact.uid && incoming.recipient_uid === myUid;
+        if (isFromContact) void refreshPresence();
         setMessages((current) => {
           const index = current.findIndex(
             (message) => message.id === incoming.id,
@@ -1084,8 +1077,7 @@ export function DirectChatRoomClient({
     try {
       await navigator.clipboard.writeText(texts.join("\n\n"));
       showToast("Pesan disalin.");
-    } catch (error) {
-      console.error("[direct-chat] clipboard write failed:", error);
+    } catch {
       showToast("Tidak dapat menyalin pesan.");
     }
     exitSelectMode();
@@ -1143,10 +1135,9 @@ export function DirectChatRoomClient({
       if (!response.ok) throw new Error("Chat could not be cleared.");
       setPinned(null);
       showToast(scope === "everyone" ? "Chat cleared for everyone." : "Chat cleared for you.");
-    } catch (error) {
+    } catch {
       setMessages(list);
       setPinned(pinnedSnapshot);
-      console.error("[direct-chat] clear for everyone failed:", error);
       showToast("Failed to clear chat.");
     } finally {
       setClearing(false);
@@ -1178,37 +1169,82 @@ export function DirectChatRoomClient({
       .map((message) => message.id);
     if (messageIds.length === 0) return;
     setForwardTargets(messageIds);
+    setForwardSelectedUids([]);
     setForwardQuery("");
     setForwardUsers([]);
     setForwardOpen(true);
   }
 
-  async function forwardMessages(targetUid: number) {
-    if (forwardTargets.length === 0) return;
+  function toggleForwardContact(targetUid: number) {
+    setForwardSelectedUids((current) =>
+      current.includes(targetUid)
+        ? current.filter((uid) => uid !== targetUid)
+        : [...current, targetUid],
+    );
+  }
+
+  async function forwardMessages() {
+    if (
+      forwarding ||
+      forwardTargets.length === 0 ||
+      forwardSelectedUids.length === 0
+    ) return;
     const ids = forwardTargets.slice();
-    setForwardOpen(false);
-    setForwardTargets([]);
-    setForwardQuery("");
-    exitSelectMode();
-    if (targetUid === contact.uid) {
-      showToast("Pesan diteruskan.");
+    const targetUids = forwardSelectedUids.filter(
+      (targetUid) => targetUid !== myUid,
+    );
+    if (targetUids.length === 0) {
+      showToast("Pilih kontak lain untuk meneruskan pesan.");
       return;
     }
-    router.push(`/${uid}/chat/${targetUid}`);
+    setForwarding(true);
     try {
-      await Promise.all(
-        ids.map((id) =>
-          fetch(`/api/chats/${contact.uid}/actions`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: "forward", messageId: id, targetUid }),
-          }).then((res) => {
-            if (!res.ok) throw new Error("Pesan gagal diteruskan.");
-          }),
-        ),
+      const results = await Promise.all(
+        targetUids.map(async (targetUid) => {
+          const responses = await Promise.all(
+            ids.map((id) =>
+              fetch(`/api/chats/${contact.uid}/actions`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  action: "forward",
+                  messageId: id,
+                  targetUid,
+                }),
+              }),
+            ),
+          );
+          return responses.every((response) => response.ok);
+        }),
       );
+      const sentCount = results.filter(Boolean).length;
+      const failedCount = results.length - sentCount;
+      if (sentCount > 0) {
+        showToast(
+          failedCount > 0
+            ? `Pesan diteruskan ke ${sentCount} kontak; ${failedCount} gagal.`
+            : `Pesan diteruskan ke ${sentCount} kontak.`,
+        );
+      } else {
+        showToast("Pesan gagal diteruskan. Coba lagi.");
+      }
+      if (failedCount > 0) {
+        setForwardSelectedUids(
+          targetUids.filter((_targetUid, index) => !results[index]),
+        );
+      }
+      if (failedCount === 0) {
+        setForwardOpen(false);
+        setForwardTargets([]);
+        setForwardSelectedUids([]);
+        setForwardQuery("");
+        setForwardUsers([]);
+        exitSelectMode();
+      }
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Pesan gagal diteruskan.");
+    } finally {
+      setForwarding(false);
     }
   }
 
@@ -1252,12 +1288,16 @@ export function DirectChatRoomClient({
 
   const mergedForwardUsers = useMemo(() => {
     const map = new Map<number, ChatContact>();
-    for (const c of filteredContacts) map.set(c.uid, c);
+    for (const c of filteredContacts) {
+      if (c.uid !== myUid) map.set(c.uid, c);
+    }
     for (const u of forwardUsers) {
-      if (!map.has(u.uid)) map.set(u.uid, u as ChatContact);
+      if (u.uid !== myUid && !map.has(u.uid)) {
+        map.set(u.uid, u as ChatContact);
+      }
     }
     return Array.from(map.values());
-  }, [filteredContacts, forwardUsers]);
+  }, [filteredContacts, forwardUsers, myUid]);
 
   const header = (
     <header
@@ -1332,14 +1372,11 @@ export function DirectChatRoomClient({
               >
                 <ArrowLeft size={21} />
               </Link>
-              <Link
-                href={`/${uid}/profile/contact/${contact.uid}`}
-                className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-full border border-[#dfe3e8] bg-white pl-0.5 pr-3"
-                aria-label={`View ${name}'s profile`}
-              >
+              <div className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-full border border-[#dfe3e8] bg-white pl-0.5 pr-3">
                 <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-[#f5f5f5]">
                   <TelegramAvatar
                     src={contact.photo_url || `/api/avatar/${contact.uid}`}
+                    fallbackSrc={`/api/avatar/${contact.uid}`}
                   />
                 </span>
                 <span className="min-w-0 flex flex-col justify-center self-stretch">
@@ -1361,7 +1398,7 @@ export function DirectChatRoomClient({
                     {presenceLabel}
                   </span>
                 </span>
-              </Link>
+              </div>
               <button
                 type="button"
                 aria-label="Chat options"
@@ -1796,6 +1833,11 @@ export function DirectChatRoomClient({
                             ? ownPhotoUrl || `/api/avatar/${myUid}`
                             : contact.photo_url || `/api/avatar/${contact.uid}`
                         }
+                        avatarFallbackUrl={
+                          mine
+                            ? `/api/avatar/${myUid}`
+                            : `/api/avatar/${contact.uid}`
+                        }
                         content={content}
                         timestamp={chatMessageTime(message.created_at)}
                         status={
@@ -1856,7 +1898,6 @@ export function DirectChatRoomClient({
             last_name: contact.last_name ?? "",
             photo_url: contact.photo_url ?? undefined,
           }}
-          currentUid={String(myUid)}
           onClose={() => setContactQrOpen(false)}
           onToast={showToast}
         />
@@ -1895,8 +1936,10 @@ export function DirectChatRoomClient({
         <div
           role="presentation"
           onClick={() => {
+            if (forwarding) return;
             setForwardOpen(false);
             setForwardTargets([]);
+            setForwardSelectedUids([]);
             setForwardQuery("");
             setForwardUsers([]);
           }}
@@ -1910,13 +1953,17 @@ export function DirectChatRoomClient({
             className="flex w-full max-w-[600px] flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl md:max-w-[520px] md:rounded-2xl"
           >
             <div className="flex items-center justify-between border-b border-line px-4 py-3">
-              <h2 className="text-[14px] font-semibold text-ink">Forward message</h2>
+              <h2 className="text-[14px] font-semibold text-ink">
+                Forward {forwardTargets.length === 1 ? "message" : "messages"}
+              </h2>
               <button
                 type="button"
                 aria-label="Close"
+                disabled={forwarding}
                 onClick={() => {
                   setForwardOpen(false);
                   setForwardTargets([]);
+                  setForwardSelectedUids([]);
                   setForwardQuery("");
                   setForwardUsers([]);
                 }}
@@ -1942,13 +1989,22 @@ export function DirectChatRoomClient({
                   <button
                     key={user.uid}
                     type="button"
-                    onClick={() => void forwardMessages(user.uid)}
+                    role="checkbox"
+                    aria-checked={forwardSelectedUids.includes(user.uid)}
+                    disabled={forwarding}
+                    onClick={() => toggleForwardContact(user.uid)}
                     className="flex w-[72px] flex-shrink-0 flex-col items-center gap-1.5"
                   >
-                    <span className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-full border border-line bg-[#f5f5f5]">
+                    <span className="relative flex h-14 w-14 items-center justify-center overflow-hidden rounded-full border border-line bg-[#f5f5f5]">
                       <TelegramAvatar
                         src={user.photo_url || `/api/avatar/${user.uid}`}
+                        fallbackSrc={`/api/avatar/${user.uid}`}
                       />
+                      {forwardSelectedUids.includes(user.uid) && (
+                        <span className="absolute bottom-2 right-2 flex h-[19px] w-[19px] items-center justify-center rounded-full border-2 border-white bg-emerald-600 text-white">
+                          <Check size={12} strokeWidth={3} />
+                        </span>
+                      )}
                     </span>
                     {user.is_admin ? (
                       <VerifiedName
@@ -1986,6 +2042,19 @@ export function DirectChatRoomClient({
                   )}
               </div>
             </div>
+            <footer className="border-t border-line p-3">
+              <button
+                  type="button"
+                  onClick={() => void forwardMessages()}
+                  disabled={forwarding || forwardSelectedUids.length === 0}
+                  className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-ink px-4 text-[13px] font-semibold text-white disabled:opacity-45"
+              >
+                  <Send size={15} />
+                  {forwarding
+                    ? "Mengirim…"
+                    : `Kirim ke ${forwardSelectedUids.length} kontak`}
+              </button>
+            </footer>
           </section>
         </div>
       )}

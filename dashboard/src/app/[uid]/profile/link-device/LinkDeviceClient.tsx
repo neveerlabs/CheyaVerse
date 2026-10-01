@@ -108,8 +108,7 @@ export function LinkDeviceClient({ uid }: { uid: string }) {
         if (!copied) throw new Error("Clipboard copy command failed.");
       }
       setCopied(true);
-    } catch (cause) {
-      console.error("[device-link] could not copy invite URL:", cause);
+    } catch {
       setError("Tautan tidak dapat disalin. Periksa izin akses papan klip.");
     }
   }
@@ -124,7 +123,7 @@ export function LinkDeviceClient({ uid }: { uid: string }) {
           </Link>
           <span className={styles.secure}>
             <ShieldCheck size={15} />
-            Secure connection
+            Proxy connection
           </span>
         </header>
 
@@ -223,7 +222,7 @@ export function LinkDeviceClient({ uid }: { uid: string }) {
                                 <circle
                                   cx={(qr.modules.size + 8) / 2}
                                   cy={(qr.modules.size + 8) / 2}
-                                  r={qr.modules.size * 0.075}
+                                  r={qr.modules.size * 0.09}
                                 />
                               </clipPath>
                             </defs>
@@ -246,7 +245,7 @@ export function LinkDeviceClient({ uid }: { uid: string }) {
                                   const center = (qr.modules.size - 1) / 2;
                                   const inLogoQuietZone =
                                     (column - center) ** 2 + (row - center) ** 2 <
-                                    (qr.modules.size * 0.085) ** 2;
+                                    (qr.modules.size * 0.1) ** 2;
                                   return qr.modules.get(row, column) === 1 &&
                                     !inFinder &&
                                     !inLogoQuietZone ? (
@@ -271,18 +270,12 @@ export function LinkDeviceClient({ uid }: { uid: string }) {
                                 <rect x="2" y="2" width="3" height="3" rx=".9" fill="url(#cheyaQrGradient)" />
                               </g>
                             ))}
-                            <circle
-                              cx={(qr.modules.size + 8) / 2}
-                              cy={(qr.modules.size + 8) / 2}
-                              r={qr.modules.size * 0.088}
-                              fill="white"
-                            />
                             <image
                               href="/assets/cheyaverse.jpg"
-                              x={(qr.modules.size + 8) / 2 - qr.modules.size * 0.075}
-                              y={(qr.modules.size + 8) / 2 - qr.modules.size * 0.075}
-                              width={qr.modules.size * 0.15}
-                              height={qr.modules.size * 0.15}
+                              x={(qr.modules.size + 8) / 2 - qr.modules.size * 0.09}
+                              y={(qr.modules.size + 8) / 2 - qr.modules.size * 0.09}
+                              width={qr.modules.size * 0.18}
+                              height={qr.modules.size * 0.18}
                               preserveAspectRatio="xMidYMid slice"
                               clipPath="url(#cheyaQrLogoClip)"
                             />

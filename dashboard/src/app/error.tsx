@@ -1,7 +1,5 @@
 "use client";
 
-import { useEffect } from "react";
-
 export default function AppError({
   error,
   reset,
@@ -9,10 +7,6 @@ export default function AppError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
-  useEffect(() => {
-    console.error("[app] route rendering failed:", error);
-  }, [error]);
-
   return (
     <main className="flex min-h-[100dvh] flex-col items-center justify-center px-5 py-10 text-center">
       <section className="w-full max-w-[420px] rounded-3xl border border-line bg-white p-6 shadow-sm">

@@ -14,7 +14,6 @@ import {
   Settings,
   Shield,
   FileText,
-  Info,
   LifeBuoy,
   ExternalLink,
   Trash2,
@@ -69,6 +68,7 @@ export function ProfileClient({
   uid,
   isAdmin,
   info,
+  displayName,
   stats,
   media,
   cover,
@@ -76,6 +76,7 @@ export function ProfileClient({
   uid: string;
   isAdmin: boolean;
   info: Info;
+  displayName: string | null;
   stats: Stats;
   media: MediaItem[];
   cover: CoverConfig | null;
@@ -379,6 +380,7 @@ export function ProfileClient({
   }, [avatarOpen]);
 
   const greetingName =
+    displayName ||
     info?.username ||
     info?.first_name ||
     (info ? [info.first_name, info.last_name].filter(Boolean).join(" ") : "") ||
@@ -469,12 +471,9 @@ export function ProfileClient({
       }
       try {
         window.localStorage.removeItem(DEVICE_ID_KEY);
-      } catch (cause) {
-        console.warn("[profile] could not clear the device identifier:", cause);
-      }
+      } catch {}
       window.location.replace("/login");
     } catch (cause) {
-      console.error("[profile] logout failed:", cause);
       setLogoutError(
         cause instanceof Error ? cause.message : "Sesi tidak dapat diakhiri.",
       );
@@ -634,11 +633,6 @@ export function ProfileClient({
       href: `/${uid}/profile/agreement`,
       label: "User Agreement",
       icon: <FileText size={18} strokeWidth={1.8} />,
-    },
-    {
-      href: `/${uid}/about`,
-      label: "About",
-      icon: <Info size={18} strokeWidth={1.8} />,
     },
     {
       href: `/${uid}/profile/support`,

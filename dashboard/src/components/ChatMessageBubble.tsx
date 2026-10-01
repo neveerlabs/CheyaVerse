@@ -21,6 +21,7 @@ export function chatMessageTime(iso: string): string {
 type ChatMessageBubbleProps = {
   outgoing: boolean;
   avatarUrl: string | null;
+  avatarFallbackUrl?: string | null;
   content: string;
   timestamp: string;
   status?: ReactNode;
@@ -48,6 +49,7 @@ type ChatMessageBubbleProps = {
 export function ChatMessageBubble({
   outgoing,
   avatarUrl,
+  avatarFallbackUrl,
   content,
   timestamp,
   status,
@@ -215,8 +217,15 @@ export function ChatMessageBubble({
           timers.delete(timer);
         }, 1500);
         timers.add(timer);
-      } catch (error) {
-        console.error("[chat-code] clipboard copy failed:", error);
+      } catch {
+        button.setAttribute("aria-label", "Tidak dapat menyalin kode");
+        button.title = "Tidak dapat menyalin kode";
+        const timer = window.setTimeout(() => {
+          button.setAttribute("aria-label", "Salin kode");
+          button.title = "Salin kode";
+          timers.delete(timer);
+        }, 1800);
+        timers.add(timer);
       }
     };
 
@@ -257,7 +266,7 @@ export function ChatMessageBubble({
       {selectMode && <span className="flex-shrink-0">{selectIndicator}</span>}
       {!selectMode && !outgoing && (
         <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-[#f0f0f0]">
-          <TelegramAvatar src={avatarUrl} />
+          <TelegramAvatar src={avatarUrl} fallbackSrc={avatarFallbackUrl} />
         </span>
       )}
       {selectMode && outgoing && <span aria-hidden className="flex-1" />}

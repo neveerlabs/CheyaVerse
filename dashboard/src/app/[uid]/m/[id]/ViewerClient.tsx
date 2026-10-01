@@ -494,9 +494,7 @@ export default function ViewerClient({
       setMediaOrientation(orientation);
       const orientationApi = screen.orientation as LockableScreenOrientation;
       if (isFsRef.current && typeof orientationApi.lock === "function") {
-        orientationApi.lock(orientation).catch((error) => {
-          console.warn("[media-viewer] orientation lock unavailable:", error);
-        });
+        orientationApi.lock(orientation).catch(() => {});
       }
     },
     [],
@@ -549,9 +547,7 @@ export default function ViewerClient({
       setIsFs(fullscreen);
       const orientationApi = screen.orientation as LockableScreenOrientation;
       if (fullscreen && mediaOrientationRef.current && typeof orientationApi.lock === "function") {
-        orientationApi.lock(mediaOrientationRef.current).catch((error) => {
-          console.warn("[media-viewer] orientation lock unavailable:", error);
-        });
+        orientationApi.lock(mediaOrientationRef.current).catch(() => {});
       } else if (!fullscreen && typeof orientationApi.unlock === "function") {
         orientationApi.unlock();
       }
@@ -833,33 +829,27 @@ export default function ViewerClient({
       const doc = document as FsDoc;
       try {
         (document.exitFullscreen || doc.webkitExitFullscreen)?.call(document);
-      } catch (error) {
-        console.error("[media-viewer] could not exit fullscreen:", error);
-      }
+      } catch {}
       return;
     }
     const lockOrientation = () => {
       const orientationApi = screen.orientation as LockableScreenOrientation;
       if (!mediaOrientationRef.current || typeof orientationApi.lock !== "function") return;
-      orientationApi.lock(mediaOrientationRef.current).catch((error) => {
-        console.warn("[media-viewer] orientation lock unavailable:", error);
-      });
+      orientationApi.lock(mediaOrientationRef.current).catch(() => {});
     };
     try {
       if (typeof el.requestFullscreen === "function") {
-        el.requestFullscreen({ navigationUI: "hide" }).then(lockOrientation).catch((error) => {
+        el.requestFullscreen({ navigationUI: "hide" }).then(lockOrientation).catch(() => {
           try {
             const anyEl = el as FsEl;
             if (anyEl.webkitRequestFullscreen) {
               anyEl.webkitRequestFullscreen();
               lockOrientation();
             } else {
-              console.warn("[media-viewer] native fullscreen unavailable; using page fullscreen:", error);
               setIsCssFullscreen(true);
               setIsFs(true);
             }
-          } catch (fallbackError) {
-            console.warn("[media-viewer] native fullscreen unavailable; using page fullscreen:", fallbackError);
+          } catch {
             setIsCssFullscreen(true);
             setIsFs(true);
           }
@@ -874,8 +864,7 @@ export default function ViewerClient({
           setIsFs(true);
         }
       }
-    } catch (error) {
-      console.error("[media-viewer] fullscreen request failed:", error);
+    } catch {
       showToast("Fullscreen is unavailable on this device.");
     }
   }, [isCssFullscreen, isFs, showToast]);

@@ -4,22 +4,30 @@ import { useEffect, useState } from "react";
 
 export function TelegramAvatar({
   src,
+  fallbackSrc,
   alt = "",
   className = "h-full w-full object-cover",
 }: {
   src: string | null | undefined;
+  fallbackSrc?: string | null;
   alt?: string;
   className?: string;
 }) {
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
   const imageSrc = src || "";
-  const showFallback = !imageSrc || failedSrc === imageSrc;
+  const fallbackUrl = fallbackSrc || "";
+  const currentSrc =
+    imageSrc && failedSrc !== imageSrc
+      ? imageSrc
+      : fallbackUrl && failedSrc !== fallbackUrl
+        ? fallbackUrl
+        : "";
 
   useEffect(() => {
     setFailedSrc(null);
-  }, [imageSrc]);
+  }, [imageSrc, fallbackUrl]);
 
-  if (showFallback) {
+  if (!currentSrc) {
     return (
       <svg
         aria-hidden="true"
@@ -36,11 +44,11 @@ export function TelegramAvatar({
 
   return (
     <img
-      src={imageSrc}
+      src={currentSrc}
       alt={alt}
       draggable={false}
       className={className}
-      onError={() => setFailedSrc(imageSrc)}
+      onError={() => setFailedSrc(currentSrc)}
     />
   );
 }

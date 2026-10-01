@@ -262,11 +262,17 @@ a {
     opacity 120ms ease;
 }
 
-.chat-code-copy:hover,
 .chat-code-copy:focus-visible {
   background: rgb(127 127 127 / 16%);
   opacity: 1;
   outline: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .chat-code-copy:hover {
+    background: rgb(127 127 127 / 16%);
+    opacity: 1;
+  }
 }
 
 .chat-code-copy svg {
@@ -329,11 +335,31 @@ a {
 }
 
 .chat-rich-text blockquote {
-  margin-block: 0.5rem;
+  margin-block: 0;
   border-left: 3px solid currentColor;
   border-radius: 0.125rem;
   padding: 0.15rem 0 0.15rem 0.75rem;
   opacity: 0.88;
+}
+
+.chat-rich-text .chat-note {
+  margin-block: 0;
+}
+
+.chat-rich-text .chat-note::after,
+.chat-rich-text blockquote::after {
+  content: "\201D";
+  margin-left: 0.12em;
+  font-style: normal;
+}
+
+.chat-rich-text h1,
+.chat-rich-text h2,
+.chat-rich-text h3,
+.chat-rich-text h4,
+.chat-rich-text h5,
+.chat-rich-text h6 {
+  margin-block: 0;
 }
 
 .chat-rich-text .chat-markdown-list-item {

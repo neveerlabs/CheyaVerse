@@ -35,7 +35,6 @@ const QR_BLENDS: QrBlend[] = [
 
 type Props = {
   contact: Contact;
-  currentUid: string;
   onClose: () => void;
   onToast: (message: string) => void;
 };
@@ -62,7 +61,7 @@ function buildSvg(
   const quietZone = 4;
   const fullSize = size + quietZone * 2;
   const logoCenter = fullSize / 2;
-  const logoSize = size * 0.16;
+  const logoSize = size * 0.19;
   const finderOrigins = [
     { x: 0, y: 0 },
     { x: size - 7, y: 0 },
@@ -104,7 +103,7 @@ function buildSvg(
   const logoX = logoCenter - logoSize / 2;
   const logoUrl = escapeXml(`${origin}/assets/cheyaverse.jpg`);
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="960" height="960" viewBox="0 0 ${fullSize} ${fullSize}"><defs><linearGradient id="contact-qr-gradient" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="${blend.start}"/><stop offset="100%" stop-color="${blend.end}"/></linearGradient><clipPath id="contact-qr-logo-clip"><circle cx="${logoCenter}" cy="${logoCenter}" r="${logoSize / 2}"/></clipPath></defs><rect width="${fullSize}" height="${fullSize}" fill="#fff"/>${dots.join("")}${finders}<circle cx="${logoCenter}" cy="${logoCenter}" r="${logoSize / 2 + 1.5}" fill="#fff"/><image href="${logoUrl}" x="${logoX}" y="${logoX}" width="${logoSize}" height="${logoSize}" preserveAspectRatio="xMidYMid slice" clip-path="url(#contact-qr-logo-clip)"/></svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="960" height="960" viewBox="0 0 ${fullSize} ${fullSize}"><defs><linearGradient id="contact-qr-gradient" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="${blend.start}"/><stop offset="100%" stop-color="${blend.end}"/></linearGradient><clipPath id="contact-qr-logo-clip"><circle cx="${logoCenter}" cy="${logoCenter}" r="${logoSize / 2}"/></clipPath></defs><rect width="${fullSize}" height="${fullSize}" fill="#fff"/>${dots.join("")}${finders}<image href="${logoUrl}" x="${logoX}" y="${logoX}" width="${logoSize}" height="${logoSize}" preserveAspectRatio="xMidYMid slice" clip-path="url(#contact-qr-logo-clip)"/></svg>`;
 }
 
 async function renderPng(svg: string): Promise<Blob> {
@@ -154,7 +153,6 @@ async function renderPng(svg: string): Promise<Blob> {
 
 export function ContactQrModal({
   contact,
-  currentUid,
   onClose,
   onToast,
 }: Props) {
@@ -167,8 +165,8 @@ export function ContactQrModal({
   const url = useMemo(() => {
     if (username) return `https://t.me/${encodeURIComponent(username)}`;
     if (!origin) return "";
-    return `${origin}/${encodeURIComponent(currentUid)}/profile/contact/${encodeURIComponent(contact.uid)}`;
-  }, [contact.uid, currentUid, origin, username]);
+    return `tg://user?id=${encodeURIComponent(contact.uid)}`;
+  }, [contact.uid, origin, username]);
   const matrix = useMemo(
     () =>
       url
@@ -216,7 +214,6 @@ export function ContactQrModal({
       window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
       onToast("QR image downloaded.");
     } catch (error) {
-      console.error("[contact-qr] download failed:", error);
       onToast(error instanceof Error ? error.message : "Could not download QR image.");
     } finally {
       setWorking(false);
@@ -238,7 +235,6 @@ export function ContactQrModal({
       window.setTimeout(() => setCopied(false), 1800);
       onToast("QR image copied.");
     } catch (error) {
-      console.error("[contact-qr] copy failed:", error);
       onToast(error instanceof Error ? error.message : "Could not copy QR image.");
     } finally {
       setWorking(false);
@@ -282,7 +278,6 @@ export function ContactQrModal({
       }
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
-      console.error("[contact-qr] share failed:", error);
       onToast(
         error instanceof Error
           ? `Could not share QR image: ${error.message}`
@@ -305,7 +300,7 @@ export function ContactQrModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="contact-qr-title"
-        className="flex max-h-[min(92dvh,720px)] w-full max-w-[420px] flex-col overflow-hidden rounded-[28px] border border-white/70 bg-[#f8f9fb] shadow-[0_24px_90px_-24px_rgba(0,0,0,.4)]"
+        className="flex max-h-[min(92dvh,720px)] w-full max-w-[360px] flex-col overflow-hidden rounded-[24px] border border-white/70 bg-[#f8f9fb] shadow-[0_24px_90px_-24px_rgba(0,0,0,.4)]"
       >
         <header className="flex items-center justify-between border-b border-black/[.06] bg-white px-5 py-4">
           <div className="min-w-0">
@@ -328,7 +323,7 @@ export function ContactQrModal({
 
         <div className="overflow-y-auto px-5 py-6">
           <div
-            className="mx-auto w-full max-w-[292px]"
+            className="mx-auto w-full max-w-[240px]"
             aria-label={`QR code linking to ${displayName}`}
             role="img"
           >
@@ -341,7 +336,7 @@ export function ContactQrModal({
               <div className="aspect-square w-full animate-pulse rounded-2xl bg-[#eef0f4]" />
             )}
           </div>
-          <p className="mx-auto mt-4 max-w-[300px] break-all text-center font-mono text-[11px] leading-relaxed text-ink-mute">
+          <p className="mx-auto mt-3 max-w-[260px] break-all text-center font-mono text-[10px] leading-relaxed text-ink-mute">
             {url || "Preparing contact link…"}
           </p>
           <button

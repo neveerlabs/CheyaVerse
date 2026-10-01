@@ -65,7 +65,7 @@ function buildSvg(
     { x: size - 7, y: 0 },
     { x: 0, y: size - 7 },
   ];
-  const logoRadius = size * 0.085;
+  const logoRadius = size * 0.095;
   const logoCenter = fullSize / 2;
   const modules: string[] = [];
 
@@ -100,11 +100,11 @@ function buildSvg(
     const radius = appearance.dots === "square" ? 0.4 : 1.8;
     return `<g transform="translate(${px} ${py})"><rect width="7" height="7" rx="${radius}" fill="url(#media-qr-gradient)"/><rect x="1" y="1" width="5" height="5" rx="${Math.min(1.4, radius)}" fill="${appearance.background}"/><rect x="2" y="2" width="3" height="3" rx="${Math.min(0.9, radius)}" fill="url(#media-qr-gradient)"/></g>`;
   }).join("");
-  const logoSize = size * 0.145;
+  const logoSize = size * 0.175;
   const logoX = (fullSize - logoSize) / 2;
   const logoUri = `${origin}/assets/cheyaverse.jpg`;
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="960" height="960" viewBox="0 0 ${fullSize} ${fullSize}"><defs><linearGradient id="media-qr-gradient" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="${color.start}"/><stop offset="100%" stop-color="${color.end}"/></linearGradient><clipPath id="media-qr-logo"><circle cx="${logoCenter}" cy="${logoCenter}" r="${logoSize / 2}"/></clipPath></defs><rect width="${fullSize}" height="${fullSize}" fill="${appearance.background}"/>${modules.join("")}${finders}<circle cx="${logoCenter}" cy="${logoCenter}" r="${logoSize / 2 + 1.4}" fill="${appearance.background}"/><image href="${logoUri}" x="${logoX}" y="${logoX}" width="${logoSize}" height="${logoSize}" preserveAspectRatio="xMidYMid slice" clip-path="url(#media-qr-logo)"/></svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="960" height="960" viewBox="0 0 ${fullSize} ${fullSize}"><defs><linearGradient id="media-qr-gradient" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="${color.start}"/><stop offset="100%" stop-color="${color.end}"/></linearGradient><clipPath id="media-qr-logo"><circle cx="${logoCenter}" cy="${logoCenter}" r="${logoSize / 2}"/></clipPath></defs><rect width="${fullSize}" height="${fullSize}" fill="${appearance.background}"/>${modules.join("")}${finders}<image href="${logoUri}" x="${logoX}" y="${logoX}" width="${logoSize}" height="${logoSize}" preserveAspectRatio="xMidYMid slice" clip-path="url(#media-qr-logo)"/></svg>`;
 }
 
 async function renderPng(svg: string): Promise<Blob> {
@@ -203,7 +203,6 @@ export function MediaQrModal({
       window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
       onToast("Mengunduh QR code.");
     } catch (error) {
-      console.error("[media-qr] download failed:", error);
       onToast(error instanceof Error ? error.message : "Gagal mengunduh QR.");
     } finally {
       setWorking(false);
@@ -223,7 +222,6 @@ export function MediaQrModal({
       ]);
       onToast("Image copied.");
     } catch (error) {
-      console.error("[media-qr] copy failed:", error);
       onToast(error instanceof Error ? error.message : "Image copy failed.");
     } finally {
       setWorking(false);

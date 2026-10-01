@@ -20,10 +20,10 @@ import {
   Reply,
   Trash2,
   UserRound,
-  Share2,
   ListChecks,
   Bell,
   BellOff,
+  Send,
 } from "lucide-react";
 import { useRealtime } from "@/lib/use-realtime";
 import { ChatComposer } from "@/components/ChatComposer";
@@ -245,6 +245,8 @@ export function ChatRoomClient({
   const [forwardUsers, setForwardUsers] = useState<ForwardContact[]>([]);
   const [forwardLoading, setForwardLoading] = useState(false);
   const [forwardTargets, setForwardTargets] = useState<string[]>([]);
+  const [forwardSelectedUids, setForwardSelectedUids] = useState<number[]>([]);
+  const [forwarding, setForwarding] = useState(false);
   const [contacts, setContacts] = useState<ForwardContact[]>([]);
   const [contactsLoading, setContactsLoading] = useState(false);
   const [contactsLoaded, setContactsLoaded] = useState(false);
@@ -286,9 +288,7 @@ export function ChatRoomClient({
       const value = window.localStorage.getItem(`${MUTE_KEY_PREFIX}${uid}`) === "1";
       setMuted(value);
       mutedRef.current = value;
-    } catch (error) {
-      console.error("[chat-room] notification preference unavailable:", error);
-    }
+    } catch {}
   }, [uid]);
 
   const chatItems: ChatItem[] = useMemo(() => {
@@ -397,8 +397,7 @@ export function ChatRoomClient({
           ? "Browser notifications muted for this chat."
           : "Browser notifications enabled for this chat.",
       );
-    } catch (error) {
-      console.error("[chat-room] could not save notification preference:", error);
+    } catch {
       showToast("Could not save notification preference.");
     }
   }
@@ -884,9 +883,7 @@ export function ChatRoomClient({
           setContacts(json.contacts);
         }
       })
-      .catch((error) => {
-        console.error("[chat-room] failed to load contacts:", error);
-      })
+      .catch(() => {})
       .finally(() => {
         if (!cancelled) {
           setContactsLoading(false);
@@ -921,7 +918,6 @@ export function ChatRoomClient({
         setForwardUsers(Array.isArray(result.users) ? result.users : []);
       } catch (error) {
         if (controller.signal.aborted) return;
-        console.error("[chat-room] forward search failed:", error);
         setForwardUsers([]);
       } finally {
         if (!controller.signal.aborted) setForwardLoading(false);
@@ -1080,8 +1076,7 @@ export function ChatRoomClient({
     try {
       await navigator.clipboard.writeText(texts.join("\n\n"));
       showToast("Pesan disalin.");
-    } catch (error) {
-      console.error("[chat-room] clipboard write failed:", error);
+    } catch {
       showToast("Pesan tidak dapat disalin. Periksa izin clipboard browser.");
     }
     exitSelectMode();
@@ -1196,10 +1191,9 @@ export function ChatRoomClient({
         }),
       );
       showToast(scope === "everyone" ? "Chat cleared for everyone." : "Chat cleared for you.");
-    } catch (error) {
+    } catch {
       setMessages(messageSnapshot);
       setHiddenNotificationIds(hiddenSnapshot);
-      console.error("[chat-room] clear for me failed:", error);
       showToast("Failed to clear chat.");
     } finally {
       setClearing(false);
@@ -1224,37 +1218,82 @@ export function ChatRoomClient({
       .map((it) => it.replyTargetId!);
     if (ids.length === 0) return;
     setForwardTargets(ids);
+    setForwardSelectedUids([]);
     setForwardQuery("");
     setForwardUsers([]);
     setForwardOpen(true);
   }
 
-  async function forwardMessages(targetUid: number) {
-    if (forwardTargets.length === 0) return;
+  function toggleForwardContact(targetUid: number) {
+    setForwardSelectedUids((current) =>
+      current.includes(targetUid)
+        ? current.filter((uid) => uid !== targetUid)
+        : [...current, targetUid],
+    );
+  }
+
+  async function forwardMessages() {
+    if (
+      forwarding ||
+      forwardTargets.length === 0 ||
+      forwardSelectedUids.length === 0
+    ) return;
     const ids = forwardTargets.slice();
-    setForwardOpen(false);
-    setForwardTargets([]);
-    setForwardQuery("");
-    exitSelectMode();
-    if (targetUid === Number(uid)) {
-      showToast("Pesan diteruskan.");
+    const targetUids = forwardSelectedUids.filter(
+      (targetUid) => targetUid !== Number(uid),
+    );
+    if (targetUids.length === 0) {
+      showToast("Pilih kontak lain untuk meneruskan pesan.");
       return;
     }
-    router.push(`/${uid}/chat/${targetUid}`);
+    setForwarding(true);
     try {
-      await Promise.all(
-        ids.map((id) =>
-          fetch(`/api/messages/${encodeURIComponent(uid)}/actions`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: "forward", messageId: id, targetUid }),
-          }).then((res) => {
-            if (!res.ok) throw new Error("Pesan gagal diteruskan.");
-          }),
-        ),
+      const results = await Promise.all(
+        targetUids.map(async (targetUid) => {
+          const responses = await Promise.all(
+            ids.map((id) =>
+              fetch(`/api/messages/${encodeURIComponent(uid)}/actions`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  action: "forward",
+                  messageId: id,
+                  targetUid,
+                }),
+              }),
+            ),
+          );
+          return responses.every((response) => response.ok);
+        }),
       );
+      const sentCount = results.filter(Boolean).length;
+      const failedCount = results.length - sentCount;
+      if (sentCount > 0) {
+        showToast(
+          failedCount > 0
+            ? `Pesan diteruskan ke ${sentCount} kontak; ${failedCount} gagal.`
+            : `Pesan diteruskan ke ${sentCount} kontak.`,
+        );
+      } else {
+        showToast("Pesan gagal diteruskan. Coba lagi.");
+      }
+      if (failedCount > 0) {
+        setForwardSelectedUids(
+          targetUids.filter((_targetUid, index) => !results[index]),
+        );
+      }
+      if (failedCount === 0) {
+        setForwardOpen(false);
+        setForwardTargets([]);
+        setForwardSelectedUids([]);
+        setForwardQuery("");
+        setForwardUsers([]);
+        exitSelectMode();
+      }
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Pesan gagal diteruskan.");
+    } finally {
+      setForwarding(false);
     }
   }
 
@@ -1285,12 +1324,16 @@ export function ChatRoomClient({
 
   const mergedForwardUsers = useMemo(() => {
     const map = new Map<number, ForwardContact>();
-    for (const c of filteredContacts) map.set(c.uid, c);
+    for (const c of filteredContacts) {
+      if (c.uid !== Number(uid)) map.set(c.uid, c);
+    }
     for (const u of forwardUsers) {
-      if (!map.has(u.uid)) map.set(u.uid, u as ForwardContact);
+      if (u.uid !== Number(uid) && !map.has(u.uid)) {
+        map.set(u.uid, u as ForwardContact);
+      }
     }
     return Array.from(map.values());
-  }, [filteredContacts, forwardUsers]);
+  }, [filteredContacts, forwardUsers, uid]);
 
   const header = (
     <header
@@ -1392,13 +1435,6 @@ export function ChatRoomClient({
             </div>
             {menuOpen && (
               <div className="absolute right-5 top-[calc(100%-4px)] z-50 w-64 overflow-hidden rounded-2xl border border-line bg-white py-1 shadow-xl animate-fade-up">
-                <button
-                  type="button"
-                  onClick={() => setMenuOpen(false)}
-                  className="flex w-full items-center gap-2 px-4 py-3 text-left text-[13px] text-ink"
-                >
-                  <Share2 size={15} /> Share contact
-                </button>
                 <button
                   type="button"
                   onClick={enterSelectModeEmpty}
@@ -1795,8 +1831,10 @@ export function ChatRoomClient({
         <div
           role="presentation"
           onClick={() => {
+            if (forwarding) return;
             setForwardOpen(false);
             setForwardTargets([]);
+            setForwardSelectedUids([]);
             setForwardQuery("");
             setForwardUsers([]);
           }}
@@ -1810,13 +1848,17 @@ export function ChatRoomClient({
             className="flex w-full max-w-[600px] flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl md:max-w-[520px] md:rounded-2xl"
           >
             <div className="flex items-center justify-between border-b border-line px-4 py-3">
-              <h2 className="text-[14px] font-semibold text-ink">Forward message</h2>
+              <h2 className="text-[14px] font-semibold text-ink">
+                Forward {forwardTargets.length === 1 ? "message" : "messages"}
+              </h2>
               <button
                 type="button"
                 aria-label="Close"
+                disabled={forwarding}
                 onClick={() => {
                   setForwardOpen(false);
                   setForwardTargets([]);
+                  setForwardSelectedUids([]);
                   setForwardQuery("");
                   setForwardUsers([]);
                 }}
@@ -1842,13 +1884,22 @@ export function ChatRoomClient({
                   <button
                     key={contact.uid}
                     type="button"
-                    onClick={() => void forwardMessages(contact.uid)}
+                    role="checkbox"
+                    aria-checked={forwardSelectedUids.includes(contact.uid)}
+                    disabled={forwarding}
+                    onClick={() => toggleForwardContact(contact.uid)}
                     className="flex w-[72px] flex-shrink-0 flex-col items-center gap-1.5"
                   >
-                    <span className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-full border border-line bg-[#f5f5f5]">
+                    <span className="relative flex h-14 w-14 items-center justify-center overflow-hidden rounded-full border border-line bg-[#f5f5f5]">
                       <TelegramAvatar
                         src={contact.photo_url || `/api/avatar/${contact.uid}`}
+                        fallbackSrc={`/api/avatar/${contact.uid}`}
                       />
+                      {forwardSelectedUids.includes(contact.uid) && (
+                        <span className="absolute bottom-2 right-2 flex h-[19px] w-[19px] items-center justify-center rounded-full border-2 border-white bg-emerald-600 text-white">
+                          <Check size={12} strokeWidth={3} />
+                        </span>
+                      )}
                     </span>
                     <span className="w-full truncate text-center text-[11px] leading-tight text-ink">
                       {contactLabel(contact)}
@@ -1876,6 +1927,19 @@ export function ChatRoomClient({
                   )}
               </div>
             </div>
+            <footer className="border-t border-line p-3">
+              <button
+                type="button"
+                onClick={() => void forwardMessages()}
+                disabled={forwarding || forwardSelectedUids.length === 0}
+                className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-ink px-4 text-[13px] font-semibold text-white disabled:opacity-45"
+              >
+                <Send size={15} />
+                {forwarding
+                  ? "Mengirim…"
+                  : `Kirim ke ${forwardSelectedUids.length} kontak`}
+              </button>
+            </footer>
           </section>
         </div>
       )}

@@ -38,10 +38,6 @@
   transition: opacity 160ms ease;
 }
 
-.back:hover {
-  opacity: 0.68;
-}
-
 .secure {
   display: inline-flex;
   align-items: center;
@@ -116,10 +112,24 @@
   border-top: 1px solid #e2e2df;
 }
 
-.method:hover,
 .methodActive {
   padding-inline: 10px;
   background: #efefed;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .back:hover {
+    opacity: 0.68;
+  }
+
+  .method:not(.methodActive):hover {
+    padding-inline: 10px;
+    background: #efefed;
+  }
+
+  .copyButton:hover {
+    background: #42496f;
+  }
 }
 
 .methodIcon {
@@ -335,10 +345,6 @@
   font-weight: 650;
   cursor: pointer;
   transition: background-color 160ms ease, transform 160ms ease;
-}
-
-.copyButton:hover {
-  background: #42496f;
 }
 
 .copyButton:active {

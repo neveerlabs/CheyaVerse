@@ -35,27 +35,27 @@ export function renderMarkdownInline(input: string): string {
 function renderBlocks(text: string): string {
   text = text.replace(
     /^###### (.*)$/gm,
-    '<h6 class="my-1 text-[12px] font-semibold uppercase tracking-wider text-ink-mute">$1</h6>',
+    '<h6 class="text-[12px] font-semibold uppercase tracking-wider text-ink-mute">$1</h6>',
   );
   text = text.replace(
     /^##### (.*)$/gm,
-    '<h5 class="my-1 text-[12.5px] font-semibold text-ink-mute">$1</h5>',
+    '<h5 class="text-[12.5px] font-semibold text-ink-mute">$1</h5>',
   );
   text = text.replace(
     /^#### (.*)$/gm,
-    '<h4 class="my-1 text-[13px] font-semibold text-ink">$1</h4>',
+    '<h4 class="text-[13px] font-semibold text-ink">$1</h4>',
   );
   text = text.replace(
     /^### (.*)$/gm,
-    '<h3 class="my-1 text-[14px] font-semibold text-ink">$1</h3>',
+    '<h3 class="text-[14px] font-semibold text-ink">$1</h3>',
   );
   text = text.replace(
     /^## (.*)$/gm,
-    '<h2 class="my-1 text-[15px] font-semibold text-ink">$1</h2>',
+    '<h2 class="text-[15px] font-semibold text-ink">$1</h2>',
   );
   text = text.replace(
     /^# (.*)$/gm,
-    '<h1 class="my-1 text-[16px] font-bold text-ink">$1</h1>',
+    '<h1 class="text-[16px] font-bold text-ink">$1</h1>',
   );
 
   text = text.replace(
@@ -65,16 +65,16 @@ function renderBlocks(text: string): string {
 
   text = text.replace(
     /^&gt; ?(.*)$/gm,
-    '<span class="my-0.5 block border-l-2 border-ink/30 pl-2 italic text-ink-soft">$1</span>',
+    '<span class="chat-note block border-l-2 border-ink/30 pl-2 italic text-ink-soft">$1</span>',
   );
 
   text = text.replace(
     /^[-*+] \[ \] (.*)$/gm,
-    '<span class="my-0.5 block pl-4 relative"><span class="absolute left-0">☐</span>$1</span>',
+    '<span class="block pl-4 relative"><span class="absolute left-0">☐</span>$1</span>',
   );
   text = text.replace(
     /^[-*+] \[[xX]\] (.*)$/gm,
-    '<span class="my-0.5 block pl-4 relative"><span class="absolute left-0">☑</span>$1</span>',
+    '<span class="block pl-4 relative"><span class="absolute left-0">☑</span>$1</span>',
   );
 
   text = text.replace(

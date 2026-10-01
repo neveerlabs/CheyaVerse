@@ -5,48 +5,32 @@ export const dynamic = "force-dynamic";
 
 const SECTIONS: { title: string; body: string }[] = [
   {
-    title: "Acceptance of Terms",
-    body: "Dengan mengakses dan menggunakan layanan CheyaVerse, pengguna menyatakan telah membaca, memahami, dan menyetujui seluruh syarat dan ketentuan dalam dokumen ini. Jika tidak menyetujui salah satu ketentuan, pengguna dilarang menggunakan layanan.",
+    title: "Ruang lingkup layanan",
+    body: "CheyaVerse menyediakan bot Telegram dan dashboard personal untuk mengelola media, percakapan, sesi perangkat, serta repositori GitHub yang dipilih pengguna. Ketersediaan fitur dapat berbeda sesuai perangkat, koneksi, dan layanan pihak ketiga yang digunakan.",
   },
   {
-    title: "Service Description",
-    body: "CheyaVerse adalah layanan bot Telegram yang memungkinkan pengguna mengunggah, menyimpan, dan mengakses media melalui QR code dan dashboard personal. Layanan disediakan sebagaimana adanya (as is) tanpa jaminan ketersediaan tanpa gangguan.",
+    title: "Akun dan keamanan",
+    body: "Akun web terhubung dengan identitas Telegram. Pengguna bertanggung jawab menjaga keamanan akun Telegram dan mengelola sesi perangkat yang masih aktif. Nama tampilan yang diubah di Settings hanya berlaku di CheyaVerse dan tidak mengubah profil Telegram.",
   },
   {
-    title: "User Accounts",
-    body: "Akun tertaut langsung dengan ID Telegram pengguna. Pengguna bertanggung jawab menjaga keamanan akun Telegram. Segala aktivitas yang dilakukan melalui akun dianggap sebagai tanggung jawab pengguna.",
+    title: "Penggunaan yang diperbolehkan",
+    body: "Gunakan layanan sesuai hukum dan hak pihak lain. Pengguna bertanggung jawab atas media dan pesan yang diunggah atau dikirim, termasuk memastikan bahwa pengguna memiliki hak untuk menggunakan konten tersebut. Jangan gunakan layanan untuk menyebarkan konten ilegal, mengganggu pengguna lain, atau mencoba mengakses akun maupun data tanpa izin.",
   },
   {
-    title: "Permitted Use",
-    body: "Layanan hanya boleh digunakan untuk keperluan pribadi dan sah. Pengguna dilarang menyimpan atau menyebarkan konten ilegal, melanggar hak kekayaan intelektual, bermuatan SARA, maupun konten yang dapat merugikan pihak lain.",
+    title: "Batas media",
+    body: "Batas unggahan mengikuti fitur yang digunakan dan ditampilkan saat proses unggah. Saat ini bot QR menerima media hingga 15 MiB per file, sedangkan item media Library dibatasi hingga 4 MiB. Format yang dapat diputar atau ditampilkan juga bergantung pada dukungan browser.",
   },
   {
-    title: "File Size and Format Limits",
-    body: "Ukuran maksimum file adalah 15 MB per file. Layanan menerima format gambar dan video dengan kodek yang didukung browser modern. Sistem berhak menolak file yang melebihi batas ukuran atau bertipe tidak didukung.",
+    title: "Masa berlaku media",
+    body: "Setiap media memiliki tanggal kedaluwarsa yang ditampilkan pada layanan. Media akan dihapus otomatis setelah masa berlakunya berakhir dan mungkin tidak dapat dipulihkan. Simpan salinan sendiri jika file masih diperlukan.",
   },
   {
-    title: "Media Retention",
-    body: "Media disimpan selama 30 hari sejak tanggal unggahan. Setelah periode tersebut, file dihapus otomatis dan tidak dapat dipulihkan. Pengguna bertanggung jawab mengunduh atau mencadangkan media penting sebelum masa simpan berakhir.",
+    title: "Koneksi GitHub",
+    body: "Jika menghubungkan GitHub, pengguna memberi CheyaVerse izin untuk meminta data repositori sesuai cakupan token yang diberikan. Pilih izin minimum yang diperlukan dan putuskan koneksi atau cabut token dari GitHub saat tidak lagi digunakan.",
   },
   {
-    title: "User Content",
-    body: "Pengguna bertanggung jawab penuh atas seluruh konten yang diunggah. Pengguna menyatakan memiliki hak yang sah atas konten tersebut dan tidak melanggar hak pihak ketiga.",
-  },
-  {
-    title: "Limitation of Liability",
-    body: "CheyaVerse disediakan tanpa jaminan apa pun. Pengembang tidak bertanggung jawab atas kehilangan data, gangguan layanan, atau kerugian tidak langsung yang timbul dari penggunaan layanan ini.",
-  },
-  {
-    title: "Service Termination",
-    body: "Sistem berhak menghentikan atau membatasi akses pengguna ke layanan jika ditemukan pelanggaran terhadap syarat dan ketentuan ini, tanpa pemberitahuan terlebih dahulu.",
-  },
-  {
-    title: "Changes to These Terms",
-    body: "Pengembang dapat memperbarui syarat dan ketentuan ini kapan saja. Versi terbaru selalu tersedia di halaman ini. Penggunaan layanan secara berkelanjutan menandakan persetujuan pengguna terhadap perubahan yang berlaku.",
-  },
-  {
-    title: "Governing Law",
-    body: "Syarat dan ketentuan ini diatur oleh dan ditafsirkan sesuai dengan hukum yang berlaku di Republik Indonesia.",
+    title: "Penghapusan dan ketersediaan",
+    body: "Pengguna dapat menghapus data akun web melalui Settings. Penghapusan akun web tidak menghapus data yang tersimpan di Telegram atau GitHub. Layanan dapat mengalami gangguan atau perubahan fitur; CheyaVerse tidak menjanjikan layanan selalu tersedia tanpa jeda.",
   },
 ];
 
@@ -62,23 +46,23 @@ export default function AgreementPage({
     <>
       <SubPageHeader
         title="User Agreement"
-        subtitle="Pembaruan terakhir: 1 Oktober 2026"
+        subtitle="Last updated: 2026-01-October"
         backHref={`/${params.uid}/profile`}
         cornerLabel="USER AGREEMENT"
       />
 
       <article className="animate-fade-up">
         <p className="text-[13.5px] text-ink-soft leading-[1.75] mb-7">
-          Dokumen ini merupakan perjanjian yang mengikat secara hukum antara
-          pengguna dan pengembang CheyaVerse. Bacalah dengan saksama sebelum
-          menggunakan layanan.
+          Ketentuan berikut menjelaskan penggunaan fitur CheyaVerse dan
+          tanggung jawab pengguna. Hubungi dukungan jika ada bagian yang perlu
+          diklarifikasi.
         </p>
 
         <div className="flex flex-col gap-6">
           {SECTIONS.map((s, i) => (
             <section key={s.title}>
               <h2 className="text-[14.5px] font-semibold text-ink mb-2 tracking-[-.005em]">
-                Article {i + 1} — {s.title}
+                {i + 1}. {s.title}
               </h2>
               <p className="text-[13.5px] text-ink-soft leading-[1.75]">
                 {s.body}
@@ -89,8 +73,8 @@ export default function AgreementPage({
 
         <div className="mt-9 pt-5 border-t border-divider">
           <p className="text-[11.5px] text-ink-mute leading-relaxed">
-            Dengan menggunakan CheyaVerse, pengguna menyatakan telah membaca,
-            memahami, dan menyetujui seluruh isi Perjanjian Pengguna ini.
+            Ketentuan ini dapat diperbarui jika fitur atau cara kerja layanan
+            berubah. Versi terbaru tersedia di halaman ini.
           </p>
         </div>
       </article>

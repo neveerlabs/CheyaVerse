@@ -12,15 +12,12 @@ export function ChatPresence() {
       if (document.visibilityState !== "visible" || pending) return;
       pending = true;
       try {
-        const response = await fetch("/api/presence", {
+        await fetch("/api/presence", {
           method: "POST",
           cache: "no-store",
         });
-        if (!response.ok) {
-          console.error(`[presence] heartbeat failed (${response.status})`);
-        }
-      } catch (error) {
-        console.error("[presence] heartbeat request failed:", error);
+      } catch {
+        return;
       } finally {
         pending = false;
       }

@@ -4,6 +4,7 @@ import {
   getStats,
   listRecentMedia,
   getCover,
+  getAccountDisplayName,
   getTelegramUser,
 } from "@/lib/storage";
 import { ProfileClient } from "./ProfileClient";
@@ -18,11 +19,12 @@ export default async function ProfilePage({
   const uid = Number(params.uid);
   if (!Number.isInteger(uid) || uid <= 0) notFound();
 
-  const [account, cover, stats, raw] = await Promise.all([
+  const [account, cover, stats, raw, displayName] = await Promise.all([
     getTelegramUser(uid),
     getCover(uid),
     getStats(uid),
     listRecentMedia(uid, 9),
+    getAccountDisplayName(uid),
   ]);
   const info = account
     ? {
@@ -47,6 +49,7 @@ export default async function ProfilePage({
       uid={params.uid}
       isAdmin={account?.role === "admin"}
       info={info}
+      displayName={displayName}
       stats={stats}
       media={media}
       cover={cover}

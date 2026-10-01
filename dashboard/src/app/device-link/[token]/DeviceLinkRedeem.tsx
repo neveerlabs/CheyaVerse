@@ -40,8 +40,7 @@ export function DeviceLinkRedeem({ token }: { token: string }) {
           return;
         }
         window.location.replace(`/${result.uid}`);
-      } catch (cause) {
-        console.error("[device-link] redemption failed:", cause);
+      } catch {
         setFailed(true);
         setMessage("Koneksi gagal. Periksa jaringan lalu coba lagi.");
       }

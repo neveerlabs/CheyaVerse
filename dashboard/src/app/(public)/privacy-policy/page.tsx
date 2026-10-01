@@ -4,40 +4,32 @@ export const dynamic = "force-dynamic";
 
 const SECTIONS: { title: string; body: string }[] = [
   {
-    title: "Introduction",
-    body: "Dokumen ini menjelaskan bagaimana CheyaVerse mengumpulkan, menggunakan, dan melindungi data pengguna. Dengan menggunakan layanan, pengguna menyetujui praktik yang dijelaskan dalam dokumen ini.",
+    title: "Data yang diproses",
+    body: "CheyaVerse memproses identitas Telegram untuk menghubungkan akun, nama tampilan pilihan pengguna, media dan pesan yang disimpan atau dikirim melalui fitur layanan, serta informasi sesi dan perangkat untuk menjaga akses akun. Jika GitHub dihubungkan, CheyaVerse juga menyimpan nama akun dan token akses GitHub dalam bentuk terenkripsi.",
   },
   {
-    title: "Information We Collect",
-    body: "CheyaVerse menyimpan metadata media Telegram (ID media, nama file, ukuran, tipe konten, masa berlaku, dan ID Telegram). Jika pengguna menghubungkan GitHub, sistem juga menyimpan nama akun GitHub, informasi izin token yang tersedia, dan Personal Access Token dalam bentuk terenkripsi. Data repositori, struktur file, commit, deployment, dan statistik trafik diminta dari GitHub saat fitur Projects digunakan; riwayat GitHub tersebut tidak disalin sebagai arsip terpisah ke database CheyaVerse.",
+    title: "Cara data digunakan",
+    body: "Data digunakan untuk menyediakan dashboard, media, percakapan, notifikasi, keamanan sesi, dan fitur Projects. Informasi repositori, branch, commit, deployment, serta statistik GitHub diminta saat fitur tersebut digunakan; data ini disajikan dari GitHub dan bukan arsip riwayat terpisah di CheyaVerse.",
   },
   {
-    title: "How We Use Information",
-    body: "Data digunakan untuk menampilkan media di dashboard, mengelola masa berlaku media, serta—jika akun GitHub dihubungkan—membaca repositori, branch, bahasa, commit beserta perubahan file/baris, GitHub Actions, deployment, dan analitik trafik agregat.",
+    title: "Layanan pihak ketiga",
+    body: "CheyaVerse tidak menjual data pengguna. Telegram digunakan untuk autentikasi dan fitur bot/media; GitHub memproses permintaan ketika akun GitHub dihubungkan; layanan verifikasi dapat digunakan pada halaman media. Browser dan penyedia push yang dipakai browser dapat memproses data yang diperlukan untuk mengirim notifikasi.",
   },
   {
-    title: "Data Sharing",
-    body: "CheyaVerse tidak menjual data pengguna. Untuk fitur GitHub, server mengirim permintaan API terautentikasi ke GitHub menggunakan token yang diberikan pengguna; GitHub memproses permintaan sesuai kebijakan privasinya. Token dan data akun GitHub tidak ditampilkan kepada pengguna CheyaVerse lain. Media Telegram tetap dapat diakses melalui URL media milik pengguna.",
+    title: "Keamanan akun",
+    body: "Akun web terhubung dengan ID Telegram. Token GitHub dienkripsi sebelum disimpan dan tidak dikirim kembali ke browser setelah tersimpan. Pengguna dapat memutus koneksi GitHub, mengelola sesi perangkat, atau keluar dari akun melalui Settings. Gunakan token GitHub dengan izin minimum yang diperlukan.",
   },
   {
-    title: "Security",
-    body: "Dashboard menggunakan sesi yang tertaut ke ID Telegram. Token GitHub dienkripsi di sisi server menggunakan AES-256-GCM sebelum disimpan di Turso dan tidak pernah dikirim kembali ke browser setelah disimpan. Pengguna dianjurkan memakai token read-only dengan akses repositori seminimal mungkin dan dapat mencabut atau menggantinya kapan saja.",
+    title: "Masa penyimpanan",
+    body: "Media disimpan sampai tanggal kedaluwarsa yang ditampilkan pada layanan, lalu dihapus otomatis. Token GitHub disimpan sampai koneksinya diputus atau akun web dihapus. Data akun dan percakapan disimpan selama diperlukan untuk menyediakan fitur terkait; pengguna dapat menghapus akun web melalui Settings.",
   },
   {
-    title: "Data Retention",
-    body: "Media disimpan sesuai masa berlaku yang ditampilkan pada dashboard dan dihapus otomatis dari Telegram Storage setelah kedaluwarsa. Token GitHub tetap tersimpan terenkripsi sampai pengguna memilih Disconnect atau menghapus akun web. Statistik trafik GitHub hanya tersedia dalam rentang terbaru yang disediakan GitHub (maksimal 14 hari) dan tidak mengidentifikasi pengunjung.",
+    title: "Pilihan dan penghapusan",
+    body: "Pengguna dapat mengganti nama tampilan CheyaVerse tanpa mengubah profil Telegram, menghapus media yang dikelola melalui layanan, memutus koneksi GitHub, mencabut sesi perangkat, atau menghapus akun web. Penghapusan akun web tidak menghapus informasi yang masih berada di Telegram atau GitHub.",
   },
   {
-    title: "User Rights",
-    body: "Pengguna dapat menghapus media melalui dashboard, memutuskan koneksi GitHub untuk menghapus token dari database CheyaVerse, atau menghapus akun web untuk menghapus data akun. Pengguna juga dapat mencabut token langsung dari pengaturan keamanan GitHub. Penghapusan akun tidak menghapus data yang berada di layanan GitHub atau Telegram.",
-  },
-  {
-    title: "Policy Changes",
-    body: "Kebijakan Privasi dapat diperbarui dari waktu ke waktu. Perubahan signifikan akan diinformasikan melalui bot. Penggunaan layanan setelah pembaruan menandakan persetujuan pengguna terhadap kebijakan yang telah diperbarui.",
-  },
-  {
-    title: "Contact",
-    body: "Pertanyaan terkait privasi data dapat dikirim melalui email ke userlinuxorg@gmail.com. Respons diberikan dalam waktu 3-5 hari kerja.",
+    title: "Pertanyaan privasi",
+    body: "Untuk pertanyaan atau permintaan terkait data, hubungi userlinuxorg@gmail.com. Sertakan informasi yang cukup untuk memahami permintaan dan jangan mengirimkan kata sandi atau token akses.",
   },
 ];
 
@@ -46,15 +38,14 @@ export default function PrivacyPolicyPage() {
     <>
       <AppHeader
         title="Privacy Policy"
-        subtitle="Pembaruan terakhir: 1 Oktober 2026"
+        subtitle="Last updated: 2026-01-October"
         cornerLabel="PRIVACY POLICY"
       />
 
       <article className="animate-fade-up">
         <p className="text-[13.5px] text-ink-soft leading-[1.75] mb-7">
-          CheyaVerse berkomitmen menjaga kerahasiaan data pengguna. Dokumen
-          ini menjelaskan secara transparan data apa yang diproses dan
-          bagaimana data tersebut dilindungi.
+          Halaman ini menjelaskan data yang diproses CheyaVerse, alasan
+          pemrosesannya, serta pilihan yang tersedia bagi pengguna.
         </p>
 
         <div className="flex flex-col gap-6">
@@ -72,9 +63,8 @@ export default function PrivacyPolicyPage() {
 
         <div className="mt-9 pt-5 border-t border-divider">
           <p className="text-[11.5px] text-ink-mute leading-relaxed">
-            Dokumen ini berlaku efektif sejak tanggal 22 September 2026.
-            Penggunaan layanan CheyaVerse menandakan pengguna telah membaca dan
-            menyetujui seluruh isi Kebijakan Privasi ini.
+            Kebijakan ini dapat diperbarui ketika fitur atau cara pemrosesan
+            data berubah. Versi yang berlaku selalu tersedia di halaman ini.
           </p>
         </div>
       </article>

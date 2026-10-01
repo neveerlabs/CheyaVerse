@@ -388,7 +388,7 @@ export async function ensureWelcomeNotification(
     }
 
     const message = [
-      `Login Telegram berhasil untuk akun ${userMention}. Perangkat ini sekarang terhubung ke akun CheyaVerse Anda.`,
+      `Login Telegram berhasil dilakukan untuk akun ${userMention}. Perangkat ini sekarang terhubung ke akun CheyaVerse Anda.`,
       "",
       "<b>Session active:</b>",
       `• <b>Perangkat:</b> ${deviceLine}`,
@@ -900,6 +900,57 @@ function rowToTelegramUser(row: Record<string, unknown>): TelegramUser {
 
 let telegramAccountsReady: Promise<void> | null = null;
 let telegramLoginChallengesReady: Promise<void> | null = null;
+let accountPreferencesReady: Promise<void> | null = null;
+
+async function ensureAccountPreferencesTable(): Promise<void> {
+  if (!accountPreferencesReady) {
+    accountPreferencesReady = getTurso()
+      .execute(`CREATE TABLE IF NOT EXISTS account_preferences (
+        uid INTEGER PRIMARY KEY,
+        display_name TEXT,
+        updated_at TEXT NOT NULL
+      )`)
+      .then(() => undefined)
+      .catch((error) => {
+        accountPreferencesReady = null;
+        throw error;
+      });
+  }
+  await accountPreferencesReady;
+}
+
+export async function getAccountDisplayName(uid: number): Promise<string | null> {
+  await ensureAccountPreferencesTable();
+  const result = await getTurso().execute({
+    sql: "SELECT display_name FROM account_preferences WHERE uid = ? LIMIT 1",
+    args: [uid],
+  });
+  const value = result.rows[0]?.display_name;
+  return value == null ? null : String(value);
+}
+
+export async function saveAccountDisplayName(
+  uid: number,
+  displayName: string,
+): Promise<void> {
+  await ensureAccountPreferencesTable();
+  await getTurso().execute({
+    sql: `INSERT INTO account_preferences (uid, display_name, updated_at)
+          VALUES (?, ?, ?)
+          ON CONFLICT(uid) DO UPDATE SET
+            display_name = excluded.display_name,
+            updated_at = excluded.updated_at`,
+    args: [uid, displayName, new Date().toISOString()],
+  });
+}
+
+export async function clearAccountDisplayName(uid: number): Promise<void> {
+  await ensureAccountPreferencesTable();
+  await getTurso().execute({
+    sql: "DELETE FROM account_preferences WHERE uid = ?",
+    args: [uid],
+  });
+}
 
 async function ensureTelegramAccountsTable(): Promise<void> {
   if (!telegramAccountsReady) {
@@ -2362,6 +2413,7 @@ export async function deleteWebAccountData(
     ensureDirectMessagesTable(),
     ensureDeviceFingerprintColumns(),
     ensureAccountSessionVersionsTable(),
+    ensureAccountPreferencesTable(),
   ]);
 
   const db = getTurso();
@@ -2414,6 +2466,7 @@ export async function deleteWebAccountData(
     ["chat_presence", "uid"],
     ["library_nodes", "owner_uid"],
     ["github_credentials", "uid"],
+    ["account_preferences", "uid"],
   ];
 
   const anonymizedAt = new Date().toISOString();

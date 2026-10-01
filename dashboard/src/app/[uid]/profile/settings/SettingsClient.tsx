@@ -4,12 +4,12 @@ import { useCallback, useEffect, useState } from "react";
 import {
   Calendar,
   Check,
-  Cpu,
   Database,
   Github,
   Globe,
-  HardDrive,
   Layers,
+  RotateCcw,
+  Save,
   Shield,
   Smartphone,
   Trash2,
@@ -24,10 +24,17 @@ type Device = {
   model: string | null;
   browser: string | null;
   lastSeen: string;
-  revoked: boolean;
 };
 
 type Tab = "general" | "security" | "data" | "github" | "about";
+
+type AccountSettings = {
+  telegramId: number;
+  username: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  createdAt: string | null;
+};
 
 const DEVICE_ID_KEY = "cheya_device_id";
 const DELETE_CONFIRMATION = "HAPUS AKUN";
@@ -43,12 +50,16 @@ function formatDate(value: string): string {
 
 export function SettingsClient({
   uid,
-  mediaTtlDays,
 }: {
   uid: string;
-  mediaTtlDays: number;
 }) {
   const [tab, setTab] = useState<Tab>("general");
+  const [account, setAccount] = useState<AccountSettings | null>(null);
+  const [displayName, setDisplayName] = useState("");
+  const [accountLoading, setAccountLoading] = useState(true);
+  const [accountBusy, setAccountBusy] = useState(false);
+  const [accountError, setAccountError] = useState("");
+  const [accountNotice, setAccountNotice] = useState("");
   const [devices, setDevices] = useState<Device[]>([]);
   const [currentDeviceId, setCurrentDeviceId] = useState<string | null>(null);
   const [devicesLoading, setDevicesLoading] = useState(false);
@@ -74,6 +85,93 @@ export function SettingsClient({
   const [githubBusy, setGithubBusy] = useState(false);
   const [githubError, setGithubError] = useState("");
   const [githubNotice, setGithubNotice] = useState("");
+
+  const loadAccountSettings = useCallback(async () => {
+    setAccountLoading(true);
+    setAccountError("");
+    try {
+      const response = await fetch("/api/account/preferences", {
+        cache: "no-store",
+      });
+      const result = (await response.json()) as {
+        account?: AccountSettings;
+        displayName?: string | null;
+        error?: string;
+      };
+      if (!response.ok || !result.account) {
+        throw new Error(result.error || "Account settings could not be loaded.");
+      }
+      setAccount(result.account);
+      setDisplayName(result.displayName ?? "");
+    } catch (cause) {
+      setAccountError(
+        cause instanceof Error
+          ? cause.message
+          : "Account settings could not be loaded.",
+      );
+    } finally {
+      setAccountLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadAccountSettings();
+    const requestedTab = new URLSearchParams(window.location.search).get("tab");
+    if (requestedTab === "about") setTab("about");
+  }, [loadAccountSettings]);
+
+  const saveDisplayName = async () => {
+    setAccountBusy(true);
+    setAccountError("");
+    setAccountNotice("");
+    try {
+      const response = await fetch("/api/account/preferences", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ displayName }),
+        cache: "no-store",
+      });
+      const result = (await response.json()) as {
+        displayName?: string;
+        error?: string;
+      };
+      if (!response.ok || typeof result.displayName !== "string") {
+        throw new Error(result.error || "Display name could not be saved.");
+      }
+      setDisplayName(result.displayName);
+      setAccountNotice("Display name saved.");
+    } catch (cause) {
+      setAccountError(
+        cause instanceof Error ? cause.message : "Display name could not be saved.",
+      );
+    } finally {
+      setAccountBusy(false);
+    }
+  };
+
+  const resetDisplayName = async () => {
+    setAccountBusy(true);
+    setAccountError("");
+    setAccountNotice("");
+    try {
+      const response = await fetch("/api/account/preferences", {
+        method: "DELETE",
+        cache: "no-store",
+      });
+      const result = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        throw new Error(result.error || "Display name could not be reset.");
+      }
+      setDisplayName("");
+      setAccountNotice("Display name reset to your Telegram name.");
+    } catch (cause) {
+      setAccountError(
+        cause instanceof Error ? cause.message : "Display name could not be reset.",
+      );
+    } finally {
+      setAccountBusy(false);
+    }
+  };
 
   const loadDevices = useCallback(async () => {
     setDevicesLoading(true);
@@ -133,9 +231,7 @@ export function SettingsClient({
   useEffect(() => {
     try {
       setCurrentDeviceId(window.localStorage.getItem(DEVICE_ID_KEY));
-    } catch (cause) {
-      console.warn("[settings] could not read current device ID:", cause);
-    }
+    } catch {}
   }, []);
 
   useEffect(() => {
@@ -212,8 +308,7 @@ export function SettingsClient({
       setCleared(true);
       setNotice("");
       window.setTimeout(() => setCleared(false), 1800);
-    } catch (cause) {
-      console.error("[settings] local cache could not be cleared:", cause);
+    } catch {
       setNotice("Cache lokal tidak dapat dihapus di browser ini.");
     }
   }
@@ -242,19 +337,13 @@ export function SettingsClient({
       }
       const current = revokingDevice.deviceId === currentDeviceId;
       setDevices((items) =>
-        items.map((item) =>
-          item.deviceId === revokingDevice.deviceId
-            ? { ...item, revoked: true }
-            : item,
-        ),
+        items.filter((item) => item.deviceId !== revokingDevice.deviceId),
       );
       setRevokingDevice(null);
       if (current) {
         try {
           window.localStorage.removeItem(DEVICE_ID_KEY);
-        } catch (cause) {
-          console.warn("[settings] could not clear revoked device ID:", cause);
-        }
+        } catch {}
         window.location.replace("/blocked");
       }
     } catch (cause) {
@@ -326,9 +415,7 @@ export function SettingsClient({
       }
       try {
         window.localStorage.removeItem(DEVICE_ID_KEY);
-      } catch (cause) {
-        console.warn("[settings] could not clear deleted account device ID:", cause);
-      }
+      } catch {}
       setDeleteOpen(false);
       setDeleteText("");
       setNotice(
@@ -393,17 +480,80 @@ export function SettingsClient({
           id="settings-panel-general"
           className="animate-fade-up space-y-5"
         >
-          <SettingsSection title="Preferences">
-            <Row icon={<Globe size={17} />} title="Language" value="Indonesian" />
-            <Row icon={<Calendar size={17} />} title="Time format" value="24-hour" last />
-          </SettingsSection>
           <SettingsSection title="Account">
-            <Row
-              icon={<Smartphone size={17} />}
-              title="Telegram ID"
-              value={uid}
-              last
-            />
+            {accountLoading ? (
+              <p className="px-3 py-4 text-[12px] text-ink-mute">Loading account details…</p>
+            ) : accountError ? (
+              <p role="alert" className="px-3 py-4 text-[12px] text-danger">{accountError}</p>
+            ) : account ? (
+              <>
+                <Row
+                  icon={<Smartphone size={17} />}
+                  title="Telegram ID"
+                  value={String(account.telegramId)}
+                />
+                <Row
+                  icon={<Globe size={17} />}
+                  title="Telegram username"
+                  value={account.username ? `@${account.username}` : "Not set"}
+                />
+                <Row
+                  icon={<Calendar size={17} />}
+                  title="Account created"
+                  value={account.createdAt ? formatDate(account.createdAt) : "Date unavailable"}
+                  last
+                />
+              </>
+            ) : null}
+          </SettingsSection>
+          <SettingsSection title="Display name">
+            <div className="px-3 py-4">
+              <label htmlFor="account-display-name" className="block text-[12px] font-medium text-ink-soft">
+                Name shown in your CheyaVerse profile
+              </label>
+              <input
+                id="account-display-name"
+                value={displayName}
+                onChange={(event) => {
+                  setDisplayName(event.target.value);
+                  setAccountNotice("");
+                }}
+                maxLength={40}
+                autoComplete="nickname"
+                placeholder={account?.firstName || "Use your Telegram name"}
+                disabled={accountLoading || accountBusy}
+                className="mt-2 w-full rounded-xl border border-line bg-[#fafafa] px-3.5 py-3 text-[13px] text-ink outline-none transition focus:border-ink/30 focus:bg-white disabled:opacity-60"
+              />
+              <p className="mt-2 text-[11px] leading-relaxed text-ink-mute">
+                This only changes your name in CheyaVerse. Your Telegram profile stays unchanged.
+              </p>
+              {accountError && !accountLoading && (
+                <p role="alert" className="mt-3 text-[12px] text-danger">{accountError}</p>
+              )}
+              {accountNotice && (
+                <p role="status" className="mt-3 text-[12px] text-emerald-700">{accountNotice}</p>
+              )}
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => void saveDisplayName()}
+                  disabled={accountBusy || accountLoading || !displayName.trim() || displayName.length > 40}
+                  className="inline-flex items-center gap-2 rounded-xl bg-ink px-4 py-2.5 text-[12px] font-semibold text-white transition hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Save size={14} />
+                  {accountBusy ? "Saving…" : "Save name"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void resetDisplayName()}
+                  disabled={accountBusy || accountLoading || !displayName}
+                  className="inline-flex items-center gap-2 rounded-xl border border-line bg-white px-4 py-2.5 text-[12px] font-semibold text-ink-soft transition hover:bg-[#fafafa] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <RotateCcw size={14} />
+                  Reset
+                </button>
+              </div>
+            </div>
           </SettingsSection>
         </div>
       )}
@@ -498,24 +648,22 @@ export function SettingsClient({
                         Device ID · {device.deviceId}
                       </p>
                     </div>
-                    <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${device.revoked ? "bg-[#c9cbd3]" : "bg-emerald-500"}`} title={device.revoked ? "Session revoked" : "Session active"} />
+                    <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-500" title="Session active" />
                   </div>
                   <div className="mt-3 flex items-center justify-between border-t border-[#f0f0f2] pt-3">
-                    <span className={`text-[10px] font-medium ${device.revoked ? "text-ink-mute" : "text-emerald-700"}`}>
-                      {device.revoked ? "Revoked" : "Active"}
+                    <span className="text-[10px] font-medium text-emerald-700">
+                      Active
                     </span>
-                    {!device.revoked && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setRevokeError("");
-                          setRevokingDevice(device);
-                        }}
-                        className="rounded-full px-3 py-1.5 text-[11px] font-semibold text-danger transition-colors hover:bg-red-50"
-                      >
-                        Revoke session
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRevokeError("");
+                        setRevokingDevice(device);
+                      }}
+                      className="rounded-full px-3 py-1.5 text-[11px] font-semibold text-danger transition-colors hover:bg-red-50"
+                    >
+                      Revoke session
+                    </button>
                   </div>
                 </article>
               );
@@ -558,9 +706,7 @@ export function SettingsClient({
           id="settings-panel-data"
           className="animate-fade-up space-y-5"
         >
-          <SettingsSection title="Storage">
-            <Row icon={<Database size={17} />} title="Media retention" value={`${mediaTtlDays} days`} />
-            <Row icon={<HardDrive size={17} />} title="Media storage" value="Telegram" />
+          <SettingsSection title="On this device">
             <Row
               icon={<Trash2 size={17} />}
               title="Clear local cache"
@@ -578,7 +724,6 @@ export function SettingsClient({
                   ) : "Clear"}
                 </button>
               }
-              last
             />
           </SettingsSection>
         </div>
@@ -597,17 +742,17 @@ export function SettingsClient({
                     {githubConnected ? `Connected as @${githubLogin}` : "Connect GitHub"}
                   </h3>
                   <p className="mt-1 text-[11.5px] leading-relaxed text-ink-mute">
-                    Token digunakan server untuk membaca repositori yang dapat
-                    diakses akun GitHub ini. Token tidak pernah dikirim kembali
-                    ke browser dan disimpan terenkripsi di Turso.
+                    Token digunakan untuk membaca repositori yang dapat diakses
+                    akun GitHub ini. Token dienkripsi saat disimpan dan
+                    tidak ditampilkan kembali.
                   </p>
                 </div>
               </div>
 
               {!githubEncryptionConfigured && (
                 <p role="alert" className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-[11px] leading-relaxed text-amber-900">
-                  Admin perlu mengatur GITHUB_TOKEN_ENCRYPTION_KEY pada environment
-                  server sebelum token dapat disimpan.
+                  Koneksi GitHub belum dapat digunakan saat ini. Coba lagi nanti
+                  atau hubungi dukungan CheyaVerse.
                 </p>
               )}
               {githubError && (
@@ -698,12 +843,20 @@ export function SettingsClient({
       {tab === "about" && (
         <div
           id="settings-panel-about"
-          className="animate-fade-up"
+          className="animate-fade-up space-y-5"
         >
-          <SettingsSection title="About the app">
-            <Row icon={<Layers size={17} />} title="Version" value="v1.7.3-release" />
-            <Row icon={<Cpu size={17} />} title="Runtime" value="Next.js 14" />
-            <Row icon={<Database size={17} />} title="Backend" value="Turso · Telegram" last />
+          <SettingsSection title="About CheyaVerse">
+            <div className="px-3 py-4">
+              <h2 className="text-[17px] font-semibold tracking-tight text-ink">A personal space connected to Telegram</h2>
+              <p className="mt-2 text-[12.5px] leading-relaxed text-ink-soft">
+                CheyaVerse links your Telegram account to a private dashboard for your media, conversations, and connected GitHub projects.
+              </p>
+            </div>
+          </SettingsSection>
+          <SettingsSection title="What you can do">
+            <Row icon={<Smartphone size={17} />} title="Use your Telegram account" value="Sign in with your Telegram identity" />
+            <Row icon={<Globe size={17} />} title="Manage personal media" value="View and organize your uploaded media" />
+            <Row icon={<Github size={17} />} title="Explore GitHub projects" value="Connect GitHub to view your repositories" last />
           </SettingsSection>
         </div>
       )}

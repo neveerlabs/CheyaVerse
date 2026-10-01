@@ -19,11 +19,14 @@ export async function GET(request: NextRequest) {
     listBlacklistedDeviceIds(session.uid),
   ]);
   const blocked = new Set(blockedIds);
+  const activeDevices = devices.filter(
+    (device) => !blocked.has(device.device_id),
+  );
   return NextResponse.json(
     {
       ok: true,
       currentDeviceId: session.deviceId,
-      devices: devices.map((device) => ({
+      devices: activeDevices.map((device) => ({
         deviceId: device.device_id,
         type: device.device_type,
         os: device.os,
@@ -31,7 +34,6 @@ export async function GET(request: NextRequest) {
         model: device.model,
         browser: device.browser,
         lastSeen: device.last_seen,
-        revoked: blocked.has(device.device_id),
       })),
     },
     { headers: { "Cache-Control": "no-store" } },

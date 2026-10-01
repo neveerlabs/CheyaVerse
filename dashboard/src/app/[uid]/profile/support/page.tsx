@@ -6,46 +6,44 @@ export const dynamic = "force-dynamic";
 
 const FAQS: { q: string; a: string[] }[] = [
   {
-    q: "Media is missing from the dashboard",
+    q: "Media is not showing in the dashboard",
     a: [
-      "Media hanya diproses jika diunggah melalui bot Telegram dengan keterangan /qr. Unggahan langsung dari galeri perangkat tidak diproses.",
-      "Media disimpan selama 30 hari sejak diunggah, lalu dihapus otomatis dari basis data dan Telegram Storage Chat.",
-      "Media yang diunggah sebelum akun terdaftar tidak tertaut ke dashboard. Unggah kembali setelah akun aktif.",
-      "Jika media belum muncul setelah 30 detik, muat ulang halaman atau periksa koneksi internet.",
+      "Pastikan Anda masuk menggunakan akun Telegram yang sama dengan akun saat media dikirim melalui bot.",
+      "Unggahan melalui bot akan muncul di Media setelah prosesnya selesai. Unggahan langsung dari halaman dashboard bukan jalur unggah bot.",
+      "Periksa tanggal kedaluwarsa yang ditampilkan. Media yang sudah kedaluwarsa tidak lagi tersedia.",
+      "Jika daftar belum berubah, buka tab Media kembali setelah koneksi pulih. Aplikasi akan meminta data terbaru saat navigasi atau tersambung kembali.",
     ],
   },
   {
-    q: "Photo or video upload failed",
+    q: "An upload did not complete",
     a: [
-      "Ukuran maksimum setiap file adalah 15 MB. Kompresi media jika melebihi batas tersebut.",
-      "Pastikan koneksi internet stabil selama proses pengunggahan untuk mencegah proses terputus.",
-      "Format video bergantung pada dukungan browser. Format MP4 direkomendasikan untuk kompatibilitas yang lebih baik.",
-      "Jika masalah berlanjut, tunggu beberapa menit sebelum mencoba kembali. Server Telegram mungkin sedang sibuk.",
+      "Batas unggahan berbeda menurut fitur: media melalui bot QR hingga 15 MiB per file dan item Library hingga 4 MiB.",
+      "Periksa ukuran file dan koneksi internet, lalu coba unggah kembali setelah proses sebelumnya selesai.",
+      "Pratinjau dan pemutaran video bergantung pada format yang didukung browser. MP4 dengan H.264 umumnya memiliki dukungan luas.",
     ],
   },
   {
-    q: "Download is stuck at reCAPTCHA verification",
+    q: "Media verification or download is not working",
     a: [
-      "Verifikasi reCAPTCHA wajib diselesaikan sebelum proses pengunduhan dimulai.",
-      "Token verifikasi memiliki masa berlaku terbatas. Jika kedaluwarsa, pilih Download kembali untuk memuat tantangan baru.",
-      "Nonaktifkan pemblokir iklan, ekstensi privasi, atau VPN yang mungkin menghalangi reCAPTCHA.",
-      "Jika masalah berulang, coba gunakan mode privat atau browser lain.",
+      "Selesaikan verifikasi pada halaman media sebelum melanjutkan.",
+      "Jika verifikasi kedaluwarsa, mulai kembali proses dari halaman media.",
+      "Periksa apakah pengaturan privasi atau ekstensi browser memblokir konten verifikasi. Anda juga dapat mencoba browser lain.",
     ],
   },
   {
-    q: "Video will not play",
+    q: "Messages or notifications appear out of date",
     a: [
-      "Pemutaran video bergantung pada dukungan browser. Format H.264/MP4 memiliki kompatibilitas terbaik; AVI, MKV, dan WMV mungkin tidak didukung.",
-      "Muat ulang halaman tanpa menggunakan cache dengan menekan Ctrl + Shift + R (desktop), atau bersihkan cache browser (perangkat seluler).",
-      "Jika masalah berlanjut, file mungkin rusak. Unggah kembali melalui bot Telegram.",
+      "Pastikan koneksi internet aktif. CheyaVerse memperbarui data melalui koneksi langsung dan mencoba menyambung kembali jika koneksi terputus.",
+      "Buka tab terkait kembali atau pindah halaman lalu kembali untuk meminta data terbaru tanpa memuat ulang seluruh browser.",
+      "Jika masalah hanya terjadi pada satu perangkat, periksa sesi perangkat di Settings.",
     ],
   },
   {
-    q: "QR link will not open",
+    q: "A GitHub repository is missing",
     a: [
-      "Tautan hanya dapat dibuka melalui browser modern dengan koneksi internet aktif.",
-      "Pastikan ID media pada URL benar. ID terdiri atas tujuh digit dan peka terhadap huruf besar atau kecil.",
-      "Media yang telah melewati masa simpan 30 hari tidak lagi tersedia. Unggah kembali untuk mendapatkan tautan baru.",
+      "Buka Settings → GitHub dan pastikan akun terhubung.",
+      "Token harus masih aktif dan memiliki izin untuk membaca repositori yang ingin ditampilkan. Ganti token atau hubungkan ulang jika aksesnya berubah.",
+      "Repositori dan riwayatnya diminta dari GitHub saat halaman Projects dibuka; pastikan GitHub dapat diakses.",
     ],
   },
 ];
@@ -62,19 +60,18 @@ export default function SupportPage({
     <>
       <SubPageHeader
         title="Help Center"
-        subtitle="Panduan penggunaan dan penanganan kendala."
+        subtitle="Last updated: 2026-01-October"
         backHref={`/${params.uid}/profile`}
       />
 
       <p className="text-[13.5px] text-ink-soft leading-[1.75] px-1 mb-6 animate-fade-up">
-        Halaman ini memuat panduan untuk mengatasi kendala umum saat
-        menggunakan CheyaVerse. Sebagian besar kendala dapat diselesaikan
-        dengan mengikuti langkah-langkah berikut.
+        Panduan berikut membahas fitur utama dan langkah awal untuk
+        menyelesaikan kendala yang umum terjadi.
       </p>
 
       <section className="mb-6 animate-fade-up">
         <h2 className="text-[11.5px] font-semibold tracking-[.08em] uppercase text-ink-mute px-3 mb-2">
-          Frequently Asked Questions
+          Common questions
         </h2>
         <div className="rounded-2xl bg-white border border-line overflow-hidden">
           {FAQS.map((item, idx) => (
@@ -114,20 +111,22 @@ export default function SupportPage({
 
       <section className="mb-6 animate-fade-up">
         <h2 className="text-[11.5px] font-semibold tracking-[.08em] uppercase text-ink-mute px-3 mb-2">
-          Report a Bug
+          Technical support
         </h2>
         <div className="rounded-2xl bg-white border border-line p-5">
           <p className="text-[13px] text-ink-soft leading-[1.7] mb-4">
-            Laporkan bug, kendala teknis di luar panduan, atau perilaku aplikasi
-            yang tidak wajar melalui email. Sertakan deskripsi masalah, langkah
-            reproduksi, dan tangkapan layar jika tersedia.
+            Untuk bantuan teknis yang belum tercakup di atas, kirim email
+            dengan deskripsi masalah, langkah untuk mengulanginya, perangkat
+            dan browser yang digunakan, serta tangkapan layar bila relevan.
+            Jangan sertakan kata sandi, token, atau informasi pribadi yang
+            tidak diperlukan.
           </p>
           <a
-            href="mailto:userlinuxorg@gmail.com?subject=Laporan%20Bug%20CheyaVerse"
+            href="mailto:userlinuxorg@gmail.com?subject=CheyaVerse%20Technical%20Support"
             className="inline-flex items-center gap-2 px-4 py-3 rounded-xl bg-ink text-white text-[13px] font-medium transition-all active:scale-[.97] sm:hover:bg-accent-hover"
           >
             <Mail size={15} strokeWidth={2.2} />
-            userlinuxorg@gmail.com
+            Contact technical support
           </a>
         </div>
       </section>

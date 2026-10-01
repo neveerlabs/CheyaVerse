@@ -35,8 +35,8 @@ type Snapshot = {
 
 type Listener = (event: RealtimeEvent) => void;
 
-const VISIBLE_MS = 10000;
-const HIDDEN_MS = 30000;
+const FALLBACK_VISIBLE_MS = 5000;
+const FALLBACK_HIDDEN_MS = 30000;
 const BACKOFF_BASE_MS = 4000;
 const BACKOFF_MAX_MS = 30000;
 const MAX_ERR_LEVEL = 6;
@@ -49,7 +49,7 @@ class RealtimeConnection {
   private previous: Snapshot | null = null;
   private errCount = 0;
   private streamConnected = false;
-  private streamErrorLogged = false;
+  private refreshRequested = false;
   private started = false;
   private stopped = false;
 
@@ -57,6 +57,7 @@ class RealtimeConnection {
 
   addListener(listener: Listener): void {
     this.listeners.add(listener);
+    this.kick();
   }
 
   removeListener(listener: Listener): void {
@@ -71,38 +72,11 @@ class RealtimeConnection {
     if (this.started || this.stopped) return;
     this.started = true;
 
-    if (typeof EventSource !== "undefined") {
-      this.source = new EventSource(
-        `/api/events?uid=${encodeURIComponent(this.uid)}`,
-      );
-      this.source.onopen = () => {
-        this.streamConnected = true;
-        this.streamErrorLogged = false;
-        this.errCount = 0;
-      };
-      this.source.onmessage = (message) => {
-        try {
-          const event = JSON.parse(message.data) as RealtimeEvent;
-          if (typeof event.type === "string" && event.type !== "ready") {
-            this.emit(event);
-          }
-        } catch (error) {
-          console.error("[realtime] invalid event payload:", error);
-        }
-      };
-      this.source.onerror = () => {
-        this.streamConnected = false;
-        if (!this.streamErrorLogged) {
-          console.warn(
-            "[realtime] event stream disconnected; using polling fallback",
-          );
-          this.streamErrorLogged = true;
-        }
-        this.kick();
-      };
-    }
+    this.connectStream();
 
     window.addEventListener("pageshow", this.onPageShow);
+    window.addEventListener("popstate", this.onPopState);
+    window.addEventListener("online", this.onOnline);
     document.addEventListener("visibilitychange", this.onVisibility);
     this.kick();
   }
@@ -111,19 +85,44 @@ class RealtimeConnection {
     if (this.stopped) return;
     this.stopped = true;
     window.removeEventListener("pageshow", this.onPageShow);
+    window.removeEventListener("popstate", this.onPopState);
+    window.removeEventListener("online", this.onOnline);
     document.removeEventListener("visibilitychange", this.onVisibility);
     if (this.timer) clearTimeout(this.timer);
     this.source?.close();
     this.inflight?.abort();
   }
 
+  private connectStream(): void {
+    if (this.stopped || typeof EventSource === "undefined") return;
+    this.source?.close();
+    this.streamConnected = false;
+    this.source = new EventSource(
+      `/api/events?uid=${encodeURIComponent(this.uid)}`,
+    );
+    this.source.onopen = () => {
+      this.streamConnected = true;
+      this.errCount = 0;
+    };
+    this.source.onmessage = (message) => {
+      try {
+        const event = JSON.parse(message.data) as RealtimeEvent;
+        if (typeof event.type === "string" && event.type !== "ready") {
+          this.emit(event);
+        }
+      } catch {}
+    };
+    this.source.onerror = () => {
+      this.streamConnected = false;
+      this.kick();
+    };
+  }
+
   private emit(event: RealtimeEvent): void {
     for (const listener of this.listeners) {
       try {
         listener(event);
-      } catch (error) {
-        console.error("[realtime] handler error:", error);
-      }
+      } catch {}
     }
   }
 
@@ -135,7 +134,9 @@ class RealtimeConnection {
         BACKOFF_BASE_MS * Math.min(this.errCount, MAX_ERR_LEVEL),
       );
     }
-    return document.visibilityState === "visible" ? VISIBLE_MS : HIDDEN_MS;
+    return document.visibilityState === "visible"
+      ? FALLBACK_VISIBLE_MS
+      : FALLBACK_HIDDEN_MS;
   }
 
   private tick = async (): Promise<void> => {
@@ -234,23 +235,49 @@ class RealtimeConnection {
     } finally {
       if (this.inflight === controller) this.inflight = null;
       if (!this.stopped) {
-        this.timer = setTimeout(this.tick, this.nextInterval());
+        const delay = this.refreshRequested ? 0 : this.nextInterval();
+        this.refreshRequested = false;
+        this.timer = setTimeout(() => {
+          this.timer = null;
+          void this.tick();
+        }, delay);
       }
     }
   };
 
   private kick = (): void => {
     if (this.stopped) return;
+    if (this.inflight) {
+      this.refreshRequested = true;
+      return;
+    }
     if (this.timer) clearTimeout(this.timer);
-    this.timer = setTimeout(this.tick, 0);
+    this.timer = setTimeout(() => {
+      this.timer = null;
+      void this.tick();
+    }, 0);
   };
 
   private onVisibility = (): void => {
-    if (document.visibilityState === "visible") this.kick();
+    if (document.visibilityState === "visible" && !this.streamConnected) {
+      this.kick();
+    }
   };
 
   private onPageShow = (event: PageTransitionEvent): void => {
-    if (event.persisted) this.kick();
+    if (event.persisted) {
+      this.connectStream();
+      this.kick();
+    }
+  };
+
+  private onPopState = (): void => {
+    this.connectStream();
+    this.kick();
+  };
+
+  private onOnline = (): void => {
+    if (!this.streamConnected) this.kick();
   };
 }
 

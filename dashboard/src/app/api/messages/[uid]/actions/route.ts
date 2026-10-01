@@ -15,18 +15,80 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function plainText(content: string): string {
-  return content
+function decodeHtmlEntities(content: string): string {
+  return content.replace(
+    /&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos|nbsp);/gi,
+    (entity, code: string) => {
+      if (code[0] === "#") {
+        const isHex = code[1]?.toLowerCase() === "x";
+        const value = Number.parseInt(code.slice(isHex ? 2 : 1), isHex ? 16 : 10);
+        return Number.isFinite(value) && value >= 0 && value <= 0x10ffff
+          ? String.fromCodePoint(value)
+          : entity;
+      }
+      const named: Record<string, string> = {
+        amp: "&",
+        lt: "<",
+        gt: ">",
+        quot: '"',
+        apos: "'",
+        nbsp: " ",
+      };
+      return named[code.toLowerCase()] ?? entity;
+    },
+  );
+}
+
+function forwardableContent(content: string): string {
+  if (!/<(?:br|pre|code|b|strong|u|i|em|blockquote|ul|ol|li|p|div)\b/i.test(content)) {
+    return content.trim().slice(0, 2000);
+  }
+
+  const protectedMarkup: string[] = [];
+  const protect = (markdown: string) => {
+    protectedMarkup.push(markdown);
+    return `\u0001FWD${protectedMarkup.length - 1}\u0001`;
+  };
+  let markdown = content.replace(
+    /<pre\b[^>]*>\s*(?:<code\b([^>]*)>)?([\s\S]*?)(?:<\/code>)?\s*<\/pre>/gi,
+    (_match, codeAttributes: string | undefined, code: string) => {
+      const language = codeAttributes?.match(/\blanguage-([A-Za-z0-9_+-]+)/i)?.[1] ?? "";
+      const cleanCode = decodeHtmlEntities(code).replace(/\n$/, "");
+      const longestFence = Math.max(
+        2,
+        ...Array.from(cleanCode.matchAll(/`+/g), (match) => match[0].length),
+      );
+      const fence = "`".repeat(longestFence + 1);
+      return protect(`${fence}${language}\n${cleanCode}\n${fence}`);
+    },
+  );
+
+  markdown = markdown
+    .replace(/<code\b[^>]*>([\s\S]*?)<\/code>/gi, (_match, code: string) => {
+      const cleanCode = decodeHtmlEntities(code);
+      const longestFence = Math.max(
+        0,
+        ...Array.from(cleanCode.matchAll(/`+/g), (match) => match[0].length),
+      );
+      const fence = "`".repeat(longestFence + 1);
+      return protect(`${fence}${cleanCode}${fence}`);
+    })
+    .replace(/<(?:b|strong)\b[^>]*>([\s\S]*?)<\/(?:b|strong)>/gi, "**$1**")
+    .replace(/<u\b[^>]*>([\s\S]*?)<\/u>/gi, "__$1__")
+    .replace(/<(?:i|em)\b[^>]*>([\s\S]*?)<\/(?:i|em)>/gi, "*$1*")
+    .replace(/<blockquote\b[^>]*>([\s\S]*?)<\/blockquote>/gi, "\n> $1\n")
+    .replace(/<li\b[^>]*>([\s\S]*?)<\/li>/gi, "\n- $1")
     .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/(?:p|div|li)>/gi, "\n")
-    .replace(/<[^>]*>/g, "")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
-    .trim()
+    .replace(/<\/(?:p|div|ul|ol|li|h[1-6])\s*>/gi, "\n")
+    .replace(/<[^>]*>/g, "");
+
+  markdown = decodeHtmlEntities(markdown)
+    .replace(/\n[ \t]*\n(?:[ \t]*\n)+/g, "\n\n")
+    .trim();
+  return markdown
+    .replace(/\u0001FWD(\d+)\u0001/g, (_match, index: string) =>
+      protectedMarkup[Number(index)] ?? "",
+    )
     .slice(0, 2000);
 }
 
@@ -92,7 +154,7 @@ export async function POST(
     if (target.role === "deleted") {
       return NextResponse.json({ ok: false, error: "account_deleted" }, { status: 410 });
     }
-    const content = plainText(contentToForward);
+    const content = forwardableContent(contentToForward);
     if (!content) {
       return NextResponse.json({ ok: false, error: "empty_content" }, { status: 409 });
     }
