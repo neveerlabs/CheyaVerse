@@ -106,7 +106,8 @@ export function TabBar({ uid }: { uid: string }) {
       event.type === "direct-message:deleted" ||
       event.type === "direct-message:cleared" ||
       event.type === "direct-message:hidden" ||
-      event.type === "direct-message:cleared-for-me"
+      event.type === "direct-message:cleared-for-me" ||
+      event.type === "direct-unread:changed"
     ) {
       scheduleLoad();
     }

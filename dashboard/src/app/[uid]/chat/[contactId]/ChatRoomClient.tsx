@@ -200,7 +200,6 @@ export function ChatRoomClient({
   const longPressTimerRef = useRef<number | null>(null);
   const longPressTriggeredAtRef = useRef(0);
   const pressOriginRef = useRef({ x: 0, y: 0 });
-  const pressWasLongPressRef = useRef(false);
   const justEnteredSelectRef = useRef(false);
   const toastTimerRef = useRef<number | null>(null);
   const highlightTimerRef = useRef<number | null>(null);
@@ -413,7 +412,6 @@ export function ChatRoomClient({
     if (item._pending) return;
     if (selectModeRef.current) return;
     pressOriginRef.current = { x: event.clientX, y: event.clientY };
-    pressWasLongPressRef.current = false;
     swipeRef.current = {
       id: item.id,
       mine: item.sender === "user",
@@ -426,11 +424,8 @@ export function ChatRoomClient({
     clearLongPressTimer();
     longPressTimerRef.current = window.setTimeout(() => {
       longPressTriggeredAtRef.current = Date.now();
-      pressWasLongPressRef.current = true;
       if (!selectModeRef.current) {
         enterSelectMode(item.id);
-      } else if (!justEnteredSelectRef.current) {
-        toggleSelect(item.id);
       }
       longPressTimerRef.current = null;
     }, LONG_PRESS_MS);
@@ -468,8 +463,6 @@ export function ChatRoomClient({
     const s = swipeRef.current;
     if (!s) return;
     swipeRef.current = null;
-    const wasLongPress = pressWasLongPressRef.current;
-    pressWasLongPressRef.current = false;
     const wasGesture = s.active;
     const wasSwipe =
       wasGesture && Math.abs(s.offset) >= SWIPE_TRIGGER && !selectModeRef.current;
@@ -477,22 +470,12 @@ export function ChatRoomClient({
     if (wasSwipe) {
       const target = chatItemsRef.current.find((it) => it.id === s.id);
       if (target) beginReply(target);
-      return;
-    }
-    if (
-      !wasGesture &&
-      !wasLongPress &&
-      selectModeRef.current &&
-      !justEnteredSelectRef.current
-    ) {
-      toggleSelect(s.id);
     }
   }
 
   function cancelChatItemPress() {
     clearLongPressTimer();
     swipeRef.current = null;
-    pressWasLongPressRef.current = false;
     setSwipe(null);
   }
 

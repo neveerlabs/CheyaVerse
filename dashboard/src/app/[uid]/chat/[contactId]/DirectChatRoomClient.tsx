@@ -219,7 +219,6 @@ export function DirectChatRoomClient({
   const contactTypingTimeoutRef = useRef<number | null>(null);
   const longPressTimerRef = useRef<number | null>(null);
   const pressOriginRef = useRef({ x: 0, y: 0 });
-  const pressWasLongPressRef = useRef(false);
   const selectModeRef = useRef(false);
   const justEnteredSelectRef = useRef(false);
   const selectGraceTimerRef = useRef<number | null>(null);
@@ -326,7 +325,6 @@ export function DirectChatRoomClient({
   function startMessagePress(event: React.PointerEvent, message: DirectMessage) {
     if (pendingIdsRef.current.has(message.id)) return;
     pressOriginRef.current = { x: event.clientX, y: event.clientY };
-    pressWasLongPressRef.current = false;
     swipeRef.current = {
       id: message.id,
       mine: message.sender_uid === myUid,
@@ -338,11 +336,8 @@ export function DirectChatRoomClient({
     if (event.pointerType === "mouse") return;
     clearLongPressTimer();
     longPressTimerRef.current = window.setTimeout(() => {
-      pressWasLongPressRef.current = true;
       if (!selectModeRef.current) {
         enterSelectMode(message.id);
-      } else if (!justEnteredSelectRef.current) {
-        toggleSelect(message.id);
       }
       longPressTimerRef.current = null;
     }, LONG_PRESS_MS);
@@ -380,8 +375,6 @@ export function DirectChatRoomClient({
     const s = swipeRef.current;
     if (!s) return;
     swipeRef.current = null;
-    const wasLongPress = pressWasLongPressRef.current;
-    pressWasLongPressRef.current = false;
     const wasGesture = s.active;
     const wasSwipe =
       wasGesture && Math.abs(s.offset) >= SWIPE_TRIGGER && !selectModeRef.current;
@@ -389,22 +382,12 @@ export function DirectChatRoomClient({
     if (wasSwipe) {
       const target = messagesRef.current.find((m) => m.id === s.id);
       if (target) beginReply(target);
-      return;
-    }
-    if (
-      !wasGesture &&
-      !wasLongPress &&
-      selectModeRef.current &&
-      !justEnteredSelectRef.current
-    ) {
-      toggleSelect(s.id);
     }
   }
 
   function cancelMessagePress() {
     clearLongPressTimer();
     swipeRef.current = null;
-    pressWasLongPressRef.current = false;
     setSwipe(null);
   }
 

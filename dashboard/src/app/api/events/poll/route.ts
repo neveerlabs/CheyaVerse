@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTurso } from "@/lib/turso";
-import { getLatestDirectMessage } from "@/lib/storage";
+import {
+  countUnreadDirectMessages,
+  getLatestDirectMessage,
+} from "@/lib/storage";
 import { getUserSession } from "@/lib/auth-request";
 
 export const runtime = "nodejs";
@@ -8,6 +11,7 @@ export const dynamic = "force-dynamic";
 
 type Snapshot = {
   unread: number;
+  directUnread: number;
   mediaCount: number;
   notifLastId: string | null;
   notifLastAt: string | null;
@@ -62,7 +66,7 @@ export async function GET(req: NextRequest) {
   try {
     const client = getTurso();
 
-    const [countsRes, lastMsgRes, directLast] = await Promise.all([
+    const [countsRes, lastMsgRes, directLast, directUnread] = await Promise.all([
       client.execute({
         sql: `SELECT
                 (SELECT COUNT(*) FROM notifications WHERE uid = ? AND read = 0) AS unread,
@@ -78,12 +82,14 @@ export async function GET(req: NextRequest) {
         args: [uid],
       }),
       getLatestDirectMessage(uid),
+      countUnreadDirectMessages(uid),
     ]);
 
     const row = (countsRes.rows[0] ?? {}) as Record<string, unknown>;
 
     const snapshot: Snapshot = {
       unread: n(row.unread),
+      directUnread,
       mediaCount: n(row.media_count),
       notifLastId: s(row.notif_last_id) || null,
       notifLastAt: s(row.notif_last_at) || null,

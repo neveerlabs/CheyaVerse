@@ -17,6 +17,7 @@ type MsgPayload = {
 
 type Snapshot = {
   unread: number;
+  directUnread: number;
   notifLastId: string | null;
   notifLastAt: string | null;
   mediaCount: number;
@@ -184,6 +185,10 @@ class RealtimeConnection {
         }
         if (unreadChanged && current.unread < this.previous.unread) {
           this.emit({ type: "notification:read" });
+        }
+
+        if (current.directUnread !== this.previous.directUnread) {
+          this.emit({ type: "direct-unread:changed" });
         }
 
         const currentMessageId = current.msgLast?.id ?? "";

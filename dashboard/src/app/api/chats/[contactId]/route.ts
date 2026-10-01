@@ -47,6 +47,11 @@ export async function GET(
       uid: session.uid,
       read_at: readAt,
     });
+    broadcastToUid(session.uid, {
+      type: "direct-message:read",
+      uid: contactUid,
+      read_at: readAt,
+    });
   }
   return NextResponse.json({
     ok: true,
