@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { useRealtime } from "@/lib/use-realtime";
+import { reconnectRealtime, useRealtime } from "@/lib/use-realtime";
 import { playReceiveSoundOutside } from "@/lib/chat-sounds";
 
 export function RealtimeSync({ uid }: { uid: string }) {
@@ -30,16 +30,26 @@ export function RealtimeSync({ uid }: { uid: string }) {
   useEffect(() => {
     if (lastPathnameRef.current === pathname) return;
     lastPathnameRef.current = pathname;
+    reconnectRealtime(uid);
     scheduleRefresh();
-  }, [pathname, scheduleRefresh]);
+  }, [pathname, scheduleRefresh, uid]);
 
   useEffect(() => {
     const onPageShow = (event: PageTransitionEvent) => {
-      if (event.persisted) scheduleRefresh();
+      if (event.persisted) {
+        reconnectRealtime(uid);
+        scheduleRefresh();
+      }
     };
-    const onPopState = () => scheduleRefresh();
+    const onPopState = () => {
+      reconnectRealtime(uid);
+      scheduleRefresh();
+    };
     const onVisibilityChange = () => {
-      if (document.visibilityState === "visible") scheduleRefresh(140);
+      if (document.visibilityState === "visible") {
+        reconnectRealtime(uid);
+        scheduleRefresh(140);
+      }
     };
 
     window.addEventListener("pageshow", onPageShow);
@@ -51,7 +61,7 @@ export function RealtimeSync({ uid }: { uid: string }) {
       document.removeEventListener("visibilitychange", onVisibilityChange);
       if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
     };
-  }, [scheduleRefresh]);
+  }, [scheduleRefresh, uid]);
 
   useRealtime(uid, (event) => {
     const inChatRoom = /^\/[^/]+\/chat\/[^/]+\/?$/.test(pathnameRef.current);

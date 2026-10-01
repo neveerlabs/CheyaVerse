@@ -36,11 +36,16 @@ function encryptionKey(): Buffer {
 }
 
 export function isGitHubEncryptionConfigured(): boolean {
+  return getGitHubEncryptionStatus() === "configured";
+}
+
+export function getGitHubEncryptionStatus(): "configured" | "missing" | "invalid" {
+  if (!process.env.GITHUB_TOKEN_ENCRYPTION_KEY?.trim()) return "missing";
   try {
     encryptionKey();
-    return true;
+    return "configured";
   } catch {
-    return false;
+    return "invalid";
   }
 }
 

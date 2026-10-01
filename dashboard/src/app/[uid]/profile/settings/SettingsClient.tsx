@@ -79,7 +79,10 @@ export function SettingsClient({
   const [githubConnected, setGithubConnected] = useState(false);
   const [githubReplaceOpen, setGithubReplaceOpen] = useState(false);
   const [githubLogin, setGithubLogin] = useState<string | null>(null);
-  const [githubEncryptionConfigured, setGithubEncryptionConfigured] = useState(false);
+  const [githubEncryptionStatus, setGithubEncryptionStatus] = useState<
+    "checking" | "configured" | "missing" | "invalid" | "unavailable"
+  >("checking");
+  const githubEncryptionConfigured = githubEncryptionStatus === "configured";
   const [githubToken, setGithubToken] = useState("");
   const [githubLoading, setGithubLoading] = useState(false);
   const [githubBusy, setGithubBusy] = useState(false);
@@ -212,14 +215,19 @@ export function SettingsClient({
         connected?: boolean;
         login?: string | null;
         encryptionConfigured?: boolean;
+        encryptionStatus?: "configured" | "missing" | "invalid";
       };
       if (!response.ok) {
         throw new Error("GitHub settings could not be loaded.");
       }
       setGithubConnected(result.connected === true);
       setGithubLogin(result.login ?? null);
-      setGithubEncryptionConfigured(result.encryptionConfigured === true);
+      setGithubEncryptionStatus(
+        result.encryptionStatus ??
+          (result.encryptionConfigured === true ? "configured" : "missing"),
+      );
     } catch (cause) {
+      setGithubEncryptionStatus("unavailable");
       setGithubError(
         cause instanceof Error ? cause.message : "GitHub settings could not be loaded.",
       );
@@ -749,10 +757,14 @@ export function SettingsClient({
                 </div>
               </div>
 
-              {!githubEncryptionConfigured && (
+              {!githubEncryptionConfigured &&
+                githubEncryptionStatus !== "checking" && (
                 <p role="alert" className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-[11px] leading-relaxed text-amber-900">
-                  Koneksi GitHub belum dapat digunakan saat ini. Coba lagi nanti
-                  atau hubungi dukungan CheyaVerse.
+                  {githubEncryptionStatus === "invalid"
+                    ? "Server GitHub belum dikonfigurasi dengan benar. Atur GITHUB_TOKEN_ENCRYPTION_KEY sebagai Base64 dari 32 byte acak pada environment deployment, lalu deploy ulang."
+                    : githubEncryptionStatus === "unavailable"
+                      ? "Status konfigurasi enkripsi server tidak dapat diperiksa. Coba muat ulang halaman; token tetap dinonaktifkan demi keamanan."
+                      : "Server deployment belum memiliki GITHUB_TOKEN_ENCRYPTION_KEY. Admin perlu menambahkan Base64 dari 32 byte acak pada environment deployment dan deploy ulang sebelum token GitHub bisa dimasukkan."}
                 </p>
               )}
               {githubError && (

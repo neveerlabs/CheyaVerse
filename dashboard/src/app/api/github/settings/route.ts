@@ -5,6 +5,7 @@ import {
   githubFetch,
   GitHubApiError,
   getGitHubResponseError,
+  getGitHubEncryptionStatus,
   isGitHubEncryptionConfigured,
   removeGitHubCredential,
   saveGitHubCredential,
@@ -27,6 +28,7 @@ export async function GET(request: NextRequest) {
         scopes: credential.scopes,
         updatedAt: credential.updatedAt,
         encryptionConfigured: isGitHubEncryptionConfigured(),
+        encryptionStatus: getGitHubEncryptionStatus(),
       },
       { headers: { "Cache-Control": "no-store" } },
     );

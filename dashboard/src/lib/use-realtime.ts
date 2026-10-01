@@ -46,6 +46,7 @@ class RealtimeConnection {
   private readonly listeners = new Set<Listener>();
   private readonly recentDirectMessageIds = new Set<string>();
   private timer: ReturnType<typeof setTimeout> | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private inflight: AbortController | null = null;
   private source: EventSource | null = null;
   private previous: Snapshot | null = null;
@@ -64,6 +65,16 @@ class RealtimeConnection {
 
   removeListener(listener: Listener): void {
     this.listeners.delete(listener);
+  }
+
+  reconnect(): void {
+    if (this.stopped) return;
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.connectStream();
+      this.kick();
+    }, 80);
   }
 
   get listenerCount(): number {
@@ -91,6 +102,7 @@ class RealtimeConnection {
     window.removeEventListener("online", this.onOnline);
     document.removeEventListener("visibilitychange", this.onVisibility);
     if (this.timer) clearTimeout(this.timer);
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.source?.close();
     this.inflight?.abort();
   }
@@ -284,14 +296,12 @@ class RealtimeConnection {
 
   private onPageShow = (event: PageTransitionEvent): void => {
     if (event.persisted) {
-      this.connectStream();
-      this.kick();
+      this.reconnect();
     }
   };
 
   private onPopState = (): void => {
-    this.connectStream();
-    this.kick();
+    this.reconnect();
   };
 
   private onOnline = (): void => {
@@ -318,6 +328,10 @@ function subscribe(uid: string, listener: Listener): () => void {
       connections.delete(uid);
     }
   };
+}
+
+export function reconnectRealtime(uid: string | number): void {
+  connections.get(String(uid))?.reconnect();
 }
 
 export function useRealtime(
