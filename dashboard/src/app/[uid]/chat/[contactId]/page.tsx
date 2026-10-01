@@ -59,6 +59,11 @@ export default async function ChatRoomPage({
         uid,
         read_at: readAt,
       });
+      broadcastToUid(uid, {
+        type: "direct-message:read",
+        uid: contactUid,
+        read_at: readAt,
+      });
     }
     return (
       <DirectChatRoomClient

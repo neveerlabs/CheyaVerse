@@ -25,11 +25,22 @@ export async function GET(
   if (!Number.isInteger(uid) || uid <= 0) {
     return NextResponse.json({ ok: false, error: "invalid_uid" }, { status: 400 });
   }
-  const [items, unread] = await Promise.all([
-    listNotifications(uid, 100),
-    countUnreadNotifications(uid),
-  ]);
-  return NextResponse.json({ ok: true, items, unread });
+  try {
+    const [items, unread] = await Promise.all([
+      listNotifications(uid, 100),
+      countUnreadNotifications(uid),
+    ]);
+    return NextResponse.json(
+      { ok: true, items, unread },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  } catch (error) {
+    console.error("[notifications] failed to load notifications:", error);
+    return NextResponse.json(
+      { ok: false, error: "notifications_unavailable" },
+      { status: 503, headers: { "Cache-Control": "no-store" } },
+    );
+  }
 }
 
 export async function POST(

@@ -473,15 +473,11 @@ export async function countNotifications(uid: number): Promise<number> {
 }
 
 export async function countUnreadNotifications(uid: number): Promise<number> {
-  try {
-    const result = await getTurso().execute({
-      sql: "SELECT COUNT(*) as c FROM notifications WHERE uid = ? AND read = 0",
-      args: [uid],
-    });
-    return Number(result.rows[0]?.c ?? 0);
-  } catch {
-    return 0;
-  }
+  const result = await getTurso().execute({
+    sql: "SELECT COUNT(*) as c FROM notifications WHERE uid = ? AND read = 0",
+    args: [uid],
+  });
+  return Number(result.rows[0]?.c ?? 0);
 }
 
 export async function markNotificationsRead(uid: number): Promise<void> {

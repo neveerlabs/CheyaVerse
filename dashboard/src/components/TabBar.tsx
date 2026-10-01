@@ -37,8 +37,22 @@ export function TabBar({ uid }: { uid: string }) {
         notificationResponse.json(),
         chatResponse.json(),
       ]);
-      setUnread(Number(notifications?.unread ?? 0) + Number(chats?.unread ?? 0));
-    } catch {
+      if (notifications?.ok !== true || chats?.ok !== true) {
+        throw new Error("Unread count response was unsuccessful.");
+      }
+      const notificationUnread = Number(notifications.unread);
+      const chatUnread = Number(chats.unread);
+      if (
+        !Number.isSafeInteger(notificationUnread) ||
+        notificationUnread < 0 ||
+        !Number.isSafeInteger(chatUnread) ||
+        chatUnread < 0
+      ) {
+        throw new Error("Unread count response was invalid.");
+      }
+      setUnread(notificationUnread + chatUnread);
+    } catch (error) {
+      console.error("[tab-bar] failed to refresh unread count:", error);
       return;
     } finally {
       inflightRef.current = false;
@@ -83,12 +97,21 @@ export function TabBar({ uid }: { uid: string }) {
     const refreshWhenConnected = () => {
       if (document.visibilityState === "visible") scheduleLoad();
     };
+    const refreshOnHistoryRestore = () => scheduleLoad();
+    const refreshInterval = window.setInterval(() => {
+      if (document.visibilityState === "visible") scheduleLoad();
+    }, 10_000);
     window.addEventListener("focus", refreshWhenConnected);
     window.addEventListener("online", refreshWhenConnected);
+    window.addEventListener("pageshow", refreshOnHistoryRestore);
+    window.addEventListener("popstate", refreshOnHistoryRestore);
     document.addEventListener("visibilitychange", refreshWhenConnected);
     return () => {
+      window.clearInterval(refreshInterval);
       window.removeEventListener("focus", refreshWhenConnected);
       window.removeEventListener("online", refreshWhenConnected);
+      window.removeEventListener("pageshow", refreshOnHistoryRestore);
+      window.removeEventListener("popstate", refreshOnHistoryRestore);
       document.removeEventListener("visibilitychange", refreshWhenConnected);
     };
   }, [scheduleLoad]);
