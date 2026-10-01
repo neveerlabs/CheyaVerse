@@ -2,36 +2,51 @@ import { NextRequest, NextResponse } from "next/server";
 import { fetchMedia } from "@/lib/storage";
 import { fetchTelegramFile } from "@/lib/telegram";
 import { getCachedMedia, setCachedMedia } from "@/lib/media-cache";
+import type { MediaMeta } from "@/lib/storage";
 
 export const runtime = "nodejs";
 
 const MEDIA_ID_RE = /^\d{7}$/;
 const MAX_CHUNK = 4 * 1024 * 1024;
+const pendingMediaLoads = new Map<
+  string,
+  Promise<NonNullable<ReturnType<typeof getCachedMedia>> | null>
+>();
 
 async function ensureCached(
   id: string,
   storagePath: string,
   fallbackType: string,
-) {
+): Promise<NonNullable<ReturnType<typeof getCachedMedia>> | null> {
   const hit = getCachedMedia(id);
   if (hit) return hit;
+  const existingLoad = pendingMediaLoads.get(id);
+  if (existingLoad) return existingLoad;
 
-  const upstream = await fetchTelegramFile(storagePath);
-  if (!upstream || !upstream.body) return null;
+  const load = (async () => {
+    const upstream = await fetchTelegramFile(storagePath);
+    if (!upstream || !upstream.body) return null;
 
-  const buffer = Buffer.from(await upstream.arrayBuffer());
-  const contentType =
-    upstream.headers.get("Content-Type") ||
-    fallbackType ||
-    "application/octet-stream";
+    const buffer = Buffer.from(await upstream.arrayBuffer());
+    const contentType =
+      upstream.headers.get("Content-Type") ||
+      fallbackType ||
+      "application/octet-stream";
 
-  setCachedMedia(id, {
-    buffer,
-    contentType,
-    contentLength: buffer.length,
-  });
+    setCachedMedia(id, {
+      buffer,
+      contentType,
+      contentLength: buffer.length,
+    });
 
-  return getCachedMedia(id);
+    return getCachedMedia(id);
+  })();
+  pendingMediaLoads.set(id, load);
+  try {
+    return await load;
+  } finally {
+    if (pendingMediaLoads.get(id) === load) pendingMediaLoads.delete(id);
+  }
 }
 
 export async function GET(
@@ -42,18 +57,39 @@ export async function GET(
     return new NextResponse("Invalid media link.", { status: 400 });
   }
 
-  const meta = await fetchMedia(params.id).catch(() => null);
+  let meta: MediaMeta | null;
+  try {
+    meta = await fetchMedia(params.id);
+  } catch (error) {
+    console.error(`[media/content] failed to load metadata for ${params.id}:`, error);
+    return new NextResponse("Media data is temporarily unavailable.", {
+      status: 503,
+      headers: { "Cache-Control": "no-store", "Retry-After": "5" },
+    });
+  }
   if (!meta?.storage_path) {
     return new NextResponse("Media not found.", { status: 404 });
   }
 
-  const cached = await ensureCached(
-    params.id,
-    meta.storage_path,
-    meta.content_type || "",
-  );
+  let cached: NonNullable<ReturnType<typeof getCachedMedia>> | null;
+  try {
+    cached = await ensureCached(
+      params.id,
+      meta.storage_path,
+      meta.content_type || "",
+    );
+  } catch (error) {
+    console.error(`[media/content] failed to load Telegram media ${params.id}:`, error);
+    return new NextResponse("Media is temporarily unavailable.", {
+      status: 503,
+      headers: { "Cache-Control": "no-store", "Retry-After": "5" },
+    });
+  }
   if (!cached) {
-    return new NextResponse("Media not available.", { status: 502 });
+    return new NextResponse("Media is temporarily unavailable.", {
+      status: 503,
+      headers: { "Cache-Control": "no-store", "Retry-After": "5" },
+    });
   }
 
   const totalLength = cached.contentLength;

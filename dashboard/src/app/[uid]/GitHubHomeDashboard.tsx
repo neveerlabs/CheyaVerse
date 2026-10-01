@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
+import { reportClientError } from "@/lib/client-errors";
+import { readApiJson } from "@/lib/read-api-json";
 import {
   Activity,
   ArrowRight,
@@ -75,7 +77,7 @@ function formatNumber(value: number): string {
 }
 
 function projectHref(uid: string, project: Project): string {
-  return `/${uid}/keranjang/${encodeURIComponent(project.repository.fullName.split("/")[0])}/${encodeURIComponent(project.repository.name)}`;
+  return `/${uid}/project/${encodeURIComponent(project.repository.fullName.split("/")[0])}/${encodeURIComponent(project.repository.name)}`;
 }
 
 function DashboardSkeleton() {
@@ -313,6 +315,7 @@ export function GitHubHomeDashboard({ uid }: { uid: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [disconnected, setDisconnected] = useState(false);
+  const [needsGitHubReconnect, setNeedsGitHubReconnect] = useState(false);
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const requestController = useRef<AbortController | null>(null);
 
@@ -323,16 +326,27 @@ export function GitHubHomeDashboard({ uid }: { uid: string }) {
     setLoading(true);
     setError("");
     setDisconnected(false);
+    setNeedsGitHubReconnect(false);
     try {
       const response = await fetch("/api/github/overview", {
         cache: "no-store",
         signal: controller.signal,
       });
-      const result = (await response.json()) as Overview & { error?: string };
+      const result = await readApiJson<
+        Overview & { error?: string; code?: string }
+      >(response);
       if (controller.signal.aborted) return;
       if (response.status === 409) {
         setOverview(null);
         setDisconnected(true);
+        if (
+          result.code === "GITHUB_RECONNECT_REQUIRED" &&
+          result.error
+        ) {
+          setError(result.error);
+          setNeedsGitHubReconnect(true);
+          setDisconnected(false);
+        }
         return;
       }
       if (!response.ok) {
@@ -342,10 +356,12 @@ export function GitHubHomeDashboard({ uid }: { uid: string }) {
     } catch (cause) {
       if (cause instanceof Error && cause.name === "AbortError") return;
       if (controller.signal.aborted) return;
+      const failure = cause instanceof Error
+        ? cause
+        : new Error("Project activity could not be loaded.");
+      reportClientError(failure, "GitHub project activity");
       setError(
-        cause instanceof Error
-          ? cause.message
-          : "Project activity could not be loaded.",
+        failure.message,
       );
     } finally {
       if (requestController.current === controller) {
@@ -386,7 +402,7 @@ export function GitHubHomeDashboard({ uid }: { uid: string }) {
   }, [loadOverview, pathname, uid]);
 
   return (
-    <section className="relative left-1/2 min-h-[calc(100dvh-64px)] w-screen -translate-x-1/2 bg-[#f6f7fb] px-4 pb-12 pt-5 text-slate-900 sm:px-6 sm:pt-7">
+    <section className="relative left-1/2 min-h-[100dvh] w-screen -translate-x-1/2 bg-[#f6f7fb] px-4 pb-12 pt-5 text-slate-900 sm:px-6 sm:pt-7">
       <div className="mx-auto max-w-[1180px]">
         {loading && !overview && !error && !disconnected ? (
           <DashboardSkeleton />
@@ -400,6 +416,14 @@ export function GitHubHomeDashboard({ uid }: { uid: string }) {
               Project activity could not be loaded
             </h1>
             <p className="mt-2 text-[11px] leading-relaxed text-slate-500">{error}</p>
+            {needsGitHubReconnect && (
+              <Link
+                href={`/${uid}/profile/settings`}
+                className="mt-4 rounded-full bg-slate-900 px-4 py-2.5 text-[11px] font-semibold text-white"
+              >
+                Open GitHub settings
+              </Link>
+            )}
             <button
               type="button"
               onClick={() => void loadOverview()}
@@ -414,11 +438,23 @@ export function GitHubHomeDashboard({ uid }: { uid: string }) {
               <Github size={24} />
             </span>
             <h1 className="mt-5 text-[20px] font-semibold tracking-tight text-slate-900">
-              No project activity yet
+              {disconnected ? "Connect your GitHub account" : "No project activity yet"}
             </h1>
             <p className="mt-2 max-w-[340px] text-[12px] leading-relaxed text-slate-500">
-              Your project history and account activity will appear here when repository data is available.
+              {disconnected
+                ? "Connect or reconnect GitHub in Settings to load your repositories and project activity."
+                : overview?.stats.repositories === 0
+                  ? "GitHub accepted the connection but returned no accessible repositories. Classic tokens need the repo scope for private repositories; organization repositories may require SSO authorization."
+                  : "GitHub repositories are connected, but no activity data is available yet."}
             </p>
+            {disconnected && (
+              <Link
+                href={`/${uid}/profile/settings`}
+                className="mt-4 rounded-full bg-slate-900 px-4 py-2.5 text-[11px] font-semibold text-white"
+              >
+                Open GitHub settings
+              </Link>
+            )}
           </div>
         ) : overview ? (
           <>
@@ -525,7 +561,7 @@ export function GitHubHomeDashboard({ uid }: { uid: string }) {
                 </h2>
               </div>
               <Link
-                href={`/${uid}/keranjang`}
+                href={`/${uid}/project`}
                 className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-2 text-[9px] font-semibold text-slate-600"
               >
                 Browse all <ArrowRight size={12} />

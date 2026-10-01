@@ -10,7 +10,16 @@ export async function GET(req: NextRequest) {
   const uidNum = uidRaw ? Number(uidRaw) : NaN;
   const uid =
     Number.isInteger(uidNum) && uidNum > 0 ? uidNum : null;
-  const session = uid ? await getUserSession(req, uid) : null;
+  let session: Awaited<ReturnType<typeof getUserSession>> = null;
+  try {
+    session = uid ? await getUserSession(req, uid) : null;
+  } catch (error) {
+    console.error("[events] session verification failed:", error);
+    return new Response("Realtime session verification is temporarily unavailable.", {
+      status: 503,
+      headers: { "Cache-Control": "no-store", "Retry-After": "5" },
+    });
+  }
   if (!session) {
     return new Response("Unauthorized", { status: 401 });
   }

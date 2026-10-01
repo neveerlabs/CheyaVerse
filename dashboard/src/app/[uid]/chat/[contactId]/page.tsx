@@ -88,6 +88,7 @@ export default async function ChatRoomPage({
   let notifications: Awaited<ReturnType<typeof listNotifications>> = [];
   let messages: Awaited<ReturnType<typeof listMessages>> = [];
   let user: Awaited<ReturnType<typeof getTelegramUser>> = null;
+  let initialDataUnavailable = false;
   try {
     const [n, m, u] = await Promise.all([
       listNotifications(uid, 200),
@@ -97,14 +98,28 @@ export default async function ChatRoomPage({
     notifications = n;
     messages = m;
     user = u;
-  } catch {}
+  } catch (error) {
+    initialDataUnavailable = true;
+    console.error("[chat/system] initial data load failed:", error);
+  }
 
   return (
-    <ChatRoomClient
-      uid={params.uid}
-      notifications={notifications}
-      initialMessages={messages}
-      user={user}
-    />
+    <>
+      {initialDataUnavailable && (
+        <p
+          role="status"
+          className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-950"
+        >
+          Data chat belum dapat dimuat dari server. Pesan yang terlihat mungkin
+          belum lengkap; coba muat ulang saat koneksi pulih.
+        </p>
+      )}
+      <ChatRoomClient
+        uid={params.uid}
+        notifications={notifications}
+        initialMessages={messages}
+        user={user}
+      />
+    </>
   );
 }

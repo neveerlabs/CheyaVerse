@@ -18,6 +18,9 @@ export async function GET(request: NextRequest) {
     );
   } catch (error) {
     console.error("[chats/unread] failed to count unread messages:", error);
-    return NextResponse.json({ ok: false, error: "unread_count_failed" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: "unread_count_unavailable" },
+      { status: 503, headers: { "Cache-Control": "no-store", "Retry-After": "15" } },
+    );
   }
 }

@@ -47,6 +47,7 @@ export function TelegramAvatar({
       src={currentSrc}
       alt={alt}
       draggable={false}
+      referrerPolicy="no-referrer"
       className={className}
       onError={() => setFailedSrc(currentSrc)}
     />

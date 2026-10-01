@@ -75,81 +75,172 @@ export function SessionInit({ uid }: { uid: string }) {
   const router = useRouter();
   const pathname = usePathname();
   const [initError, setInitError] = useState("");
-  const sent = useRef(false);
+  const [initAttempt, setInitAttempt] = useState(0);
   const blockedRef = useRef(false);
   const checkRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (sent.current) return;
-    sent.current = true;
+    let cancelled = false;
+    let retryTimer: number | null = null;
 
     const nav = navigator as Navigator & {
       hardwareConcurrency?: number;
       deviceMemory?: number;
+      userAgentData?: {
+        getHighEntropyValues?: (
+          hints: string[],
+        ) => Promise<{
+          architecture?: string;
+          bitness?: string;
+          model?: string;
+          platformVersion?: string;
+          uaFullVersion?: string;
+        }>;
+      };
+      connection?: { effectiveType?: string };
     };
 
-    const webgl = getWebGLInfo();
+    const initialize = async () => {
+      const webgl = getWebGLInfo();
+      let hints: {
+        architecture?: string;
+        bitness?: string;
+        model?: string;
+        platformVersion?: string;
+        uaFullVersion?: string;
+      } = {};
+      try {
+        hints =
+          (await nav.userAgentData?.getHighEntropyValues?.([
+            "architecture",
+            "bitness",
+            "model",
+            "platformVersion",
+            "uaFullVersion",
+          ])) ?? {};
+      } catch {
+        // Client hints are optional and may be unavailable in privacy-focused browsers.
+      }
+      let colorGamut = "srgb";
+      try {
+        if (window.matchMedia("(color-gamut: p3)").matches) {
+          colorGamut = "p3";
+        }
+      } catch {
+        colorGamut = "unknown";
+      }
+      const orientation =
+        window.screen?.orientation?.type ??
+        (window.matchMedia("(orientation: portrait)").matches
+          ? "portrait"
+          : "landscape");
+      const payload = {
+        uid: Number(uid),
+        deviceId: readDeviceId(),
+        ua: navigator.userAgent ?? "",
+        cpuCores:
+          typeof nav.hardwareConcurrency === "number"
+            ? nav.hardwareConcurrency
+            : null,
+        ramGb: typeof nav.deviceMemory === "number" ? nav.deviceMemory : null,
+        language: navigator.language ?? null,
+        timezone: readTimezone(),
+        screenW: window.screen?.width ?? null,
+        screenH: window.screen?.height ?? null,
+        screenAvailW: window.screen?.availWidth ?? null,
+        screenAvailH: window.screen?.availHeight ?? null,
+        viewportW: window.innerWidth,
+        viewportH: window.innerHeight,
+        pixelRatio: window.devicePixelRatio || 1,
+        orientation,
+        colorGamut,
+        networkType: nav.connection?.effectiveType ?? null,
+        browserVersion: hints.uaFullVersion ?? null,
+        uaArchitecture: hints.architecture ?? null,
+        uaPlatformVersion: hints.platformVersion ?? null,
+        uaBitness: hints.bitness ?? null,
+        uaModel: hints.model ?? null,
+        colorDepth: window.screen?.colorDepth ?? null,
+        platform: navigator.platform ?? null,
+        maxTouch:
+          typeof navigator.maxTouchPoints === "number"
+            ? navigator.maxTouchPoints
+            : null,
+        webglVendor: webgl.vendor,
+        webglRenderer: webgl.renderer,
+      };
 
-    const payload = {
-      uid: Number(uid),
-      deviceId: readDeviceId(),
-      ua: navigator.userAgent ?? "",
-      cpuCores:
-        typeof nav.hardwareConcurrency === "number"
-          ? nav.hardwareConcurrency
-          : null,
-      ramGb:
-        typeof nav.deviceMemory === "number" ? nav.deviceMemory : null,
-      language: navigator.language ?? null,
-      timezone: readTimezone(),
-      screenW: window.screen?.width ?? null,
-      screenH: window.screen?.height ?? null,
-      colorDepth: window.screen?.colorDepth ?? null,
-      platform: navigator.platform ?? null,
-      maxTouch:
-        typeof navigator.maxTouchPoints === "number"
-          ? navigator.maxTouchPoints
-          : null,
-      webglVendor: webgl.vendor,
-      webglRenderer: webgl.renderer,
-    };
-
-    fetch("/api/session/init", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      cache: "no-store",
-    })
-      .then(async (res) => {
-        if (res.status === 403) {
-          blockedRef.current = true;
-          redirectToBlocked();
-          return;
-        }
-        if (res.status === 401) {
-          try {
-            window.localStorage.removeItem(DEVICE_ID_KEY);
-          } catch {}
-          window.location.replace("/login");
-          return;
-        }
-        const j = await res.json();
-        if (!res.ok || !j?.ok || typeof j?.deviceId !== "string") {
-          throw new Error(`Device initialization failed (${res.status}).`);
-        }
-        setInitError("");
+      let lastError: Error | null = null;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        if (cancelled) return;
         try {
-          window.localStorage.setItem(DEVICE_ID_KEY, j.deviceId);
-        } catch {}
-        if (j.state === "welcome") {
-          router.refresh();
+          const res = await fetch("/api/session/init", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+            cache: "no-store",
+          });
+          if (cancelled) return;
+          if (res.status === 403) {
+            blockedRef.current = true;
+            redirectToBlocked();
+            return;
+          }
+          if (res.status === 401) {
+            try {
+              window.localStorage.removeItem(DEVICE_ID_KEY);
+            } catch {}
+            window.location.replace("/login");
+            return;
+          }
+          const j = await res.json().catch(() => null);
+          if (!res.ok && res.status < 500 && res.status !== 429) {
+            const error = new Error(
+              j?.error || `Device initialization failed (${res.status}).`,
+            );
+            console.error("[session-init] device registration was rejected:", error);
+            setInitError(
+              "Perangkat tidak dapat didaftarkan. Periksa sesi akun lalu coba lagi.",
+            );
+            return;
+          }
+          if (!res.ok || !j?.ok || typeof j?.deviceId !== "string") {
+            throw new Error(`Device initialization failed (${res.status}).`);
+          }
+          if (cancelled) return;
+          setInitError("");
+          try {
+            window.localStorage.setItem(DEVICE_ID_KEY, j.deviceId);
+          } catch {}
+          if (j.state === "welcome") router.refresh();
+          return;
+        } catch (cause) {
+          lastError =
+            cause instanceof Error
+              ? cause
+              : new Error("Device initialization failed.");
+          if (attempt < 1) {
+            await new Promise<void>((resolve) => {
+              retryTimer = window.setTimeout(resolve, 800);
+            });
+          }
         }
-      })
-      .catch(() => {
-        setInitError("Device gagal didaftarkan. Muat ulang halaman untuk mencoba lagi.");
-      });
-  }, [router, uid]);
+      }
+      if (!cancelled) {
+        console.error("[session-init] device registration failed:", lastError);
+        setInitError(
+          "Perangkat belum terhubung ke server. Periksa koneksi lalu coba lagi.",
+        );
+      }
+    };
+
+    void initialize();
+    return () => {
+      cancelled = true;
+      if (retryTimer !== null) window.clearTimeout(retryTimer);
+    };
+  }, [initAttempt, router, uid]);
 
   useRealtime(uid, (event) => {
     if (blockedRef.current) return;
@@ -244,7 +335,10 @@ export function SessionInit({ uid }: { uid: string }) {
       {initError}{" "}
       <button
         type="button"
-        onClick={() => window.location.reload()}
+        onClick={() => {
+          setInitError("");
+          setInitAttempt((attempt) => attempt + 1);
+        }}
         className="font-semibold underline"
       >
         Coba lagi

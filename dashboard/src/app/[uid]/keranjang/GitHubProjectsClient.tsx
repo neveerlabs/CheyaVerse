@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
+import { readApiJson } from "@/lib/read-api-json";
 import {
   ArrowRight,
   GitBranch,
@@ -46,6 +47,7 @@ export function GitHubProjectsClient({ uid }: { uid: string }) {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
+  const [needsGitHubConnection, setNeedsGitHubConnection] = useState(false);
   const [searchInput, setSearchInput] = useState("");
   const [activeSearch, setActiveSearch] = useState("");
   const [totalCount, setTotalCount] = useState<number | null>(null);
@@ -57,20 +59,28 @@ export function GitHubProjectsClient({ uid }: { uid: string }) {
       if (append) setLoadingMore(true);
       else setLoading(true);
       setError("");
+      setNeedsGitHubConnection(false);
       try {
         const params = new URLSearchParams({ page: String(nextPage) });
         if (query) params.set("q", query);
         const response = await fetch(`/api/github/repos?${params}`, {
           cache: "no-store",
         });
-        const result = (await response.json()) as {
+        const result = await readApiJson<{
           repositories?: Repository[];
           page?: number;
           hasMore?: boolean;
           totalCount?: number | null;
           error?: string;
-        };
+          code?: string;
+        }>(response);
         if (!response.ok || !Array.isArray(result.repositories)) {
+          setNeedsGitHubConnection(
+            response.status === 409 &&
+              ["GITHUB_NOT_CONNECTED", "GITHUB_RECONNECT_REQUIRED"].includes(
+                result.code ?? "",
+              ),
+          );
           throw new Error(result.error || "GitHub projects could not be loaded.");
         }
         if (currentRequestId !== requestId.current) return;
@@ -98,7 +108,7 @@ export function GitHubProjectsClient({ uid }: { uid: string }) {
   );
 
   useEffect(() => {
-    if (pathname === `/${uid}/keranjang`) {
+    if (pathname === `/${uid}/project`) {
       void load(1, false, activeSearch);
     }
   }, [activeSearch, load, pathname, uid]);
@@ -184,7 +194,7 @@ export function GitHubProjectsClient({ uid }: { uid: string }) {
               <p className="mt-1 text-[11px] leading-relaxed text-amber-900">
                 {error}
               </p>
-              {error.toLowerCase().includes("connect a github") && (
+              {needsGitHubConnection && (
                 <Link
                   href={`/${uid}/profile/settings`}
                   className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-amber-950 px-3.5 py-2 text-[11px] font-semibold text-white"
@@ -192,7 +202,7 @@ export function GitHubProjectsClient({ uid }: { uid: string }) {
                   Open Settings <ArrowRight size={13} />
                 </Link>
               )}
-              {!error.toLowerCase().includes("connect a github") && (
+              {!needsGitHubConnection && (
                 <button
                   type="button"
                   onClick={() => void load(1, false, activeSearch)}
@@ -227,7 +237,9 @@ export function GitHubProjectsClient({ uid }: { uid: string }) {
             {activeSearch ? "No matching repositories" : "No repositories found"}
           </h3>
           <p className="mx-auto mt-1.5 max-w-[280px] text-[11.5px] leading-relaxed text-ink-mute">
-            Akun GitHub yang terhubung belum memiliki repositori yang dapat diakses.
+            {activeSearch
+              ? "Coba kata kunci lain untuk mencari repository."
+              : "Token GitHub tersambung, tetapi tidak ada repository yang dapat diakses. Classic token memerlukan scope repo untuk repository private; repository organisasi mungkin juga memerlukan otorisasi SSO."}
           </p>
           <Link
             href={`/${uid}/profile/settings`}
@@ -246,7 +258,7 @@ export function GitHubProjectsClient({ uid }: { uid: string }) {
               className="group min-w-0 overflow-hidden rounded-[22px] border border-black/[.055] bg-white shadow-[0_7px_26px_-22px_rgba(15,23,42,.35)] transition-all hover:-translate-y-0.5 hover:shadow-[0_12px_34px_-22px_rgba(15,23,42,.3)]"
             >
               <Link
-                href={`/${uid}/keranjang/${encodeURIComponent(repository.fullName.split("/")[0])}/${encodeURIComponent(repository.name)}`}
+                href={`/${uid}/project/${encodeURIComponent(repository.fullName.split("/")[0])}/${encodeURIComponent(repository.name)}`}
                 className="block p-4"
               >
                 <div className="flex items-start justify-between gap-3">

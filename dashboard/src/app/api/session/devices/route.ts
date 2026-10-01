@@ -33,6 +33,24 @@ export async function GET(request: NextRequest) {
         brand: device.brand,
         model: device.model,
         browser: device.browser,
+        browserVersion: device.browser_version,
+        cpuCores: device.cpu_cores,
+        ramGb: device.ram_gb,
+        screen: device.screen_w && device.screen_h
+          ? `${device.screen_w} × ${device.screen_h}`
+          : null,
+        viewport: device.viewport_w && device.viewport_h
+          ? `${device.viewport_w} × ${device.viewport_h}`
+          : null,
+        pixelRatio: device.pixel_ratio,
+        orientation: device.orientation,
+        colorGamut: device.color_gamut,
+        architecture: device.ua_architecture,
+        platformVersion: device.ua_platform_version,
+        bitness: device.ua_bitness,
+        networkType: device.network_type,
+        language: device.language,
+        timezone: device.timezone,
         lastSeen: device.last_seen,
       })),
     },

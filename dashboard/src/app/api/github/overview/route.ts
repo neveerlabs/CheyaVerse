@@ -4,6 +4,7 @@ import {
   getGitHubMessage,
   getGitHubResponseError,
   getGitHubToken,
+  GitHubCredentialError,
   githubFetch,
   githubJson,
   GitHubApiError,
@@ -200,14 +201,17 @@ export async function GET(request: NextRequest) {
     const token = await getGitHubToken(session.uid);
     if (!token) {
       return NextResponse.json(
-        { error: "Connect a GitHub account in Settings to show project activity." },
+        {
+          code: "GITHUB_NOT_CONNECTED",
+          error: "Connect a GitHub account in Settings to show project activity.",
+        },
         { status: 409, headers: { "Cache-Control": "no-store" } },
       );
     }
 
     const { data: repositories, response } = await githubJson<Repository[]>(
       token,
-      "/user/repos?sort=pushed&direction=desc&per_page=100&page=1&affiliation=owner",
+      "/user/repos?sort=pushed&direction=desc&per_page=100&page=1&affiliation=owner,collaborator,organization_member",
     );
     const candidates = repositories
       .sort((a, b) =>
@@ -256,6 +260,12 @@ export async function GET(request: NextRequest) {
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
+    if (error instanceof GitHubCredentialError) {
+      return NextResponse.json(
+        { code: "GITHUB_RECONNECT_REQUIRED", error: error.message },
+        { status: 409, headers: { "Cache-Control": "no-store" } },
+      );
+    }
     const status = error instanceof GitHubApiError ? error.status : 502;
     if (!(error instanceof GitHubApiError)) {
       console.error("[github/overview] failed to load project overview:", error);

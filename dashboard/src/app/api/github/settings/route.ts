@@ -6,24 +6,32 @@ import {
   GitHubApiError,
   getGitHubResponseError,
   getGitHubEncryptionStatus,
+  getGitHubToken,
   isGitHubEncryptionConfigured,
   removeGitHubCredential,
   saveGitHubCredential,
 } from "@/lib/github";
+import {
+  readBoundedJson,
+  RequestBodyTooLargeError,
+} from "@/lib/read-bounded-json";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const MAX_TOKEN_REQUEST_BYTES = 2048;
+
 export async function GET(request: NextRequest) {
-  const session = await getUserSession(request);
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  }
   try {
+    const session = await getUserSession(request);
+    if (!session) {
+      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    }
     const credential = await getGitHubCredentialStatus(session.uid);
     return NextResponse.json(
       {
         connected: credential.connected,
+        tokenReadable: credential.tokenReadable,
         login: credential.login,
         scopes: credential.scopes,
         updatedAt: credential.updatedAt,
@@ -35,8 +43,11 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("[github/settings] failed to read GitHub settings:", error);
     return NextResponse.json(
-      { error: "GitHub settings could not be loaded." },
-      { status: 500 },
+      { error: "GitHub settings are temporarily unavailable. Check the database connection and retry." },
+      {
+        status: 503,
+        headers: { "Cache-Control": "no-store", "Retry-After": "5" },
+      },
     );
   }
 }
@@ -56,8 +67,26 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const body = await request.json().catch(() => null);
-  const token = typeof body?.token === "string" ? body.token.trim() : "";
+  let body: unknown;
+  try {
+    body = await readBoundedJson(request, MAX_TOKEN_REQUEST_BYTES);
+  } catch (error) {
+    const oversized = error instanceof RequestBodyTooLargeError;
+    return NextResponse.json(
+      {
+        error:
+          oversized
+            ? "Token request is too large."
+            : "Invalid token request.",
+      },
+      {
+        status: oversized ? 413 : 400,
+      },
+    );
+  }
+  const payload =
+    body && typeof body === "object" ? (body as Record<string, unknown>) : {};
+  const token = typeof payload.token === "string" ? payload.token.trim() : "";
   if (token.length < 20 || token.length > 512 || !/^[A-Za-z0-9_]+$/.test(token)) {
     return NextResponse.json(
       { error: "Enter a valid GitHub personal access token." },
@@ -81,8 +110,12 @@ export async function POST(request: NextRequest) {
       user.login,
       response.headers.get("x-oauth-scopes"),
     );
+    const storedToken = await getGitHubToken(session.uid);
+    if (storedToken !== token) {
+      throw new Error("GITHUB_CREDENTIAL_READBACK_FAILED");
+    }
     return NextResponse.json(
-      { ok: true, login: user.login },
+      { ok: true, connected: true, login: user.login },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
@@ -92,10 +125,16 @@ export async function POST(request: NextRequest) {
         { status: error.status },
       );
     }
-    console.error("[github/settings] failed to save GitHub token:", error);
+    console.error("[github/settings] failed to save or verify GitHub credential:", error);
     return NextResponse.json(
-      { error: "GitHub token could not be saved." },
-      { status: 500 },
+      {
+        error:
+          error instanceof Error &&
+          error.message === "GITHUB_CREDENTIAL_READBACK_FAILED"
+            ? "GitHub checked the token, but the saved connection could not be verified. Please retry and check the server database connection."
+            : "GitHub token could not be saved. Check the server database connection and try again.",
+      },
+      { status: 503, headers: { "Cache-Control": "no-store", "Retry-After": "10" } },
     );
   }
 }

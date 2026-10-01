@@ -36,8 +36,8 @@ type Snapshot = {
 
 type Listener = (event: RealtimeEvent) => void;
 
-const FALLBACK_VISIBLE_MS = 5000;
-const FALLBACK_HIDDEN_MS = 30000;
+const FALLBACK_VISIBLE_MS = 15000;
+const FALLBACK_HIDDEN_MS = 60000;
 const BACKOFF_BASE_MS = 4000;
 const BACKOFF_MAX_MS = 30000;
 const MAX_ERR_LEVEL = 6;
@@ -52,6 +52,8 @@ class RealtimeConnection {
   private previous: Snapshot | null = null;
   private errCount = 0;
   private streamConnected = false;
+  private realtimeUnavailable = false;
+  private realtimeStatusTimer: ReturnType<typeof setTimeout> | null = null;
   private refreshRequested = false;
   private started = false;
   private stopped = false;
@@ -70,6 +72,14 @@ class RealtimeConnection {
   reconnect(): void {
     if (this.stopped) return;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+    if (this.inflight) {
+      this.refreshRequested = true;
+      this.inflight.abort();
+    }
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.connectStream();
@@ -103,6 +113,7 @@ class RealtimeConnection {
     document.removeEventListener("visibilitychange", this.onVisibility);
     if (this.timer) clearTimeout(this.timer);
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    if (this.realtimeStatusTimer) clearTimeout(this.realtimeStatusTimer);
     this.source?.close();
     this.inflight?.abort();
   }
@@ -117,6 +128,8 @@ class RealtimeConnection {
     this.source.onopen = () => {
       this.streamConnected = true;
       this.errCount = 0;
+      this.setRealtimeUnavailable(false);
+      if (!this.previous) this.kick();
     };
     this.source.onmessage = (message) => {
       try {
@@ -130,6 +143,35 @@ class RealtimeConnection {
       this.streamConnected = false;
       this.kick();
     };
+  }
+
+  private setRealtimeUnavailable(unavailable: boolean, message?: string): void {
+    if (!unavailable) {
+      if (this.realtimeStatusTimer) clearTimeout(this.realtimeStatusTimer);
+      this.realtimeStatusTimer = null;
+      if (!this.realtimeUnavailable) return;
+      this.realtimeUnavailable = false;
+      window.dispatchEvent(
+        new CustomEvent("cheya:realtime-status", {
+          detail: { connected: true },
+        }),
+      );
+      return;
+    }
+    if (this.realtimeUnavailable || this.realtimeStatusTimer) return;
+    this.realtimeStatusTimer = setTimeout(() => {
+      this.realtimeStatusTimer = null;
+      if (this.stopped || this.streamConnected) return;
+      this.realtimeUnavailable = true;
+      window.dispatchEvent(
+        new CustomEvent("cheya:realtime-status", {
+          detail: {
+            connected: false,
+            ...(message ? { message } : {}),
+          },
+        }),
+      );
+    }, 5_000);
   }
 
   private emit(event: RealtimeEvent): void {
@@ -154,7 +196,7 @@ class RealtimeConnection {
   }
 
   private nextInterval(): number {
-    if (!this.streamConnected && this.errCount === 0) return 2500;
+    if (!this.streamConnected && this.errCount === 0) return FALLBACK_VISIBLE_MS;
     if (this.errCount > 0) {
       return Math.min(
         BACKOFF_MAX_MS,
@@ -168,6 +210,7 @@ class RealtimeConnection {
 
   private tick = async (): Promise<void> => {
     if (this.stopped || this.inflight) return;
+    if (this.streamConnected && this.previous) return;
 
     const controller = new AbortController();
     this.inflight = controller;
@@ -179,6 +222,12 @@ class RealtimeConnection {
       );
       if (!response.ok) {
         this.errCount++;
+        if (response.status >= 500) {
+          this.setRealtimeUnavailable(
+            true,
+            `Realtime server returned HTTP ${response.status}; it will retry automatically.`,
+          );
+        }
         return;
       }
 
@@ -189,6 +238,7 @@ class RealtimeConnection {
       }
 
       this.errCount = 0;
+      this.setRealtimeUnavailable(false);
       const current = result.snapshot as Snapshot;
 
       if (this.previous) {
@@ -261,10 +311,14 @@ class RealtimeConnection {
     } catch (error) {
       if ((error as { name?: string })?.name !== "AbortError") {
         this.errCount++;
+        this.setRealtimeUnavailable(
+          true,
+          "Realtime polling could not reach the server; it will retry automatically.",
+        );
       }
     } finally {
       if (this.inflight === controller) this.inflight = null;
-      if (!this.stopped) {
+      if (!this.stopped && !this.streamConnected) {
         const delay = this.refreshRequested ? 0 : this.nextInterval();
         this.refreshRequested = false;
         this.timer = setTimeout(() => {
@@ -289,15 +343,11 @@ class RealtimeConnection {
   };
 
   private onVisibility = (): void => {
-    if (document.visibilityState === "visible" && !this.streamConnected) {
-      this.kick();
-    }
+    if (document.visibilityState === "visible" && !this.streamConnected) this.reconnect();
   };
 
   private onPageShow = (event: PageTransitionEvent): void => {
-    if (event.persisted) {
-      this.reconnect();
-    }
+    if (event.persisted || document.visibilityState === "visible") this.reconnect();
   };
 
   private onPopState = (): void => {
@@ -305,7 +355,7 @@ class RealtimeConnection {
   };
 
   private onOnline = (): void => {
-    if (!this.streamConnected) this.kick();
+    if (!this.streamConnected) this.reconnect();
   };
 }
 

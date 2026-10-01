@@ -11,7 +11,14 @@ export default async function MediaPage({ params }: { params: { uid: string } })
   if (!Number.isInteger(uid) || uid <= 0) notFound();
 
   const initialView = getViewPreferenceServer();
-  const raw = await listRecentMedia(uid, 50);
+  let raw: Awaited<ReturnType<typeof listRecentMedia>> = [];
+  let dataUnavailable = false;
+  try {
+    raw = await listRecentMedia(uid, 50);
+  } catch (error) {
+    dataUnavailable = true;
+    console.error("[media/page] failed to load media list:", error);
+  }
 
   const items = raw.map((m) => ({
     id: m.id,
@@ -23,8 +30,16 @@ export default async function MediaPage({ params }: { params: { uid: string } })
 
   return (
     <>
-      <AppHeader title="Media" subtitle={`${items.length} latest files`} />
-      <MediaClient uid={params.uid} items={items} initialView={initialView} />
+      <AppHeader
+        title="Media"
+        subtitle={dataUnavailable ? "Media temporarily unavailable" : `${items.length} latest files`}
+      />
+      <MediaClient
+        uid={params.uid}
+        items={items}
+        initialView={initialView}
+        dataUnavailable={dataUnavailable}
+      />
     </>
   );
 }

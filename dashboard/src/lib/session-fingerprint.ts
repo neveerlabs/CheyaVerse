@@ -17,6 +17,7 @@ export type SessionIdent = {
   webgl_renderer?: string | null;
   screen_w?: number | null;
   screen_h?: number | null;
+  ua_architecture?: string | null;
 };
 
 function joinParts(parts: (string | number | null | undefined)[]): string {
@@ -39,6 +40,7 @@ export function computeFingerprint(ident: SessionIdent): string {
     ident.color_depth == null ? "" : String(ident.color_depth),
     ident.webgl_vendor ?? "",
     ident.webgl_renderer ?? "",
+    ident.ua_architecture ?? "",
   ];
   return crypto
     .createHash("sha256")

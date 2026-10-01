@@ -529,7 +529,7 @@ export function VideoThumbnail({
           }
         }
       },
-      { rootMargin: "3000px" },
+      { rootMargin: "400px" },
     );
 
     observer.observe(el);

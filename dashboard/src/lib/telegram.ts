@@ -297,6 +297,7 @@ export async function sendTelegramMessage(
     parseMode?: "HTML" | "MarkdownV2" | "Markdown";
     replyMarkup?: unknown;
     disableWebPagePreview?: boolean;
+    retry?: FetchRetryOptions;
   },
 ): Promise<boolean> {
   if (!config.telegram.botToken) {
@@ -320,12 +321,78 @@ export async function sendTelegramMessage(
         body: JSON.stringify(payload),
         cache: "no-store",
       },
+      options?.retry,
     );
     if (!res || !res.ok) return false;
     const data = await res.json();
     return data?.ok === true;
   } catch (err) {
     console.error("Telegram sendMessage error:", err);
+    return false;
+  }
+}
+
+export async function sendTelegramPhoto(
+  chatId: number | string,
+  photo: Blob,
+  caption: string,
+  retry?: FetchRetryOptions,
+): Promise<boolean> {
+  if (!config.telegram.botToken) {
+    console.error("TELEGRAM_BOT_TOKEN not configured");
+    return false;
+  }
+  try {
+    const form = new FormData();
+    form.set("chat_id", String(chatId));
+    form.set("caption", caption.slice(0, 1024));
+    form.set("photo", photo, photo.type === "image/png" ? "bug-report.png" : "bug-report.jpg");
+    const response = await fetchWithRetry(
+      `https://api.telegram.org/bot${config.telegram.botToken}/sendPhoto`,
+      { method: "POST", body: form, cache: "no-store" },
+      retry,
+    );
+    if (!response?.ok) return false;
+    const result = await response.json();
+    return result?.ok === true;
+  } catch (error) {
+    console.error("Telegram sendPhoto error:", error);
+    return false;
+  }
+}
+
+export async function sendTelegramDocument(
+  chatId: number | string,
+  document: Blob,
+  filename: string,
+  caption: string,
+  retry?: FetchRetryOptions,
+): Promise<boolean> {
+  if (!config.telegram.botToken) {
+    console.error("TELEGRAM_BOT_TOKEN not configured");
+    return false;
+  }
+  try {
+    const form = new FormData();
+    form.set("chat_id", String(chatId));
+    form.set("caption", caption.slice(0, 1024));
+    form.set("document", document, filename);
+    const response = await fetchWithRetry(
+      `https://api.telegram.org/bot${config.telegram.botToken}/sendDocument`,
+      { method: "POST", body: form, cache: "no-store" },
+      retry,
+    );
+    if (!response) return false;
+    const result = await response.json();
+    if (!response.ok || result?.ok !== true) {
+      console.error(
+        `Telegram document delivery failed (${response.status}): ${result?.description ?? "invalid Telegram API response"}`,
+      );
+      return false;
+    }
+    return true;
+  } catch (error) {
+    console.error("Telegram sendDocument error:", error);
     return false;
   }
 }

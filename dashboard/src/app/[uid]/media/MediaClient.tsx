@@ -28,7 +28,6 @@ type Item = {
 };
 
 const LONG_PRESS_MS = 480;
-const EAGER_LIMIT = 6;
 
 function formatDate(iso: string): string {
   try {
@@ -55,14 +54,19 @@ export function MediaClient({
   uid,
   items,
   initialView,
+  dataUnavailable = false,
 }: {
   uid: string;
   items: Item[];
   initialView: MediaView;
+  dataUnavailable?: boolean;
 }) {
   const router = useRouter();
   const [view, setView] = useState<MediaView>(initialView);
   const [localItems, setLocalItems] = useState<Item[]>(items);
+  const [failedThumbnailIds, setFailedThumbnailIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [menuItem, setMenuItem] = useState<Item | null>(null);
   const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | null>(null);
   const [isMobile, setIsMobile] = useState(false);
@@ -77,6 +81,7 @@ export function MediaClient({
 
   useEffect(() => {
     setLocalItems(items);
+    setFailedThumbnailIds(new Set());
   }, [items]);
 
   useEffect(() => {
@@ -268,9 +273,33 @@ export function MediaClient({
     closeMenu();
   }
 
+  if (dataUnavailable) {
+    return (
+      <section
+        role="alert"
+        className="-ml-2 mr-0 rounded-3xl border border-amber-200 bg-amber-50 p-5 text-center sm:mx-0"
+      >
+        <p className="text-sm font-semibold text-amber-950">
+          Media data could not be loaded
+        </p>
+        <p className="mt-1 text-xs leading-relaxed text-amber-900/80">
+          The server or database is temporarily unavailable. Your files have not
+          been changed.
+        </p>
+        <button
+          type="button"
+          onClick={() => router.refresh()}
+          className="mt-4 inline-flex min-h-10 items-center justify-center rounded-full bg-slate-950 px-4 text-xs font-semibold text-white"
+        >
+          Try again
+        </button>
+      </section>
+    );
+  }
+
   if (localItems.length === 0) {
     return (
-      <div className="px-1 py-20 text-center animate-fade-up">
+      <div className="-ml-2 mr-0 px-1 py-20 text-center animate-fade-up sm:mx-0">
         <div className="w-14 h-14 rounded-full bg-[#f5f5f5] mx-auto mb-4 flex items-center justify-center">
           <ImageIcon size={22} className="text-ink-mute" strokeWidth={1.8} />
         </div>
@@ -284,7 +313,7 @@ export function MediaClient({
 
   return (
     <>
-      <div className="flex items-center justify-end gap-1 px-1 pb-3 animate-fade-up">
+      <div className="-ml-2 mr-0 flex items-center justify-end gap-1 px-1 pb-3 animate-fade-up sm:mx-0">
         <div className="flex items-center gap-1 rounded-full border border-black/[.05] bg-[#f5f6f7] p-1">
         <button
           type="button"
@@ -310,8 +339,8 @@ export function MediaClient({
       </div>
 
       {view === "list" ? (
-        <div className="flex flex-col px-1 animate-fade-up">
-          {localItems.map((m, idx) => (
+        <div className="-ml-2 mr-0 flex flex-col px-1 animate-fade-up sm:mx-0">
+          {localItems.map((m) => (
             <div
               key={m.id}
               className="group relative my-0.5 flex items-center gap-3 rounded-2xl border border-transparent px-2.5 py-3 transition-colors hover:border-black/[.04] hover:bg-[#f8f8f8] active:bg-[#f3f3f3]"
@@ -331,18 +360,23 @@ export function MediaClient({
                            hover:opacity-60 active:opacity-40"
               >
                 <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[#f1f2f4]">
-                  {isImage(m.content_type) && m.thumbnailUrl ? (
+                  {isImage(m.content_type) &&
+                  m.thumbnailUrl &&
+                  !failedThumbnailIds.has(m.id) ? (
                     <img
                       src={m.thumbnailUrl}
                       alt=""
                       className="w-full h-full object-cover"
                       loading="lazy"
+                      onError={() =>
+                        setFailedThumbnailIds((current) => new Set(current).add(m.id))
+                      }
                     />
                   ) : isVideo(m.content_type) && m.thumbnailUrl ? (
                     <VideoThumbnail
                       src={m.thumbnailUrl}
                       iconSize={20}
-                      priority={idx < EAGER_LIMIT}
+                      priority={false}
                     />
                   ) : (
                     <ImageIcon size={20} className="text-ink-soft" strokeWidth={1.8} />
@@ -379,8 +413,8 @@ export function MediaClient({
           ))}
         </div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-1 sm:gap-2 px-1 animate-fade-up">
-          {localItems.map((m, idx) => (
+        <div className="-ml-2 mr-0 grid grid-cols-2 gap-1 px-1 animate-fade-up sm:mx-0 sm:grid-cols-3 sm:gap-2">
+          {localItems.map((m) => (
             <div
               key={m.id}
               className="relative aspect-square overflow-hidden rounded-2xl border border-black/[.045] bg-[#f4f5f6]"
@@ -398,18 +432,23 @@ export function MediaClient({
                 onClick={handleClickCapture}
                 className="block w-full h-full"
               >
-                {isImage(m.content_type) && m.thumbnailUrl ? (
+                {isImage(m.content_type) &&
+                m.thumbnailUrl &&
+                !failedThumbnailIds.has(m.id) ? (
                   <img
                     src={m.thumbnailUrl}
                     alt={m.filename}
                     loading="lazy"
                     className="w-full h-full object-cover"
+                    onError={() =>
+                      setFailedThumbnailIds((current) => new Set(current).add(m.id))
+                    }
                   />
                 ) : isVideo(m.content_type) && m.thumbnailUrl ? (
                   <VideoThumbnail
                     src={m.thumbnailUrl}
                     iconSize={28}
-                    priority={idx < EAGER_LIMIT}
+                    priority={false}
                   />
                 ) : (
                   <div className="w-full h-full flex flex-col items-center justify-center gap-1 text-ink-mute">

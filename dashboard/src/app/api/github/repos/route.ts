@@ -3,6 +3,7 @@ import { getUserSession } from "@/lib/auth-request";
 import {
   getGitHubMessage,
   getGitHubToken,
+  GitHubCredentialError,
   githubJson,
   hasNextLink,
   GitHubApiError,
@@ -42,7 +43,10 @@ export async function GET(request: NextRequest) {
     const token = await getGitHubToken(session.uid);
     if (!token) {
       return NextResponse.json(
-        { error: "Connect a GitHub account in Settings to view repositories." },
+        {
+          code: "GITHUB_NOT_CONNECTED",
+          error: "Connect a GitHub account in Settings to view repositories.",
+        },
         { status: 409 },
       );
     }
@@ -78,6 +82,12 @@ export async function GET(request: NextRequest) {
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
+    if (error instanceof GitHubCredentialError) {
+      return NextResponse.json(
+        { code: "GITHUB_RECONNECT_REQUIRED", error: error.message },
+        { status: 409, headers: { "Cache-Control": "no-store" } },
+      );
+    }
     const status = error instanceof GitHubApiError ? error.status : 502;
     if (!(error instanceof GitHubApiError)) {
       console.error("[github/repos] failed to load repositories:", error);

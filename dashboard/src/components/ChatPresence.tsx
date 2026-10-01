@@ -11,13 +11,25 @@ export function ChatPresence() {
     const heartbeat = async () => {
       if (document.visibilityState !== "visible" || pending) return;
       pending = true;
+      let lastError: Error | null = null;
       try {
-        await fetch("/api/presence", {
-          method: "POST",
-          cache: "no-store",
-        });
-      } catch {
-        return;
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          try {
+            const response = await fetch("/api/presence", {
+              method: "POST",
+              cache: "no-store",
+            });
+            if (response.ok) return;
+            lastError = new Error(`Presence heartbeat failed (HTTP ${response.status}).`);
+            if (response.status < 500 || attempt > 0) break;
+          } catch (cause) {
+            lastError =
+              cause instanceof Error ? cause : new Error("Presence heartbeat failed.");
+            if (attempt > 0) break;
+          }
+          await new Promise((resolve) => window.setTimeout(resolve, 700));
+        }
+        console.error("[chat-presence] heartbeat could not reach the server:", lastError);
       } finally {
         pending = false;
       }
@@ -29,8 +41,8 @@ export function ChatPresence() {
       active = isVisible;
     };
 
-    void heartbeat();
-    timer = window.setInterval(() => void heartbeat(), 30_000);
+    if (document.visibilityState === "visible") void heartbeat();
+    timer = window.setInterval(() => void heartbeat(), 60_000);
     document.addEventListener("visibilitychange", sync);
     window.addEventListener("focus", sync);
     return () => {

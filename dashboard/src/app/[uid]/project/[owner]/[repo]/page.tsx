@@ -1,4 +1,5 @@
-import { redirect, notFound } from "next/navigation";
+import { notFound } from "next/navigation";
+import { GitHubProjectDashboard } from "../../../keranjang/[owner]/[repo]/GitHubProjectDashboard";
 
 export const dynamic = "force-dynamic";
 
@@ -6,7 +7,7 @@ function isValidSegment(value: string): boolean {
   return /^[A-Za-z0-9_.-]{1,100}$/.test(value) && value !== "." && value !== "..";
 }
 
-export default function LegacyGitHubProjectPage({
+export default function ProjectDetailsPage({
   params,
 }: {
   params: { uid: string; owner: string; repo: string };
@@ -21,7 +22,11 @@ export default function LegacyGitHubProjectPage({
     notFound();
   }
 
-  redirect(
-    `/${uid}/project/${encodeURIComponent(params.owner)}/${encodeURIComponent(params.repo)}`,
+  return (
+    <GitHubProjectDashboard
+      uid={params.uid}
+      owner={params.owner}
+      repo={params.repo}
+    />
   );
 }

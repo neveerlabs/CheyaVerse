@@ -1,21 +1,13 @@
-import { notFound } from "next/navigation";
-import { AppHeader } from "@/components/AppHeader";
-import { GitHubProjectsClient } from "./GitHubProjectsClient";
+import { notFound, redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
-export default function KeranjangPage({
+export default function LegacyProjectsPage({
   params,
 }: {
   params: { uid: string };
 }) {
   const uid = Number(params.uid);
   if (!Number.isInteger(uid) || uid <= 0) notFound();
-
-  return (
-    <>
-      <AppHeader title="Projects" subtitle="GitHub repositories and project activity" />
-      <GitHubProjectsClient uid={params.uid} />
-    </>
-  );
+  redirect(`/${uid}/project`);
 }

@@ -31,23 +31,19 @@ export function RealtimeSync({ uid }: { uid: string }) {
     if (lastPathnameRef.current === pathname) return;
     lastPathnameRef.current = pathname;
     reconnectRealtime(uid);
-    scheduleRefresh();
-  }, [pathname, scheduleRefresh, uid]);
+  }, [pathname, uid]);
 
   useEffect(() => {
     const onPageShow = (event: PageTransitionEvent) => {
       if (event.persisted) {
-        reconnectRealtime(uid);
         scheduleRefresh();
       }
     };
     const onPopState = () => {
-      reconnectRealtime(uid);
       scheduleRefresh();
     };
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        reconnectRealtime(uid);
         scheduleRefresh(140);
       }
     };
@@ -61,7 +57,7 @@ export function RealtimeSync({ uid }: { uid: string }) {
       document.removeEventListener("visibilitychange", onVisibilityChange);
       if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
     };
-  }, [scheduleRefresh, uid]);
+  }, [scheduleRefresh]);
 
   useRealtime(uid, (event) => {
     const inChatRoom = /^\/[^/]+\/chat\/[^/]+\/?$/.test(pathnameRef.current);

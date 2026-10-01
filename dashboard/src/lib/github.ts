@@ -9,6 +9,7 @@ let githubCredentialsReady: Promise<void> | null = null;
 
 export type GitHubCredentialStatus = {
   connected: boolean;
+  tokenReadable: boolean | null;
   login: string | null;
   scopes: string | null;
   updatedAt: string | null;
@@ -22,6 +23,13 @@ export class GitHubApiError extends Error {
   ) {
     super(message);
     this.name = "GitHubApiError";
+  }
+}
+
+export class GitHubCredentialError extends Error {
+  constructor() {
+    super("The saved GitHub token cannot be decrypted. Reconnect GitHub in Settings.");
+    this.name = "GitHubCredentialError";
   }
 }
 
@@ -111,12 +119,22 @@ export async function getGitHubCredentialStatus(
 ): Promise<GitHubCredentialStatus> {
   await ensureGitHubCredentialsTable();
   const result = await getTurso().execute({
-    sql: "SELECT github_login, scopes, updated_at FROM github_credentials WHERE uid = ? LIMIT 1",
+    sql: "SELECT encrypted_token, github_login, scopes, updated_at FROM github_credentials WHERE uid = ? LIMIT 1",
     args: [uid],
   });
   const row = result.rows[0] as Record<string, unknown> | undefined;
+  let tokenReadable: boolean | null = null;
+  if (row?.encrypted_token != null) {
+    try {
+      decryptToken(String(row.encrypted_token));
+      tokenReadable = true;
+    } catch {
+      tokenReadable = false;
+    }
+  }
   return {
     connected: Boolean(row),
+    tokenReadable,
     login: row?.github_login == null ? null : String(row.github_login),
     scopes: row?.scopes == null ? null : String(row.scopes),
     updatedAt: row?.updated_at == null ? null : String(row.updated_at),
@@ -130,7 +148,12 @@ export async function getGitHubToken(uid: number): Promise<string | null> {
     args: [uid],
   });
   const encryptedToken = result.rows[0]?.encrypted_token;
-  return encryptedToken == null ? null : decryptToken(String(encryptedToken));
+  if (encryptedToken == null) return null;
+  try {
+    return decryptToken(String(encryptedToken));
+  } catch {
+    throw new GitHubCredentialError();
+  }
 }
 
 export async function saveGitHubCredential(
@@ -213,7 +236,7 @@ export async function getGitHubResponseError(
     return new GitHubApiError(
       limited
         ? `GitHub API rate limit reached${resetAt ? `. Try again after ${resetAt}` : ""}.`
-        : "GitHub denied access. Check the token permissions for this repository.",
+        : "GitHub denied access. Check the token's repository permissions and authorize it for organization SSO if required.",
       response.status,
       resetAt,
     );

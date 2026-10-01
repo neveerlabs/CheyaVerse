@@ -345,7 +345,7 @@ export function GitHubProjectDashboard({
       <div className="mx-auto min-h-[calc(100dvh-56px)] w-full max-w-[1440px] px-4 pb-12 pt-3 sm:px-7 sm:pt-5 lg:px-10">
         <header className="mb-5 flex flex-wrap items-center justify-between gap-3 sm:mb-7">
           <Link
-            href={`/${uid}/keranjang`}
+            href={`/${uid}/project`}
             className="inline-flex items-center gap-2 rounded-full bg-white px-3.5 py-2.5 text-[12px] font-semibold text-slate-600 shadow-sm ring-1 ring-slate-200/80 transition hover:text-slate-950"
           >
             <ArrowLeft size={15} /> All projects

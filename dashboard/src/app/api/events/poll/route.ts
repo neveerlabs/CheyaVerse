@@ -51,7 +51,16 @@ export async function GET(req: NextRequest) {
   const uidRaw = req.nextUrl.searchParams.get("uid");
   const uidNum = uidRaw ? Number(uidRaw) : NaN;
   const uid = Number.isInteger(uidNum) && uidNum > 0 ? uidNum : null;
-  const session = uid ? await getUserSession(req, uid) : null;
+  let session: Awaited<ReturnType<typeof getUserSession>> = null;
+  try {
+    session = uid ? await getUserSession(req, uid) : null;
+  } catch (error) {
+    console.error("[events/poll] session verification failed:", error);
+    return NextResponse.json(
+      { ok: false, error: "session_service_unavailable" },
+      { status: 503, headers: { "Cache-Control": "no-store", "Retry-After": "5" } },
+    );
+  }
   if (!session) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }

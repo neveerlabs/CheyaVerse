@@ -101,7 +101,12 @@ function num(v: unknown): number | null {
 function str(v: unknown): string | null {
   if (typeof v !== "string") return null;
   const s = v.trim();
-  return s ? s : null;
+  return s ? s.slice(0, 160) : null;
+}
+
+function boundedNum(v: unknown, max: number): number | null {
+  const value = num(v);
+  return value !== null && value >= 0 && value <= max ? value : null;
 }
 
 export async function POST(req: NextRequest) {
@@ -117,24 +122,39 @@ export async function POST(req: NextRequest) {
       : "";
   const rawDeviceId =
     session.deviceId ?? (session.deviceLink ? "" : requestedDeviceId);
-  const ua = String(body?.ua ?? "");
+  const ua = String(body?.ua ?? "").slice(0, 1000);
   const cpuCores =
-    typeof body?.cpuCores === "number" && body.cpuCores > 0
+    typeof body?.cpuCores === "number" &&
+    body.cpuCores > 0 &&
+    body.cpuCores <= 512
       ? Math.floor(body.cpuCores)
       : null;
   const ramGb =
-    typeof body?.ramGb === "number" && body.ramGb > 0
+    typeof body?.ramGb === "number" && body.ramGb > 0 && body.ramGb <= 1024
       ? Number(body.ramGb)
       : null;
   const language = str(body?.language);
   const timezone = str(body?.timezone);
-  const screenW = num(body?.screenW);
-  const screenH = num(body?.screenH);
-  const colorDepth = num(body?.colorDepth);
+  const screenW = boundedNum(body?.screenW, 10000);
+  const screenH = boundedNum(body?.screenH, 10000);
+  const colorDepth = boundedNum(body?.colorDepth, 128);
   const platform = str(body?.platform);
-  const maxTouch = num(body?.maxTouch);
+  const maxTouch = boundedNum(body?.maxTouch, 100);
   const webglVendor = str(body?.webglVendor);
   const webglRenderer = str(body?.webglRenderer);
+  const viewportW = boundedNum(body?.viewportW, 10000);
+  const viewportH = boundedNum(body?.viewportH, 10000);
+  const screenAvailW = boundedNum(body?.screenAvailW, 10000);
+  const screenAvailH = boundedNum(body?.screenAvailH, 10000);
+  const pixelRatio = boundedNum(body?.pixelRatio, 10);
+  const orientation = str(body?.orientation);
+  const colorGamut = str(body?.colorGamut);
+  const networkType = str(body?.networkType);
+  const browserVersion = str(body?.browserVersion);
+  const uaArchitecture = str(body?.uaArchitecture);
+  const uaPlatformVersion = str(body?.uaPlatformVersion);
+  const uaBitness = str(body?.uaBitness);
+  const uaModel = str(body?.uaModel);
 
   if (!Number.isInteger(uid) || uid !== session.uid) {
     return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
@@ -145,6 +165,7 @@ export async function POST(req: NextRequest) {
   }
 
   const info = parseDeviceInfo(ua);
+  if (uaModel) info.model = uaModel;
   const deviceLine = buildDeviceLine(info);
 
   const ident = {
@@ -164,6 +185,7 @@ export async function POST(req: NextRequest) {
     webgl_renderer: webglRenderer,
     screen_w: screenW,
     screen_h: screenH,
+    ua_architecture: uaArchitecture,
   };
 
   const fingerprint = computeFingerprint(ident);
@@ -200,6 +222,7 @@ export async function POST(req: NextRequest) {
     if (existing) {
       await touchDeviceId(deviceId, uid);
       await updateDeviceFingerprint(deviceId, uid, fingerprint, {
+        model: info.model,
         language,
         timezone,
         platform,
@@ -209,6 +232,18 @@ export async function POST(req: NextRequest) {
         webgl_renderer: webglRenderer,
         screen_w: screenW,
         screen_h: screenH,
+        viewport_w: viewportW,
+        viewport_h: viewportH,
+        screen_avail_w: screenAvailW,
+        screen_avail_h: screenAvailH,
+        pixel_ratio: pixelRatio,
+        orientation,
+        color_gamut: colorGamut,
+        network_type: networkType,
+        browser_version: browserVersion,
+        ua_architecture: uaArchitecture,
+        ua_platform_version: uaPlatformVersion,
+        ua_bitness: uaBitness,
       });
       return withDeviceSession(req, uid, deviceId, session.sessionVersion);
     }
@@ -265,6 +300,18 @@ export async function POST(req: NextRequest) {
     webgl_renderer: webglRenderer,
     screen_w: screenW,
     screen_h: screenH,
+    viewport_w: viewportW,
+    viewport_h: viewportH,
+    screen_avail_w: screenAvailW,
+    screen_avail_h: screenAvailH,
+    pixel_ratio: pixelRatio,
+    orientation,
+    color_gamut: colorGamut,
+    network_type: networkType,
+    browser_version: browserVersion,
+    ua_architecture: uaArchitecture,
+    ua_platform_version: uaPlatformVersion,
+    ua_bitness: uaBitness,
     first_seen: now,
     last_seen: now,
   });
@@ -324,7 +371,22 @@ export async function POST(req: NextRequest) {
   const locationParts = [location?.city, location?.country].filter(
     (value): value is string => Boolean(value),
   );
-  const deviceParts = [deviceType, ...hardware, publicIp, info.os].filter(
+  const displayDetails = [
+    screenW && screenH ? `${screenW}×${screenH}` : null,
+    viewportW && viewportH ? `viewport ${viewportW}×${viewportH}` : null,
+    pixelRatio ? `DPR ${pixelRatio}×` : null,
+    orientation,
+  ].filter((value): value is string => Boolean(value));
+  const runtimeDetails = [
+    browserVersion ? `${info.browser ?? "Browser"} ${browserVersion}` : info.browser,
+    uaArchitecture ? `CPU arch ${uaArchitecture}` : null,
+    uaPlatformVersion ? `OS version ${uaPlatformVersion}` : null,
+    uaBitness ? `${uaBitness}-bit` : null,
+    language,
+    timezone,
+    networkType ? `network ${networkType}` : null,
+  ].filter((value): value is string => Boolean(value));
+  const deviceParts = [deviceType, publicIp, info.os].filter(
     (value): value is string => Boolean(value),
   );
   const greeting = account.first_name
@@ -340,6 +402,15 @@ export async function POST(req: NextRequest) {
     ...(deviceParts.length
       ? [`Device: ${deviceParts.map(escapeHtml).join(", ")}`]
       : []),
+    ...(hardware.length
+      ? [`Hardware: ${hardware.map(escapeHtml).join(", ")}`]
+      : []),
+    ...(runtimeDetails.length
+      ? [`Browser/device details: ${runtimeDetails.map(escapeHtml).join(", ")}`]
+      : []),
+    ...(displayDetails.length
+      ? [`Display: ${displayDetails.map(escapeHtml).join("; ")}`]
+      : []),
     ...(locationParts.length
       ? [`Location: ${locationParts.map(escapeHtml).join(", ")}`]
       : []),
@@ -353,6 +424,7 @@ export async function POST(req: NextRequest) {
       inline_keyboard: [[{ text: "Blokir Device", url: blockUrl }]],
     },
     disableWebPagePreview: true,
+    retry: { maxAttempts: 1, timeoutMs: 5_000 },
   });
   if (!sent) {
     console.error(`[session/init] Security alert for account ${uid}, device ${deviceId} could not be sent through Telegram.`);

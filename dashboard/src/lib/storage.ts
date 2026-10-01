@@ -508,6 +508,18 @@ export type DeviceIdRow = {
   webgl_renderer: string | null;
   screen_w: number | null;
   screen_h: number | null;
+  viewport_w: number | null;
+  viewport_h: number | null;
+  screen_avail_w: number | null;
+  screen_avail_h: number | null;
+  pixel_ratio: number | null;
+  orientation: string | null;
+  color_gamut: string | null;
+  network_type: string | null;
+  browser_version: string | null;
+  ua_architecture: string | null;
+  ua_platform_version: string | null;
+  ua_bitness: string | null;
   first_seen: string;
   last_seen: string;
 };
@@ -534,6 +546,23 @@ function rowToDeviceId(row: Record<string, unknown>): DeviceIdRow {
     webgl_renderer: row.webgl_renderer == null ? null : String(row.webgl_renderer),
     screen_w: row.screen_w == null ? null : Number(row.screen_w),
     screen_h: row.screen_h == null ? null : Number(row.screen_h),
+    viewport_w: row.viewport_w == null ? null : Number(row.viewport_w),
+    viewport_h: row.viewport_h == null ? null : Number(row.viewport_h),
+    screen_avail_w:
+      row.screen_avail_w == null ? null : Number(row.screen_avail_w),
+    screen_avail_h:
+      row.screen_avail_h == null ? null : Number(row.screen_avail_h),
+    pixel_ratio: row.pixel_ratio == null ? null : Number(row.pixel_ratio),
+    orientation: row.orientation == null ? null : String(row.orientation),
+    color_gamut: row.color_gamut == null ? null : String(row.color_gamut),
+    network_type: row.network_type == null ? null : String(row.network_type),
+    browser_version:
+      row.browser_version == null ? null : String(row.browser_version),
+    ua_architecture:
+      row.ua_architecture == null ? null : String(row.ua_architecture),
+    ua_platform_version:
+      row.ua_platform_version == null ? null : String(row.ua_platform_version),
+    ua_bitness: row.ua_bitness == null ? null : String(row.ua_bitness),
     first_seen: String(row.first_seen ?? ""),
     last_seen: String(row.last_seen ?? ""),
   };
@@ -541,6 +570,7 @@ function rowToDeviceId(row: Record<string, unknown>): DeviceIdRow {
 
 type DeviceFingerprintDetails = Pick<
   DeviceIdRow,
+  | "model"
   | "language"
   | "timezone"
   | "platform"
@@ -550,6 +580,18 @@ type DeviceFingerprintDetails = Pick<
   | "webgl_renderer"
   | "screen_w"
   | "screen_h"
+  | "viewport_w"
+  | "viewport_h"
+  | "screen_avail_w"
+  | "screen_avail_h"
+  | "pixel_ratio"
+  | "orientation"
+  | "color_gamut"
+  | "network_type"
+  | "browser_version"
+  | "ua_architecture"
+  | "ua_platform_version"
+  | "ua_bitness"
 >;
 
 let deviceFingerprintColumnsReady: Promise<void> | null = null;
@@ -574,10 +616,33 @@ async function ensureDeviceFingerprintColumns(): Promise<void> {
         ["webgl_renderer", "TEXT"],
         ["screen_w", "INTEGER"],
         ["screen_h", "INTEGER"],
+        ["viewport_w", "INTEGER"],
+        ["viewport_h", "INTEGER"],
+        ["screen_avail_w", "INTEGER"],
+        ["screen_avail_h", "INTEGER"],
+        ["pixel_ratio", "REAL"],
+        ["orientation", "TEXT"],
+        ["color_gamut", "TEXT"],
+        ["network_type", "TEXT"],
+        ["browser_version", "TEXT"],
+        ["ua_architecture", "TEXT"],
+        ["ua_platform_version", "TEXT"],
+        ["ua_bitness", "TEXT"],
       ];
       for (const [name, type] of columns) {
         if (!existing.has(name)) {
-          await db.execute(`ALTER TABLE device_ids ADD COLUMN ${name} ${type}`);
+          try {
+            await db.execute(`ALTER TABLE device_ids ADD COLUMN ${name} ${type}`);
+          } catch (error) {
+            const refreshed = await db.execute("PRAGMA table_info(device_ids)");
+            const wasAdded = refreshed.rows.some(
+              (row) =>
+                String(
+                  (row as unknown as Record<string, unknown>).name ?? "",
+                ) === name,
+            );
+            if (!wasAdded) throw error;
+          }
         }
       }
     })().catch((error) => {
@@ -735,8 +800,9 @@ export async function insertDeviceId(row: DeviceIdRow): Promise<void> {
     sql: `INSERT OR IGNORE INTO device_ids
             (device_id, uid, fingerprint, device_type, os, brand, model, browser, cpu_cores, ram_gb, user_agent,
              language, timezone, platform, max_touch, color_depth, webgl_vendor, webgl_renderer, screen_w, screen_h,
-             first_seen, last_seen)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             viewport_w, viewport_h, screen_avail_w, screen_avail_h, pixel_ratio, orientation, color_gamut,
+             network_type, browser_version, ua_architecture, ua_platform_version, ua_bitness, first_seen, last_seen)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       row.device_id,
       row.uid,
@@ -758,6 +824,18 @@ export async function insertDeviceId(row: DeviceIdRow): Promise<void> {
       row.webgl_renderer,
       row.screen_w,
       row.screen_h,
+      row.viewport_w,
+      row.viewport_h,
+      row.screen_avail_w,
+      row.screen_avail_h,
+      row.pixel_ratio,
+      row.orientation,
+      row.color_gamut,
+      row.network_type,
+      row.browser_version,
+      row.ua_architecture,
+      row.ua_platform_version,
+      row.ua_bitness,
       row.first_seen,
       row.last_seen,
     ],
@@ -790,12 +868,17 @@ export async function updateDeviceFingerprint(
   const now = new Date().toISOString();
   await getTurso().execute({
     sql: `UPDATE device_ids
-          SET fingerprint = ?, last_seen = ?, language = ?, timezone = ?, platform = ?,
-              max_touch = ?, color_depth = ?, webgl_vendor = ?, webgl_renderer = ?, screen_w = ?, screen_h = ?
+          SET fingerprint = ?, last_seen = ?, model = COALESCE(?, model),
+              language = ?, timezone = ?, platform = ?,
+              max_touch = ?, color_depth = ?, webgl_vendor = ?, webgl_renderer = ?, screen_w = ?, screen_h = ?,
+              viewport_w = ?, viewport_h = ?, screen_avail_w = ?, screen_avail_h = ?, pixel_ratio = ?,
+              orientation = ?, color_gamut = ?, network_type = ?, browser_version = ?,
+              ua_architecture = ?, ua_platform_version = ?, ua_bitness = ?
           WHERE device_id = ? AND uid = ?`,
     args: [
       fingerprint,
       now,
+      details.model,
       details.language,
       details.timezone,
       details.platform,
@@ -805,6 +888,18 @@ export async function updateDeviceFingerprint(
       details.webgl_renderer,
       details.screen_w,
       details.screen_h,
+      details.viewport_w,
+      details.viewport_h,
+      details.screen_avail_w,
+      details.screen_avail_h,
+      details.pixel_ratio,
+      details.orientation,
+      details.color_gamut,
+      details.network_type,
+      details.browser_version,
+      details.ua_architecture,
+      details.ua_platform_version,
+      details.ua_bitness,
       deviceId,
       uid,
     ],

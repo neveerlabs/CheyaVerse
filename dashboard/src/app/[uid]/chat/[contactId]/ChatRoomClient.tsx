@@ -1399,6 +1399,7 @@ export function ChatRoomClient({
                   <VerifiedName
                     name="CheyaVerse"
                     size="sm"
+                    compactBadge
                     nameClassName="text-[15px] leading-tight"
                   />
                   <span className="block truncate text-[12px] leading-tight text-ink-mute -mt-0.5">
@@ -1664,6 +1665,7 @@ export function ChatRoomClient({
                         <VerifiedName
                           name={repliedName}
                           size="sm"
+                          compactBadge
                           nameClassName={`text-[11px] leading-none ${
                             isUser ? "text-white/95" : "text-ink"
                           }`}
@@ -1875,8 +1877,8 @@ export function ChatRoomClient({
                   >
                     <span className="relative flex h-14 w-14 items-center justify-center overflow-hidden rounded-full border border-line bg-[#f5f5f5]">
                       <TelegramAvatar
-                        src={contact.photo_url || `/api/avatar/${contact.uid}`}
-                        fallbackSrc={`/api/avatar/${contact.uid}`}
+                        src={`/api/avatar/${contact.uid}`}
+                        fallbackSrc={contact.photo_url}
                       />
                       {forwardSelectedUids.includes(contact.uid) && (
                         <span className="absolute bottom-2 right-2 flex h-[19px] w-[19px] items-center justify-center rounded-full border-2 border-white bg-emerald-600 text-white">

@@ -49,11 +49,20 @@ export default async function ChatListPage({
   const uid = Number(params.uid);
   if (!Number.isInteger(uid) || uid <= 0) notFound();
 
-  const [unread, messages, conversations] = await Promise.all([
+  const [unreadResult, messagesResult, conversationsResult] = await Promise.allSettled([
     countUnreadNotifications(uid),
     listMessages(uid, 500),
     listDirectConversations(uid),
   ]);
+  const unread = unreadResult.status === "fulfilled" ? unreadResult.value : 0;
+  const messages =
+    messagesResult.status === "fulfilled" ? messagesResult.value : [];
+  const conversations =
+    conversationsResult.status === "fulfilled" ? conversationsResult.value : [];
+  const chatDataUnavailable =
+    unreadResult.status === "rejected" ||
+    messagesResult.status === "rejected" ||
+    conversationsResult.status === "rejected";
 
   const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
 
@@ -91,6 +100,16 @@ export default async function ChatListPage({
         <ChatSearch uid={String(uid)} />
       </header>
 
+      {chatDataUnavailable && (
+        <p
+          role="status"
+          className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-950"
+        >
+          Sebagian data chat belum dapat dimuat karena koneksi server/database
+          sedang bermasalah. Coba muat ulang beberapa saat lagi.
+        </p>
+      )}
+
       <section className="relative z-0 animate-fade-up">
         {chatEntries.map((entry) => {
           if (entry.kind === "system") {
@@ -114,6 +133,7 @@ export default async function ChatListPage({
                   <VerifiedName
                     name={displayName}
                     size="lg"
+                    compactBadge
                     nameClassName={hasUnread ? "font-bold" : "font-semibold"}
                   />
                   <span className={`truncate text-[12.5px] ${hasUnread ? "font-medium text-ink-soft" : "text-ink-mute"}`}>
@@ -149,8 +169,8 @@ export default async function ChatListPage({
             >
               <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-[#f0f0f0]">
                 <TelegramAvatar
-                  src={contact.photo_url || `/api/avatar/${contact.uid}`}
-                  fallbackSrc={`/api/avatar/${contact.uid}`}
+                  src={`/api/avatar/${contact.uid}`}
+                  fallbackSrc={contact.photo_url}
                 />
               </div>
               <div className="flex min-w-0 flex-1 flex-col gap-1">
@@ -158,6 +178,7 @@ export default async function ChatListPage({
                   <VerifiedName
                     name={name}
                     size="sm"
+                    compactBadge
                     wrap
                     nameClassName={`text-[14px] ${conversation.unread ? "font-bold" : "font-semibold"}`}
                   />

@@ -5,8 +5,24 @@ import { getTelegramUserLastSeen, updateTelegramUserPresence } from "@/lib/stora
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+function unavailable() {
+  return NextResponse.json(
+    { ok: false, error: "presence_unavailable" },
+    {
+      status: 503,
+      headers: { "Cache-Control": "no-store", "Retry-After": "5" },
+    },
+  );
+}
+
 export async function GET(request: NextRequest) {
-  const session = await getUserSession(request);
+  let session: Awaited<ReturnType<typeof getUserSession>>;
+  try {
+    session = await getUserSession(request);
+  } catch (error) {
+    console.error("[presence] session verification failed:", error);
+    return unavailable();
+  }
   if (!session) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
@@ -23,12 +39,18 @@ export async function GET(request: NextRequest) {
     );
   } catch (error) {
     console.error("[presence] status lookup failed:", error);
-    return NextResponse.json({ ok: false, error: "presence_failed" }, { status: 500 });
+    return unavailable();
   }
 }
 
 export async function POST(request: NextRequest) {
-  const session = await getUserSession(request);
+  let session: Awaited<ReturnType<typeof getUserSession>>;
+  try {
+    session = await getUserSession(request);
+  } catch (error) {
+    console.error("[presence] session verification failed:", error);
+    return unavailable();
+  }
   if (!session) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
@@ -40,6 +62,6 @@ export async function POST(request: NextRequest) {
     );
   } catch (error) {
     console.error("[presence] heartbeat failed:", error);
-    return NextResponse.json({ ok: false, error: "presence_failed" }, { status: 500 });
+    return unavailable();
   }
 }

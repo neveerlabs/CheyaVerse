@@ -1358,8 +1358,8 @@ export function DirectChatRoomClient({
               <div className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-full border border-[#dfe3e8] bg-white pl-0.5 pr-3">
                 <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-[#f5f5f5]">
                   <TelegramAvatar
-                    src={contact.photo_url || `/api/avatar/${contact.uid}`}
-                    fallbackSrc={`/api/avatar/${contact.uid}`}
+                    src={`/api/avatar/${contact.uid}`}
+                    fallbackSrc={contact.photo_url}
                   />
                 </span>
                 <span className="min-w-0 flex flex-col justify-center self-stretch">
@@ -1367,6 +1367,7 @@ export function DirectChatRoomClient({
                     <VerifiedName
                       name={headerName}
                       size="sm"
+                      compactBadge
                       wrap
                       nameClassName="text-[15px] leading-tight"
                     />
@@ -1700,6 +1701,7 @@ export function DirectChatRoomClient({
                             <VerifiedName
                               name={repliedName}
                               size="sm"
+                              compactBadge
                               wrap
                               nameClassName={`text-[11px] leading-none ${mine ? "text-white/95" : "text-ink"}`}
                             />
@@ -1813,13 +1815,13 @@ export function DirectChatRoomClient({
                         outgoing={mine}
                         avatarUrl={
                           mine
-                            ? ownPhotoUrl || `/api/avatar/${myUid}`
-                            : contact.photo_url || `/api/avatar/${contact.uid}`
+                            ? `/api/avatar/${myUid}`
+                            : `/api/avatar/${contact.uid}`
                         }
                         avatarFallbackUrl={
                           mine
-                            ? `/api/avatar/${myUid}`
-                            : `/api/avatar/${contact.uid}`
+                            ? ownPhotoUrl
+                            : contact.photo_url
                         }
                         content={content}
                         timestamp={chatMessageTime(message.created_at)}
@@ -1980,8 +1982,8 @@ export function DirectChatRoomClient({
                   >
                     <span className="relative flex h-14 w-14 items-center justify-center overflow-hidden rounded-full border border-line bg-[#f5f5f5]">
                       <TelegramAvatar
-                        src={user.photo_url || `/api/avatar/${user.uid}`}
-                        fallbackSrc={`/api/avatar/${user.uid}`}
+                        src={`/api/avatar/${user.uid}`}
+                        fallbackSrc={user.photo_url}
                       />
                       {forwardSelectedUids.includes(user.uid) && (
                         <span className="absolute bottom-2 right-2 flex h-[19px] w-[19px] items-center justify-center rounded-full border-2 border-white bg-emerald-600 text-white">
@@ -1993,6 +1995,7 @@ export function DirectChatRoomClient({
                       <VerifiedName
                         name={contactLabel(user)}
                         size="sm"
+                        compactBadge
                         wrap
                         className="max-w-full justify-center"
                         nameClassName="max-w-[50px] text-[10px] leading-tight"

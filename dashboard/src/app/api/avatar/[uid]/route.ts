@@ -3,15 +3,14 @@ import { getTelegramUser, upsertTelegramUser } from "@/lib/storage";
 import { getTelegramAvatarFileId, fetchTelegramFile } from "@/lib/telegram";
 
 export const runtime = "nodejs";
-
-const PLACEHOLDER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><circle cx="32" cy="32" r="32" fill="#e5e7eb"/><path d="M32 16a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 24c-8 0-16 4-16 12v4h32v-4c0-8-8-12-16-12z" fill="#9ca3af"/></svg>`;
+export const dynamic = "force-dynamic";
 
 function placeholderResponse() {
-  return new NextResponse(PLACEHOLDER_SVG, {
-    status: 200,
+  return new NextResponse(null, {
+    status: 404,
     headers: {
-      "Content-Type": "image/svg+xml",
-      "Cache-Control": "public, max-age=3600, immutable",
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
     },
   });
 }
@@ -32,18 +31,17 @@ export async function GET(
     console.error("[avatar] failed to load cached Telegram photo:", error);
   }
 
-  if (!fileId) {
-    fileId = await getTelegramAvatarFileId(uid);
-    if (fileId) {
+  if (!fileId) fileId = await getTelegramAvatarFileId(uid);
+
+  let upstream = fileId ? await fetchTelegramFile(fileId) : null;
+  if (!upstream?.body) {
+    const refreshedFileId = await getTelegramAvatarFileId(uid);
+    if (refreshedFileId && refreshedFileId !== fileId) {
+      fileId = refreshedFileId;
       await upsertTelegramUser(uid, { photo_file_id: fileId });
+      upstream = await fetchTelegramFile(fileId);
     }
   }
-
-  if (!fileId) {
-    return placeholderResponse();
-  }
-
-  const upstream = await fetchTelegramFile(fileId);
   if (!upstream || !upstream.body) {
     return placeholderResponse();
   }
@@ -56,7 +54,8 @@ export async function GET(
       ? upstreamContentType
       : "image/jpeg",
   );
-  headers.set("Cache-Control", "public, max-age=1800, immutable");
+  headers.set("Cache-Control", "private, max-age=300, stale-while-revalidate=3600");
+  headers.set("X-Content-Type-Options", "nosniff");
 
   return new NextResponse(upstream.body, { status: 200, headers });
 }

@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { reportClientError } from "@/lib/client-errors";
+import { readApiJson } from "@/lib/read-api-json";
 import {
   Calendar,
   Check,
@@ -23,6 +25,20 @@ type Device = {
   brand: string | null;
   model: string | null;
   browser: string | null;
+  browserVersion: string | null;
+  cpuCores: number | null;
+  ramGb: number | null;
+  screen: string | null;
+  viewport: string | null;
+  pixelRatio: number | null;
+  orientation: string | null;
+  colorGamut: string | null;
+  architecture: string | null;
+  platformVersion: string | null;
+  bitness: string | null;
+  networkType: string | null;
+  language: string | null;
+  timezone: string | null;
   lastSeen: string;
 };
 
@@ -77,8 +93,10 @@ export function SettingsClient({
   const [deleteText, setDeleteText] = useState("");
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [githubConnected, setGithubConnected] = useState(false);
+  const [githubNeedsReconnect, setGithubNeedsReconnect] = useState(false);
   const [githubReplaceOpen, setGithubReplaceOpen] = useState(false);
   const [githubLogin, setGithubLogin] = useState<string | null>(null);
+  const [githubScopes, setGithubScopes] = useState<string | null>(null);
   const [githubEncryptionStatus, setGithubEncryptionStatus] = useState<
     "checking" | "configured" | "missing" | "invalid" | "unavailable"
   >("checking");
@@ -211,23 +229,30 @@ export function SettingsClient({
     setGithubError("");
     try {
       const response = await fetch("/api/github/settings", { cache: "no-store" });
-      const result = (await response.json()) as {
+      const result = await readApiJson<{
         connected?: boolean;
+        tokenReadable?: boolean | null;
         login?: string | null;
+        scopes?: string | null;
         encryptionConfigured?: boolean;
         encryptionStatus?: "configured" | "missing" | "invalid";
-      };
+      }>(response);
       if (!response.ok) {
         throw new Error("GitHub settings could not be loaded.");
       }
-      setGithubConnected(result.connected === true);
+      const needsReconnect =
+        result.connected === true && result.tokenReadable === false;
+      setGithubNeedsReconnect(needsReconnect);
+      setGithubConnected(result.connected === true && !needsReconnect);
       setGithubLogin(result.login ?? null);
+      setGithubScopes(result.scopes ?? null);
       setGithubEncryptionStatus(
         result.encryptionStatus ??
           (result.encryptionConfigured === true ? "configured" : "missing"),
       );
     } catch (cause) {
       setGithubEncryptionStatus("unavailable");
+      reportClientError(cause, "GitHub settings status");
       setGithubError(
         cause instanceof Error ? cause.message : "GitHub settings could not be loaded.",
       );
@@ -262,11 +287,11 @@ export function SettingsClient({
         body: JSON.stringify({ token: githubToken }),
         cache: "no-store",
       });
-      const result = (await response.json()) as {
+      const result = await readApiJson<{
         ok?: boolean;
         error?: string;
         login?: string;
-      };
+      }>(response);
       if (!response.ok || !result.ok) {
         throw new Error(result.error || "GitHub account could not be connected.");
       }
@@ -275,6 +300,7 @@ export function SettingsClient({
       setGithubNotice(`Connected as @${result.login ?? "GitHub user"}.`);
       await loadGitHubSettings();
     } catch (cause) {
+      reportClientError(cause, "GitHub token connection");
       setGithubError(
         cause instanceof Error ? cause.message : "GitHub account could not be connected.",
       );
@@ -293,12 +319,13 @@ export function SettingsClient({
         method: "DELETE",
         cache: "no-store",
       });
-      const result = (await response.json()) as { ok?: boolean; error?: string };
+      const result = await readApiJson<{ ok?: boolean; error?: string }>(response);
       if (!response.ok || !result.ok) {
         throw new Error(result.error || "GitHub account could not be disconnected.");
       }
       setGithubConnected(false);
       setGithubLogin(null);
+      setGithubScopes(null);
       setGithubReplaceOpen(false);
       setGithubNotice("GitHub token removed from this account.");
     } catch (cause) {
@@ -647,7 +674,35 @@ export function SettingsClient({
                         )}
                       </div>
                       <p className="mt-1 text-[11px] text-ink-mute">
-                        {[device.os, device.browser].filter(Boolean).join(" · ") || "Detail perangkat tidak tersedia."}
+                        {[
+                          device.os,
+                          device.browserVersion
+                            ? `${device.browser ?? "Browser"} ${device.browserVersion}`
+                            : device.browser,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ") || "Detail perangkat tidak tersedia."}
+                      </p>
+                      <p className="mt-1 text-[10px] leading-relaxed text-ink-mute">
+                        {[
+                          device.screen ? `Screen ${device.screen}` : null,
+                          device.viewport ? `view ${device.viewport}` : null,
+                          device.pixelRatio ? `DPR ${device.pixelRatio}×` : null,
+                          device.orientation,
+                          device.cpuCores ? `${device.cpuCores} cores` : null,
+                          device.ramGb ? `${device.ramGb} GB RAM` : null,
+                          device.architecture,
+                          device.bitness ? `${device.bitness}-bit` : null,
+                          device.colorGamut,
+                          device.networkType,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ") || "Detail perangkat tambahan tidak tersedia."}
+                      </p>
+                      <p className="mt-1 text-[10px] text-ink-mute">
+                        {[device.language, device.timezone]
+                          .filter(Boolean)
+                          .join(" · ")}
                       </p>
                       <p className="mt-2 text-[10.5px] text-ink-mute">
                         Last active · {formatDate(device.lastSeen)}
@@ -747,7 +802,11 @@ export function SettingsClient({
                 </span>
                 <div className="min-w-0 flex-1">
                   <h3 className="text-[13px] font-semibold text-ink">
-                    {githubConnected ? `Connected as @${githubLogin}` : "Connect GitHub"}
+                    {githubConnected
+                      ? `Connected as @${githubLogin}`
+                      : githubNeedsReconnect
+                        ? "Reconnect GitHub"
+                        : "Connect GitHub"}
                   </h3>
                   <p className="mt-1 text-[11.5px] leading-relaxed text-ink-mute">
                     Token digunakan untuk membaca repositori yang dapat diakses
@@ -764,12 +823,17 @@ export function SettingsClient({
                     ? "Server GitHub belum dikonfigurasi dengan benar. Atur GITHUB_TOKEN_ENCRYPTION_KEY sebagai Base64 dari 32 byte acak pada environment deployment, lalu deploy ulang."
                     : githubEncryptionStatus === "unavailable"
                       ? "Status konfigurasi enkripsi server tidak dapat diperiksa. Coba muat ulang halaman; token tetap dinonaktifkan demi keamanan."
-                      : "Server deployment belum memiliki GITHUB_TOKEN_ENCRYPTION_KEY. Admin perlu menambahkan Base64 dari 32 byte acak pada environment deployment dan deploy ulang sebelum token GitHub bisa dimasukkan."}
+                      : "Ini bukan masalah fatal pada aplikasi atau token Classic; hanya integrasi GitHub yang dinonaktifkan. Di Vercel Project Settings → Environment Variables, tambahkan GITHUB_TOKEN_ENCRYPTION_KEY dengan nilai hasil `openssl rand -base64 32` untuk Production dan Preview, lalu redeploy. Simpan key yang sama secara permanen di semua instance; menggantinya dapat membuat token tersimpan tidak bisa dibaca."}
                 </p>
               )}
               {githubError && (
                 <p role="alert" className="mt-4 rounded-xl border border-red-100 bg-red-50 px-3 py-2.5 text-[11px] leading-relaxed text-danger">
                   {githubError}
+                </p>
+              )}
+              {githubNeedsReconnect && !githubError && (
+                <p role="alert" className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-[11px] leading-relaxed text-amber-950">
+                  Token tersimpan tidak dapat dibuka dengan kunci enkripsi server saat ini. Masukkan ulang token GitHub untuk memperbaiki koneksi; token lama tidak ditampilkan.
                 </p>
               )}
               {githubNotice && (
@@ -781,7 +845,9 @@ export function SettingsClient({
               {githubConnected && (
                 <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <p className="text-[11px] text-ink-mute">
-                    {githubLoading ? "Checking connection…" : "Repository access is active."}
+                    {githubLoading
+                      ? "Checking connection…"
+                      : `Connected as @${githubLogin ?? "GitHub user"}.`}
                   </p>
                   <div className="flex flex-wrap gap-2">
                     <button
@@ -802,6 +868,12 @@ export function SettingsClient({
                     </button>
                   </div>
                 </div>
+              )}
+              {githubConnected && githubScopes !== null && (
+                <p className="mt-2 break-words text-[10px] leading-relaxed text-ink-mute">
+                  Classic token scopes reported by GitHub:{" "}
+                  {githubScopes || "none"}.
+                </p>
               )}
 
               {(!githubConnected || githubReplaceOpen) && (
@@ -831,8 +903,10 @@ export function SettingsClient({
                     Read-only access is recommended: repository metadata and
                     contents, Actions, deployments, and repository traffic if
                     available. Prefer a fine-grained token limited to selected
-                    repositories. Classic tokens can grant broader access than
-                    this dashboard needs.
+                    repositories. For a classic token, the <code>repo</code>{" "}
+                    scope is required for private repositories; <code>public_repo</code>{" "}
+                    only exposes public repositories. Organization repositories
+                    may also require SSO authorization for the token.
                   </p>
                   <button
                     type="submit"
@@ -858,9 +932,11 @@ export function SettingsClient({
           className="animate-fade-up space-y-5"
         >
           <SettingsSection title="About CheyaVerse">
-            <div className="px-3 py-4">
-              <h2 className="text-[17px] font-semibold tracking-tight text-ink">A personal space connected to Telegram</h2>
-              <p className="mt-2 text-[12.5px] leading-relaxed text-ink-soft">
+            <div className="px-4 py-5 sm:px-5">
+              <h2 className="max-w-[28rem] text-[17px] font-semibold leading-snug tracking-tight text-ink">
+                A personal space connected to Telegram
+              </h2>
+              <p className="mt-3 max-w-[34rem] text-[13px] leading-[1.7] text-ink-soft">
                 CheyaVerse links your Telegram account to a private dashboard for your media, conversations, and connected GitHub projects.
               </p>
             </div>
@@ -1014,11 +1090,11 @@ function Row({
         {icon}
       </span>
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="truncate text-[14px] leading-tight tracking-[-.005em] text-ink">
+        <span className="min-w-0 text-[14px] leading-snug tracking-[-.005em] text-ink">
           {title}
         </span>
         {subtitle && (
-          <span className="truncate text-[11.5px] leading-tight text-ink-mute">
+          <span className="whitespace-normal break-words text-[11.5px] leading-relaxed text-ink-mute">
             {subtitle}
           </span>
         )}

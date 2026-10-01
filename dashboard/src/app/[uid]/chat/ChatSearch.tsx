@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { Search, UserPlus } from "lucide-react";
 import { TelegramAvatar } from "@/components/TelegramAvatar";
 import { VerifiedName } from "@/components/VerifiedName";
+import { readApiJson } from "@/lib/read-api-json";
 
 type SearchUser = {
   uid: number;
@@ -52,9 +53,13 @@ export function ChatSearch({ uid }: { uid: string }) {
           `/api/users/search?q=${encodeURIComponent(term)}`,
           { cache: "no-store", signal: controller.signal },
         );
-        const result = await response.json();
+        const result = await readApiJson<{
+          ok?: boolean;
+          error?: string;
+          users?: SearchUser[];
+        }>(response);
         if (!response.ok || result?.ok !== true) {
-          throw new Error("Pencarian akun gagal. Silakan coba lagi.");
+          throw new Error(result.error || "Pencarian akun gagal. Silakan coba lagi.");
         }
         setUsers(Array.isArray(result.users) ? result.users : []);
       } catch (cause) {
@@ -94,7 +99,7 @@ export function ChatSearch({ uid }: { uid: string }) {
       )}
       <div
         onClick={() => inputRef.current?.focus()}
-        className="relative z-10 flex h-12 items-center gap-3 rounded-full border border-line bg-white px-4 shadow-sm transition-colors focus-within:border-line-strong"
+        className="relative z-10 flex h-12 items-center gap-3 rounded-[18px] border border-transparent bg-[#f2f2f7] px-4 transition-colors focus-within:border-sky-300 focus-within:bg-white focus-within:shadow-[0_0_0_3px_rgba(14,165,233,.1)]"
       >
         <Search size={18} className="flex-shrink-0 text-ink-mute" strokeWidth={2} />
         <input
@@ -109,13 +114,13 @@ export function ChatSearch({ uid }: { uid: string }) {
           onBlur={() => setFocused(false)}
           aria-label="Search Telegram contacts"
           aria-controls="chat-search-results"
-          className="min-w-0 flex-1 bg-transparent text-[14px] text-ink outline-none placeholder:text-ink-mute"
+          className="min-w-0 flex-1 bg-transparent text-[15px] text-ink outline-none placeholder:text-ink-mute"
         />
       </div>
       {query.trim() && (
         <div
           id="chat-search-results"
-          className="absolute left-0 right-0 top-[calc(100%+8px)] z-50 max-h-[min(60dvh,420px)] overflow-y-auto overscroll-contain rounded-2xl border border-line bg-white shadow-[0_12px_35px_-18px_rgba(0,0,0,.3)]"
+          className="absolute left-0 right-0 top-[calc(100%+8px)] z-50 max-h-[min(60dvh,420px)] overflow-y-auto overscroll-contain rounded-2xl border border-slate-200/80 bg-white shadow-[0_18px_45px_-18px_rgba(0,0,0,.3)]"
         >
           {loading && (
             <p className="px-4 py-3 text-[13px] text-ink-mute">Searching accounts…</p>
@@ -130,8 +135,8 @@ export function ChatSearch({ uid }: { uid: string }) {
               >
                 <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-[#f5f5f5]">
                   <TelegramAvatar
-                    src={user.photo_url || `/api/avatar/${user.uid}`}
-                    fallbackSrc={`/api/avatar/${user.uid}`}
+                    src={`/api/avatar/${user.uid}`}
+                    fallbackSrc={user.photo_url}
                   />
                 </span>
                 <span className="min-w-0 flex-1">
@@ -139,6 +144,7 @@ export function ChatSearch({ uid }: { uid: string }) {
                     <VerifiedName
                       name={displayName(user)}
                       size="sm"
+                      compactBadge
                       wrap
                       nameClassName="text-[13.5px]"
                     />
