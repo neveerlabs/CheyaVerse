@@ -1,7 +1,9 @@
 import asyncio
 import html
+import json
 
 from aiogram import F, Router
+from aiogram.types import BufferedInputFile
 from aiogram.dispatcher.event.bases import SkipHandler
 from aiogram.enums import ParseMode
 from aiogram.filters import CommandStart
@@ -12,6 +14,7 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     Message,
     ReplyParameters,
+    Update,
 )
 
 from logger import logger
@@ -38,6 +41,8 @@ START_TEXT = (
     "*Cheya running successfully\\!*\n"
     "_Type /help to view available commands_"
 )
+MAX_FORWARD_UPDATE_BYTES = 8 * 1024 * 1024
+MAX_FORWARD_UPDATE_MESSAGE_CHARS = 3500
 
 
 async def _delete_start_message(message: Message, label: str) -> None:
@@ -170,6 +175,62 @@ async def handle_login_challenge_callback(callback: CallbackQuery) -> None:
     logger.info(
         f"Web login {'approved' if approve else 'denied'} for {label} (ID: {user.id})"
     )
+
+
+@router.message(F.forward_origin)
+async def handle_forwarded_update(message: Message, event_update: Update) -> None:
+    if message.chat.type != "private" or not message.from_user:
+        return
+
+    message_text = message.text or message.caption or ""
+    if message_text.lstrip().startswith("/"):
+        return
+
+    origin = message.forward_origin
+    forwarded_user = getattr(origin, "sender_user", None)
+    if forwarded_user and forwarded_user.id == message.from_user.id:
+        return
+
+    label = message.from_user.username or message.from_user.full_name or str(message.from_user.id)
+    try:
+        update_json = json.dumps(
+            event_update.model_dump(
+                by_alias=True,
+                exclude_none=True,
+                mode="json",
+            ),
+            ensure_ascii=False,
+            indent=2,
+        )
+        encoded = update_json.encode("utf-8")
+        if len(encoded) > MAX_FORWARD_UPDATE_BYTES:
+            await message.answer(
+                "Forwarded update terlalu besar untuk ditampilkan dengan aman.",
+                parse_mode=None,
+            )
+            return
+
+        telegram_text_length = len(update_json.encode("utf-16-le")) // 2
+        if telegram_text_length <= MAX_FORWARD_UPDATE_MESSAGE_CHARS:
+            await message.answer(
+                f"<pre><code class=\"language-json\">{html.escape(update_json)}</code></pre>",
+                parse_mode=ParseMode.HTML,
+            )
+        else:
+            await message.answer_document(
+                BufferedInputFile(encoded, filename="forwarded-update.json"),
+                caption="Forwarded Telegram update · JSON",
+                parse_mode=None,
+            )
+    except Exception as exc:
+        logger.error(f"Failed to return forwarded update JSON for {label}: {exc}")
+        try:
+            await message.answer(
+                "Data forward belum dapat ditampilkan. Silakan coba lagi.",
+                parse_mode=None,
+            )
+        except Exception as fallback_exc:
+            logger.error(f"Failed to notify about forwarded update for {label}: {fallback_exc}")
 
 
 @router.callback_query(F.data.startswith("dm:"))

@@ -12,7 +12,7 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const HISTORY_PAGE_SIZE = 10;
+const HISTORY_PAGE_SIZE = 3;
 const HISTORY_RANGES = ["all", "month", "week", "day", "hour"] as const;
 type HistoryRange = (typeof HISTORY_RANGES)[number];
 

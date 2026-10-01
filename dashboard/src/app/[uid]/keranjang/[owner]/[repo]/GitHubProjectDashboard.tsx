@@ -448,7 +448,7 @@ export function GitHubProjectDashboard({
                         icon={<Activity size={16} />}
                         eyebrow="Development"
                         title="Commit activity"
-                        detail="Perubahan code pada commit yang sudah dimuat"
+                        detail={`${history.length} of ${historyTotalPages ? formatCount(historyTotalPages * 3) : "available"} commits loaded · additions and removals`}
                       />
                     </div>
                     <select
@@ -472,14 +472,25 @@ export function GitHubProjectDashboard({
 
                   {history.length > 0 ? (
                     <div className="mt-5">
-                      <CommitChart commits={history.slice(0, 24)} maxValue={maxCommitChange} />
+                      <div className="mb-1 flex items-center justify-between text-[8px] font-medium uppercase tracking-wide text-slate-400">
+                        <span>Lines changed per commit</span>
+                        <span>Peak {formatCount(maxCommitChange)}</span>
+                      </div>
+                      <CommitChart
+                        commits={history.slice(0, 24).reverse()}
+                        maxValue={maxCommitChange}
+                      />
                       <div className="mt-3 flex items-center justify-center gap-5 text-[9px] font-medium text-slate-500">
                         <Legend color="bg-emerald-500" label="Lines added" />
                         <Legend color="bg-rose-400" label="Lines removed" />
                       </div>
                     </div>
                   ) : historyLoading ? (
-                    <div className="mt-5 h-[180px] animate-pulse rounded-2xl bg-slate-50" />
+                    <div
+                      role="status"
+                      aria-label="Loading commit activity chart"
+                      className="mt-5 h-[180px] animate-pulse rounded-2xl bg-[linear-gradient(90deg,#f8fafc_25%,#eef2ff_45%,#f8fafc_65%)] bg-[length:200%_100%]"
+                    />
                   ) : (
                     <p className="mt-5 rounded-2xl bg-slate-50 px-4 py-8 text-center text-[11px] text-slate-500">
                       {historyError || "No commits found in this period."}
@@ -490,7 +501,7 @@ export function GitHubProjectDashboard({
                   )}
                   {historyTotalPages && historyRange === "all" && (
                     <p className="mt-3 text-center text-[9px] text-slate-400">
-                      About {formatCount(historyTotalPages * 10)} commits in available history · loading details page by page
+                      About {formatCount(historyTotalPages * 3)} commits in available history · details load three at a time
                     </p>
                   )}
                   <p className="mt-2 text-center text-[9px] leading-relaxed text-slate-400">{historyNote}</p>
@@ -501,9 +512,29 @@ export function GitHubProjectDashboard({
                     icon={<GitCommit size={16} />}
                     eyebrow="Recent changes"
                     title="Commit history"
-                    detail={`${history.length} commits loaded`}
+                    detail={`${history.length} commits shown · loaded three at a time`}
                   />
-                  {history.length > 0 ? (
+                  {historyLoading && history.length === 0 ? (
+                  <div
+                    role="status"
+                    aria-label="Loading recent commits"
+                    className="mt-4 space-y-3"
+                  >
+                    {[0, 1, 2].map((item) => (
+                      <div
+                        key={item}
+                        className="flex gap-3 border-b border-slate-100 py-4 last:border-0"
+                      >
+                        <span className="h-8 w-8 shrink-0 animate-pulse rounded-full bg-indigo-50" />
+                        <span className="min-w-0 flex-1 space-y-2">
+                          <span className="block h-3 w-4/5 animate-pulse rounded bg-slate-100" />
+                          <span className="block h-2.5 w-2/5 animate-pulse rounded bg-slate-50" />
+                          <span className="block h-2.5 w-1/3 animate-pulse rounded bg-slate-50" />
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  ) : history.length > 0 ? (
                     <div className="mt-4 divide-y divide-slate-100">
                       {history.map((commit) => (
                         <article key={commit.sha} className="py-4 first:pt-0 last:pb-0">
@@ -568,7 +599,7 @@ export function GitHubProjectDashboard({
                     </div>
                   ) : (
                     <p className="py-8 text-center text-[11px] text-slate-500">
-                      {historyLoading ? "Loading commit history…" : "No commits in this period."}
+                      {historyError || "No commits in this period."}
                     </p>
                   )}
                   {historyHasMore && (
@@ -895,7 +926,7 @@ function CommitChart({
 }) {
   const width = 720;
   const height = 184;
-  const padX = 9;
+  const padX = 40;
   const padY = 12;
   const step = commits.length > 1 ? (width - padX * 2) / commits.length : width / 2;
   const barWidth = Math.max(4, Math.min(13, step * 0.48));
@@ -918,7 +949,27 @@ function CommitChart({
         </defs>
         {ticks.map((tick) => {
           const y = baseline - chartHeight * tick;
-          return <line key={tick} x1={padX} x2={width - padX} y1={y} y2={y} stroke="#e9edf3" strokeDasharray={tick === 0 ? undefined : "3 5"} />;
+          return (
+            <g key={tick}>
+              <line
+                x1={padX}
+                x2={width - padX}
+                y1={y}
+                y2={y}
+                stroke="#e9edf3"
+                strokeDasharray={tick === 0 ? undefined : "3 5"}
+              />
+              <text
+                x={padX - 7}
+                y={y + 3}
+                textAnchor="end"
+                fill="#94a3b8"
+                fontSize="8"
+              >
+                {formatCount(Math.round(maxValue * tick))}
+              </text>
+            </g>
+          );
         })}
         {commits.map((commit, index) => {
           const center = commits.length === 1 ? width / 2 : padX + step * index + step / 2;
