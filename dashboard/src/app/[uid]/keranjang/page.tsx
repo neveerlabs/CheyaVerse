@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { AppHeader } from "@/components/AppHeader";
-import { ShoppingCart } from "lucide-react";
+import { GitHubProjectsClient } from "./GitHubProjectsClient";
 
 export const dynamic = "force-dynamic";
 
@@ -14,19 +14,8 @@ export default function KeranjangPage({
 
   return (
     <>
-      <AppHeader title="Cart" subtitle="Your CheyaVerse shopping cart" />
-
-      <div className="px-1 py-20 text-center animate-fade-up">
-        <div className="w-14 h-14 rounded-full bg-[#f5f5f5] mx-auto mb-4 flex items-center justify-center">
-          <ShoppingCart size={22} className="text-ink-mute" strokeWidth={1.8} />
-        </div>
-        <p className="text-[14.5px] font-medium text-ink mb-1.5">
-          Your cart is empty
-        </p>
-        <p className="text-[12.5px] text-ink-mute font-normal leading-relaxed">
-          Belum terdapat item dalam keranjang Anda.
-        </p>
-      </div>
+      <AppHeader title="Projects" subtitle="GitHub repositories and project activity" />
+      <GitHubProjectsClient uid={params.uid} />
     </>
   );
 }

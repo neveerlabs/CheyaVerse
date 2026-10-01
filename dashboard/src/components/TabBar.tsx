@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Home, Image as ImageIcon, User, Send, ShoppingCart,
+  Home, Image as ImageIcon, User, Send, Github,
 } from "lucide-react";
 import { useRealtime } from "@/lib/use-realtime";
 
@@ -211,7 +211,7 @@ export function TabBar({ uid }: { uid: string }) {
           href={cartHref}
           className="flex-1 flex flex-col items-center justify-center gap-[3px] transition-opacity active:opacity-60"
         >
-          <ShoppingCart
+          <Github
             size={19}
             strokeWidth={cartActive ? 2.3 : 1.7}
             className={cartActive ? "text-ink" : "text-ink-mute"}
@@ -221,7 +221,7 @@ export function TabBar({ uid }: { uid: string }) {
               cartActive ? "font-semibold text-ink" : "text-ink-mute"
             }`}
           >
-            Cart
+            Projects
           </span>
         </Link>
 

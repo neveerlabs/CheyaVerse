@@ -62,7 +62,7 @@ export default function AgreementPage({
     <>
       <SubPageHeader
         title="User Agreement"
-        subtitle="Pembaruan terakhir: 22 September 2026"
+        subtitle="Pembaruan terakhir: 1 Oktober 2026"
         backHref={`/${params.uid}/profile`}
         cornerLabel="USER AGREEMENT"
       />

@@ -10,27 +10,27 @@ const SECTIONS: { title: string; body: string }[] = [
   },
   {
     title: "Information We Collect",
-    body: "Sistem hanya menyimpan metadata dari file yang diunggah melalui bot Telegram. Metadata mencakup: ID media, nama file, ukuran file, tipe konten, tanggal kadaluarsa, dan ID Telegram pengguna. File fisik media disimpan sepenuhnya di Telegram Storage Chat dan tidak disalin ke server aplikasi.",
+    body: "CheyaVerse menyimpan metadata media Telegram (ID media, nama file, ukuran, tipe konten, masa berlaku, dan ID Telegram). Jika pengguna menghubungkan GitHub, sistem juga menyimpan nama akun GitHub, informasi izin token yang tersedia, dan Personal Access Token dalam bentuk terenkripsi. Data repositori, struktur file, commit, deployment, dan statistik trafik diminta dari GitHub saat fitur Projects digunakan; riwayat GitHub tersebut tidak disalin sebagai arsip terpisah ke database CheyaVerse.",
   },
   {
     title: "How We Use Information",
-    body: "Metadata digunakan secara eksklusif untuk: (1) menampilkan kembali file pengguna di dashboard personal, (2) memfasilitasi pencarian dan penghapusan media, (3) menghapus media yang sudah kadaluarsa secara otomatis.",
+    body: "Data digunakan untuk menampilkan media di dashboard, mengelola masa berlaku media, serta—jika akun GitHub dihubungkan—membaca repositori, branch, bahasa, commit beserta perubahan file/baris, GitHub Actions, deployment, dan analitik trafik agregat.",
   },
   {
     title: "Data Sharing",
-    body: "Sistem tidak menjual, menyewakan, atau membagikan data pengguna kepada pihak ketiga. Media hanya dapat diakses oleh pemiliknya melalui URL unik yang diberikan bot. Pengguna lain tidak dapat melihat atau mengakses daftar media milik pengguna lain.",
+    body: "CheyaVerse tidak menjual data pengguna. Untuk fitur GitHub, server mengirim permintaan API terautentikasi ke GitHub menggunakan token yang diberikan pengguna; GitHub memproses permintaan sesuai kebijakan privasinya. Token dan data akun GitHub tidak ditampilkan kepada pengguna CheyaVerse lain. Media Telegram tetap dapat diakses melalui URL media milik pengguna.",
   },
   {
     title: "Security",
-    body: "Setiap dashboard tertaut langsung dengan ID Telegram pengguna. Akses dashboard hanya dimungkinkan melalui URL unik yang diberikan bot melalui perintah /web. Sistem tidak menyimpan kata sandi atau kredensial tambahan.",
+    body: "Dashboard menggunakan sesi yang tertaut ke ID Telegram. Token GitHub dienkripsi di sisi server menggunakan AES-256-GCM sebelum disimpan di Turso dan tidak pernah dikirim kembali ke browser setelah disimpan. Pengguna dianjurkan memakai token read-only dengan akses repositori seminimal mungkin dan dapat mencabut atau menggantinya kapan saja.",
   },
   {
     title: "Data Retention",
-    body: "Media disimpan selama 30 hari sejak tanggal unggahan. Setelah periode tersebut, file dihapus otomatis dari Telegram Storage Chat dan tidak dapat dipulihkan. Pengguna juga dapat menghapus media kapan saja secara manual melalui dashboard.",
+    body: "Media disimpan sesuai masa berlaku yang ditampilkan pada dashboard dan dihapus otomatis dari Telegram Storage setelah kedaluwarsa. Token GitHub tetap tersimpan terenkripsi sampai pengguna memilih Disconnect atau menghapus akun web. Statistik trafik GitHub hanya tersedia dalam rentang terbaru yang disediakan GitHub (maksimal 14 hari) dan tidak mengidentifikasi pengunjung.",
   },
   {
     title: "User Rights",
-    body: "Pengguna berhak menghapus seluruh media yang diunggah kapan saja. Penghapusan melalui dashboard akan menghapus metadata dari database dan file fisik dari Telegram Storage Chat secara permanen.",
+    body: "Pengguna dapat menghapus media melalui dashboard, memutuskan koneksi GitHub untuk menghapus token dari database CheyaVerse, atau menghapus akun web untuk menghapus data akun. Pengguna juga dapat mencabut token langsung dari pengaturan keamanan GitHub. Penghapusan akun tidak menghapus data yang berada di layanan GitHub atau Telegram.",
   },
   {
     title: "Policy Changes",
@@ -54,7 +54,7 @@ export default function PrivacyPage({
     <>
       <SubPageHeader
         title="Privacy Policy"
-        subtitle="Pembaruan terakhir: 22 September 2026"
+        subtitle="Pembaruan terakhir: 1 Oktober 2026"
         backHref={`/${params.uid}/profile`}
         cornerLabel="PRIVACY POLICY"
       />

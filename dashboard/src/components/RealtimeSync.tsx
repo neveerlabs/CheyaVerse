@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useRealtime } from "@/lib/use-realtime";
 import { playReceiveSoundOutside } from "@/lib/chat-sounds";
@@ -10,6 +10,18 @@ export function RealtimeSync({ uid }: { uid: string }) {
   const pathname = usePathname();
   const pathnameRef = useRef(pathname);
   const lastPathnameRef = useRef(pathname);
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const scheduleRefresh = useCallback(
+    (delay = 80) => {
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = setTimeout(() => {
+        refreshTimerRef.current = null;
+        router.refresh();
+      }, delay);
+    },
+    [router],
+  );
 
   useEffect(() => {
     pathnameRef.current = pathname;
@@ -18,19 +30,28 @@ export function RealtimeSync({ uid }: { uid: string }) {
   useEffect(() => {
     if (lastPathnameRef.current === pathname) return;
     lastPathnameRef.current = pathname;
-    router.refresh();
-  }, [pathname, router]);
+    scheduleRefresh();
+  }, [pathname, scheduleRefresh]);
 
   useEffect(() => {
     const onPageShow = (event: PageTransitionEvent) => {
-      if (event.persisted) router.refresh();
+      if (event.persisted) scheduleRefresh();
+    };
+    const onPopState = () => scheduleRefresh();
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") scheduleRefresh(140);
     };
 
     window.addEventListener("pageshow", onPageShow);
+    window.addEventListener("popstate", onPopState);
+    document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       window.removeEventListener("pageshow", onPageShow);
+      window.removeEventListener("popstate", onPopState);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
     };
-  }, [router]);
+  }, [scheduleRefresh]);
 
   useRealtime(uid, (event) => {
     const inChatRoom = /^\/[^/]+\/chat\/[^/]+\/?$/.test(pathnameRef.current);
@@ -50,7 +71,7 @@ export function RealtimeSync({ uid }: { uid: string }) {
         event.type === "direct-message:new" ||
         event.type === "direct-message:read"
       ) {
-        router.refresh();
+        scheduleRefresh(40);
       }
     }
 

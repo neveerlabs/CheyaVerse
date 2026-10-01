@@ -54,7 +54,7 @@ export default function AgreementPage() {
     <>
       <AppHeader
         title="User Agreement"
-        subtitle="Pembaruan terakhir: 22 September 2026"
+        subtitle="Pembaruan terakhir: 1 Oktober 2026"
         cornerLabel="USER AGREEMENT"
       />
 

@@ -6,6 +6,7 @@ import {
   Check,
   Cpu,
   Database,
+  Github,
   Globe,
   HardDrive,
   Layers,
@@ -26,7 +27,7 @@ type Device = {
   revoked: boolean;
 };
 
-type Tab = "general" | "security" | "data" | "about";
+type Tab = "general" | "security" | "data" | "github" | "about";
 
 const DEVICE_ID_KEY = "cheya_device_id";
 const DELETE_CONFIRMATION = "HAPUS AKUN";
@@ -64,6 +65,15 @@ export function SettingsClient({
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteText, setDeleteText] = useState("");
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [githubConnected, setGithubConnected] = useState(false);
+  const [githubReplaceOpen, setGithubReplaceOpen] = useState(false);
+  const [githubLogin, setGithubLogin] = useState<string | null>(null);
+  const [githubEncryptionConfigured, setGithubEncryptionConfigured] = useState(false);
+  const [githubToken, setGithubToken] = useState("");
+  const [githubLoading, setGithubLoading] = useState(false);
+  const [githubBusy, setGithubBusy] = useState(false);
+  const [githubError, setGithubError] = useState("");
+  const [githubNotice, setGithubNotice] = useState("");
 
   const loadDevices = useCallback(async () => {
     setDevicesLoading(true);
@@ -95,6 +105,31 @@ export function SettingsClient({
     }
   }, []);
 
+  const loadGitHubSettings = useCallback(async () => {
+    setGithubLoading(true);
+    setGithubError("");
+    try {
+      const response = await fetch("/api/github/settings", { cache: "no-store" });
+      const result = (await response.json()) as {
+        connected?: boolean;
+        login?: string | null;
+        encryptionConfigured?: boolean;
+      };
+      if (!response.ok) {
+        throw new Error("GitHub settings could not be loaded.");
+      }
+      setGithubConnected(result.connected === true);
+      setGithubLogin(result.login ?? null);
+      setGithubEncryptionConfigured(result.encryptionConfigured === true);
+    } catch (cause) {
+      setGithubError(
+        cause instanceof Error ? cause.message : "GitHub settings could not be loaded.",
+      );
+    } finally {
+      setGithubLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     try {
       setCurrentDeviceId(window.localStorage.getItem(DEVICE_ID_KEY));
@@ -106,6 +141,70 @@ export function SettingsClient({
   useEffect(() => {
     if (tab === "security") void loadDevices();
   }, [tab, loadDevices]);
+
+  useEffect(() => {
+    if (tab === "github") void loadGitHubSettings();
+  }, [tab, loadGitHubSettings]);
+
+  async function connectGitHub() {
+    if (githubBusy || !githubToken.trim()) return;
+    setGithubBusy(true);
+    setGithubError("");
+    setGithubNotice("");
+    try {
+      const response = await fetch("/api/github/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: githubToken }),
+        cache: "no-store",
+      });
+      const result = (await response.json()) as {
+        ok?: boolean;
+        error?: string;
+        login?: string;
+      };
+      if (!response.ok || !result.ok) {
+        throw new Error(result.error || "GitHub account could not be connected.");
+      }
+      setGithubToken("");
+      setGithubReplaceOpen(false);
+      setGithubNotice(`Connected as @${result.login ?? "GitHub user"}.`);
+      await loadGitHubSettings();
+    } catch (cause) {
+      setGithubError(
+        cause instanceof Error ? cause.message : "GitHub account could not be connected.",
+      );
+    } finally {
+      setGithubBusy(false);
+    }
+  }
+
+  async function disconnectGitHub() {
+    if (githubBusy) return;
+    setGithubBusy(true);
+    setGithubError("");
+    setGithubNotice("");
+    try {
+      const response = await fetch("/api/github/settings", {
+        method: "DELETE",
+        cache: "no-store",
+      });
+      const result = (await response.json()) as { ok?: boolean; error?: string };
+      if (!response.ok || !result.ok) {
+        throw new Error(result.error || "GitHub account could not be disconnected.");
+      }
+      setGithubConnected(false);
+      setGithubLogin(null);
+      setGithubReplaceOpen(false);
+      setGithubNotice("GitHub token removed from this account.");
+    } catch (cause) {
+      setGithubError(
+        cause instanceof Error ? cause.message : "GitHub token could not be removed.",
+      );
+    } finally {
+      setGithubBusy(false);
+    }
+  }
 
   function clearCache() {
     try {
@@ -252,6 +351,7 @@ export function SettingsClient({
     { id: "general", label: "General", icon: <Globe size={16} /> },
     { id: "security", label: "Devices & Security", icon: <Shield size={16} /> },
     { id: "data", label: "Data", icon: <Database size={16} /> },
+    { id: "github", label: "GitHub", icon: <Github size={16} /> },
     { id: "about", label: "About", icon: <Layers size={16} /> },
   ];
 
@@ -481,6 +581,117 @@ export function SettingsClient({
               last
             />
           </SettingsSection>
+        </div>
+      )}
+
+      {tab === "github" && (
+        <div id="settings-panel-github" className="animate-fade-up space-y-5">
+          <SettingsSection title="GitHub projects">
+            <div className="p-4">
+              <div className="flex items-start gap-3">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[15px] bg-[#f2f3f5] text-ink">
+                  <Github size={20} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-[13px] font-semibold text-ink">
+                    {githubConnected ? `Connected as @${githubLogin}` : "Connect GitHub"}
+                  </h3>
+                  <p className="mt-1 text-[11.5px] leading-relaxed text-ink-mute">
+                    Token digunakan server untuk membaca repositori yang dapat
+                    diakses akun GitHub ini. Token tidak pernah dikirim kembali
+                    ke browser dan disimpan terenkripsi di Turso.
+                  </p>
+                </div>
+              </div>
+
+              {!githubEncryptionConfigured && (
+                <p role="alert" className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-[11px] leading-relaxed text-amber-900">
+                  Admin perlu mengatur GITHUB_TOKEN_ENCRYPTION_KEY pada environment
+                  server sebelum token dapat disimpan.
+                </p>
+              )}
+              {githubError && (
+                <p role="alert" className="mt-4 rounded-xl border border-red-100 bg-red-50 px-3 py-2.5 text-[11px] leading-relaxed text-danger">
+                  {githubError}
+                </p>
+              )}
+              {githubNotice && (
+                <p role="status" className="mt-4 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2.5 text-[11px] text-emerald-800">
+                  {githubNotice}
+                </p>
+              )}
+
+              {githubConnected && (
+                <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-[11px] text-ink-mute">
+                    {githubLoading ? "Checking connection…" : "Repository access is active."}
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={githubBusy}
+                      onClick={() => setGithubReplaceOpen((open) => !open)}
+                      className="rounded-full border border-line bg-white px-4 py-2.5 text-[11.5px] font-semibold text-ink-soft disabled:opacity-50"
+                    >
+                      {githubReplaceOpen ? "Cancel replacement" : "Replace token"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={githubBusy}
+                      onClick={() => void disconnectGitHub()}
+                      className="rounded-full border border-red-100 bg-red-50 px-4 py-2.5 text-[11.5px] font-semibold text-danger disabled:opacity-50"
+                    >
+                      {githubBusy ? "Removing…" : "Disconnect"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {(!githubConnected || githubReplaceOpen) && (
+                <form
+                  className="mt-4"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void connectGitHub();
+                  }}
+                >
+                  <label htmlFor="github-token" className="mb-1.5 block text-[11px] font-semibold text-ink-soft">
+                    {githubConnected ? "Replacement personal access token" : "Personal access token"}
+                  </label>
+                  <input
+                    id="github-token"
+                    type="password"
+                    value={githubToken}
+                    onChange={(event) => setGithubToken(event.target.value)}
+                    autoComplete="new-password"
+                    spellCheck={false}
+                    maxLength={512}
+                    placeholder="github_pat_… or ghp_…"
+                    disabled={!githubEncryptionConfigured || githubBusy}
+                    className="w-full rounded-2xl border border-line bg-[#fafafa] px-4 py-3 text-[12px] text-ink outline-none placeholder:text-ink-mute focus:border-[#a5a5a5] disabled:opacity-50"
+                  />
+                  <p className="mt-2 text-[10.5px] leading-relaxed text-ink-mute">
+                    Read-only access is recommended: repository metadata and
+                    contents, Actions, deployments, and repository traffic if
+                    available. Prefer a fine-grained token limited to selected
+                    repositories. Classic tokens can grant broader access than
+                    this dashboard needs.
+                  </p>
+                  <button
+                    type="submit"
+                    disabled={!githubEncryptionConfigured || githubBusy || !githubToken.trim()}
+                    className="mt-4 w-full rounded-2xl bg-ink px-4 py-3 text-[12px] font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-45 sm:w-auto"
+                  >
+                    {githubBusy ? "Verifying token…" : githubConnected ? "Replace token" : "Connect GitHub"}
+                  </button>
+                </form>
+              )}
+            </div>
+          </SettingsSection>
+          <p className="px-3 text-[10.5px] leading-relaxed text-ink-mute">
+            Revoke the token on GitHub at any time. Disconnecting here deletes
+            the encrypted token from this CheyaVerse account.
+          </p>
         </div>
       )}
 

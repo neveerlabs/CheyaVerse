@@ -95,6 +95,7 @@ ADMIN_TELEGRAM_IDS=
 NEXT_PUBLIC_VAPID_PUBLIC_KEY=
 VAPID_PRIVATE_KEY=
 VAPID_SUBJECT=mailto:admin@example.com
+GITHUB_TOKEN_ENCRYPTION_KEY=
 ```
 
 ### 4. Buat database dan tabel Turso melalui web
@@ -118,6 +119,26 @@ Isi `BROADCAST_WEB_SECRET` di environment web dengan nilai rahasia yang sama sep
 Pesan `/start` yang membuka permintaan login dihapus otomatis. Setelah disetujui, bot menghapus kartu permintaan dan hanya menampilkan konfirmasi singkat di Telegram.
 
 Setiap permintaan login berlaku selama lima menit, hanya dapat digunakan sekali, dan bot mengambil ID Telegram dari update resmi Telegram—bukan dari browser. Setelah disetujui, session web ditandatangani dengan `TELEGRAM_BOT_TOKEN`; jangan membagikan token dan segera rotasi token jika pernah terekspos. Device ID dibuat setelah identitas Telegram berhasil diverifikasi. Tabel `telegram_login_challenges` dibuat otomatis; tidak perlu menghapus atau membuat ulang tabel database.
+
+### Integrasi GitHub Projects
+
+Tab **Projects** pada navigasi bawah menampilkan repositori yang dapat diakses akun GitHub yang ditautkan, dengan pencarian berdasarkan nama/deskripsi dan pagination. Beranda juga menampilkan ringkasan jumlah repo yang dipindai, stars, forks, repo yang aktif bulan ini, commit terbaru, dan repo populer. Jika belum tersambung, Beranda menyediakan shortcut ke Settings. Setiap proyek menampilkan deskripsi, status publik/private, branch, bahasa, statistik repo, struktur default branch, statistik file dan baris per commit, workflow GitHub Actions, deployment GitHub, dan statistik trafik agregat jika GitHub mengizinkannya.
+
+Daftar dan ringkasan GitHub diminta ulang saat halamannya dibuka kembali atau tab kembali aktif; navigasi Back/Forward juga meminta data route terbaru tanpa memuat ulang seluruh dokumen atau menjalankan polling berkala.
+
+Sebelum token bisa disimpan, buat key enkripsi server 32 byte:
+
+```bash
+openssl rand -base64 32
+```
+
+Masukkan hasilnya sebagai `GITHUB_TOKEN_ENCRYPTION_KEY` pada `.env` lokal dashboard serta Environment Variables deployment, lalu restart/redeploy aplikasi. Gunakan nilai key yang sama untuk seluruh instance yang membaca database yang sama. Jika key hilang atau diganti, token GitHub terenkripsi yang tersimpan tidak dapat dibuka lagi; sambungkan ulang akun GitHub setelah key dipulihkan.
+
+Tabel `github_credentials` dibuat otomatis di Turso saat pengaturan GitHub pertama kali dibuka; tidak perlu menambahkan SQL manual.
+
+Masuk ke **Profile → Settings → GitHub** dan masukkan Personal Access Token (classic atau fine-grained). **Fine-grained token read-only** lebih disarankan: batasi token ke repositori yang diperlukan dan aktifkan metadata, contents, Actions, serta deployments dengan akses read-only. Classic PAT dapat membawa izin yang lebih luas daripada yang dibutuhkan dashboard; kode aplikasi hanya melakukan permintaan baca. Statistik traffic bersifat opsional, tersedia untuk repo tempat pemilik token memiliki akses tulis, dan hanya meliputi 14 hari terakhir. Token diverifikasi ke GitHub, lalu disimpan per akun CheyaVerse dengan enkripsi AES-256-GCM di Turso; nilainya tidak ditampilkan kembali ke browser. Tombol **Disconnect** menghapus token dari database aplikasi.
+
+Riwayat commit dimuat bertahap agar tidak menghabiskan GitHub API rate limit; tombol **Load more commit history** memuat halaman berikutnya. Statistik penambahan/penghapusan baris serta file dihitung dari data detail setiap commit yang telah dimuat. GitHub hanya menyediakan trafik agregat untuk periode terbaru (maksimal 14 hari) dan tidak memberikan identitas pengunjung. Status production di halaman ini hanya mencakup deployment yang tercatat lewat GitHub Deployments; deployment dari hosting provider lain tidak dapat dideteksi otomatis.
 
 Pengaturan **Devices & Security** menampilkan perangkat terdaftar, waktu aktivitas terakhir, dan aksi untuk menghentikan sesi. Logout hanya mengakhiri sesi di perangkat ini. Penghapusan akun web memerlukan konfirmasi teks `HAPUS AKUN`; profil dianonimkan menjadi **Deleted account** pada salinan percakapan akun lain agar riwayat mereka tetap ada. Sesi lama dicabut lewat versi sesi akun. Media milik akun di database dihapus; penghapusan file dari Telegram Storage dilakukan sebaik mungkin dan kegagalan eksternal akan ditampilkan setelah proses.
 

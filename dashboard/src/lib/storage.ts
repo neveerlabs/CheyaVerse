@@ -2413,6 +2413,7 @@ export async function deleteWebAccountData(
     ["direct_message_pins", "uid"],
     ["chat_presence", "uid"],
     ["library_nodes", "owner_uid"],
+    ["github_credentials", "uid"],
   ];
 
   const anonymizedAt = new Date().toISOString();
