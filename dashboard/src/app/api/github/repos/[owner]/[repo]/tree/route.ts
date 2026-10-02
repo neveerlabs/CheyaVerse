@@ -5,6 +5,7 @@ import {
   getGitHubToken,
   githubJson,
   GitHubApiError,
+  GITHUB_CREDENTIAL_COOKIE,
 } from "@/lib/github";
 
 export const runtime = "nodejs";
@@ -49,7 +50,10 @@ export async function GET(
     return NextResponse.json({ error: "Invalid repository or branch." }, { status: 400 });
   }
   try {
-    const token = await getGitHubToken(session.uid);
+    const token = await getGitHubToken(
+      session.uid,
+      request.cookies.get(GITHUB_CREDENTIAL_COOKIE)?.value,
+    );
     if (!token) {
       return NextResponse.json({ error: "Connect GitHub in Settings first." }, { status: 409 });
     }

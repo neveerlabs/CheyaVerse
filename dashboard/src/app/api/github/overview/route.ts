@@ -8,6 +8,7 @@ import {
   githubFetch,
   githubJson,
   GitHubApiError,
+  GITHUB_CREDENTIAL_COOKIE,
   hasNextLink,
 } from "@/lib/github";
 
@@ -43,6 +44,14 @@ type CommitSummary = {
   author: { login: string } | null;
 };
 
+type GitHubRelease = {
+  tag_name: string;
+  name: string | null;
+  html_url: string;
+  published_at: string | null;
+  prerelease: boolean;
+};
+
 type CommitActivityWeek = { week: number; total: number };
 
 type ProjectActivity = {
@@ -70,6 +79,13 @@ type ProjectActivity = {
     message: string;
     author: string;
     date: string;
+  } | null;
+  latestRelease: {
+    tagName: string;
+    name: string | null;
+    url: string;
+    publishedAt: string | null;
+    prerelease: boolean;
   } | null;
 };
 
@@ -117,15 +133,27 @@ async function loadProjectActivity(
   token: string,
   repository: Repository,
 ): Promise<ProjectActivity> {
-  const [weeklyActivity, commitSummaries] = await Promise.all([
+  const repoPath = `/repos/${encodeURIComponent(repository.full_name.split("/")[0])}/${encodeURIComponent(repository.name)}`;
+  const [weeklyActivity, commitSummaries, releases] = await Promise.all([
     getWeeklyActivity(token, repository.full_name.split("/")[0], repository.name),
     githubJson<CommitSummary[]>(
       token,
-      `/repos/${encodeURIComponent(repository.full_name.split("/")[0])}/${encodeURIComponent(repository.name)}/commits?per_page=3`,
+      `${repoPath}/commits?per_page=3`,
     ).then(({ data }) => data).catch((error: unknown) => {
       if (error instanceof GitHubApiError && error.status === 409) return [];
       throw error;
     }),
+    githubJson<GitHubRelease[]>(token, `${repoPath}/releases?per_page=1`)
+      .then(({ data }) => data[0] ?? null)
+      .catch((error: unknown) => {
+        if (
+          error instanceof GitHubApiError &&
+          [403, 404].includes(error.status)
+        ) {
+          return null;
+        }
+        throw error;
+      }),
   ]);
   const latest = commitSummaries[0];
   const latestCommit: ProjectActivity["latestCommit"] = latest
@@ -162,6 +190,15 @@ async function loadProjectActivity(
         weeklyActivity?.slice(-5).reduce((sum, count) => sum + count, 0) ?? 0,
     },
     latestCommit,
+    latestRelease: releases
+      ? {
+          tagName: releases.tag_name,
+          name: releases.name,
+          url: releases.html_url,
+          publishedAt: releases.published_at,
+          prerelease: releases.prerelease,
+        }
+      : null,
   };
 }
 
@@ -198,7 +235,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
   try {
-    const token = await getGitHubToken(session.uid);
+    const token = await getGitHubToken(
+      session.uid,
+      request.cookies.get(GITHUB_CREDENTIAL_COOKIE)?.value,
+    );
     if (!token) {
       return NextResponse.json(
         {
@@ -252,6 +292,9 @@ export async function GET(request: NextRequest) {
       (a, b) =>
         b.history.commitsLastYear - a.history.commitsLastYear ||
         b.history.commitsLastFiveWeeks - a.history.commitsLastFiveWeeks ||
+        (b.latestRelease?.publishedAt ?? "").localeCompare(
+          a.latestRelease?.publishedAt ?? "",
+        ) ||
         (b.repository.pushedAt ?? "").localeCompare(a.repository.pushedAt ?? ""),
     );
 

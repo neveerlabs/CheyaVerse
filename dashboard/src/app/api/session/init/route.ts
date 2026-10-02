@@ -325,7 +325,12 @@ export async function POST(req: NextRequest) {
       cpuCores,
       ramGb,
     );
-    broadcastToUid(uid, { type: "notification:new" });
+    if (welcome.created) {
+      broadcastToUid(uid, {
+        type: "notification:new",
+        notificationId: `welcome-${uid}`,
+      });
+    }
 
     const pushBody = welcome.message
       ? stripHtml(welcome.message)

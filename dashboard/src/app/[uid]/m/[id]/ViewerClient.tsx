@@ -1475,7 +1475,7 @@ export default function ViewerClient({
               Delete this media?
             </h2>
             <p className="text-[12.5px] text-ink-soft text-center mb-5 leading-relaxed">
-              File ini akan dihapus secara permanen dari server. Tindakan ini tidak dapat dibatalkan.
+              File ini akan dihapus secara permanen dari server. Tindakan ini tidak dapat dikembalikan.
             </p>
             <div className="flex gap-2.5">
               <button

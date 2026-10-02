@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserSession, hasValidSameOrigin } from "@/lib/auth-request";
 import {
-  getGitHubCredentialStatus,
+  createGitHubCredentialCookie,
+  getGitHubCredential,
   githubFetch,
   GitHubApiError,
   getGitHubResponseError,
   getGitHubEncryptionStatus,
   getGitHubToken,
+  GITHUB_CREDENTIAL_COOKIE,
+  GITHUB_CREDENTIAL_COOKIE_TTL_SECONDS,
   isGitHubEncryptionConfigured,
   removeGitHubCredential,
   saveGitHubCredential,
@@ -21,25 +24,50 @@ export const dynamic = "force-dynamic";
 
 const MAX_TOKEN_REQUEST_BYTES = 2048;
 
+function githubCredentialCookieOptions(request: NextRequest, maxAge: number) {
+  const forwardedProto = request.headers
+    .get("x-forwarded-proto")
+    ?.split(",")[0]
+    ?.trim();
+  return {
+    httpOnly: true,
+    secure: forwardedProto === "https" || request.nextUrl.protocol === "https:",
+    sameSite: "strict" as const,
+    path: "/api/github",
+    maxAge,
+  };
+}
+
 export async function GET(request: NextRequest) {
   try {
     const session = await getUserSession(request);
     if (!session) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
-    const credential = await getGitHubCredentialStatus(session.uid);
-    return NextResponse.json(
+    const credential = await getGitHubCredential(session.uid);
+    const response = NextResponse.json(
       {
-        connected: credential.connected,
-        tokenReadable: credential.tokenReadable,
-        login: credential.login,
-        scopes: credential.scopes,
-        updatedAt: credential.updatedAt,
+        connected: credential.status.connected,
+        tokenReadable: credential.status.tokenReadable,
+        login: credential.status.login,
+        scopes: credential.status.scopes,
+        updatedAt: credential.status.updatedAt,
         encryptionConfigured: isGitHubEncryptionConfigured(),
         encryptionStatus: getGitHubEncryptionStatus(),
       },
       { headers: { "Cache-Control": "no-store" } },
     );
+    if (credential.token) {
+      response.cookies.set(
+        GITHUB_CREDENTIAL_COOKIE,
+        createGitHubCredentialCookie(session.uid, credential.token),
+        githubCredentialCookieOptions(
+          request,
+          GITHUB_CREDENTIAL_COOKIE_TTL_SECONDS,
+        ),
+      );
+    }
+    return response;
   } catch (error) {
     console.error("[github/settings] failed to read GitHub settings:", error);
     return NextResponse.json(
@@ -95,9 +123,9 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const response = await githubFetch(token, "/user");
-    if (!response.ok) throw await getGitHubResponseError(response);
-    const user = (await response.json()) as { login?: unknown };
+    const githubResponse = await githubFetch(token, "/user");
+    if (!githubResponse.ok) throw await getGitHubResponseError(githubResponse);
+    const user = (await githubResponse.json()) as { login?: unknown };
     if (typeof user.login !== "string" || !user.login) {
       return NextResponse.json(
         { error: "GitHub did not return an account for this token." },
@@ -108,16 +136,25 @@ export async function POST(request: NextRequest) {
       session.uid,
       token,
       user.login,
-      response.headers.get("x-oauth-scopes"),
+      githubResponse.headers.get("x-oauth-scopes"),
     );
     const storedToken = await getGitHubToken(session.uid);
     if (storedToken !== token) {
       throw new Error("GITHUB_CREDENTIAL_READBACK_FAILED");
     }
-    return NextResponse.json(
+    const response = NextResponse.json(
       { ok: true, connected: true, login: user.login },
       { headers: { "Cache-Control": "no-store" } },
     );
+    response.cookies.set(
+      GITHUB_CREDENTIAL_COOKIE,
+      createGitHubCredentialCookie(session.uid, token),
+      githubCredentialCookieOptions(
+        request,
+        GITHUB_CREDENTIAL_COOKIE_TTL_SECONDS,
+      ),
+    );
+    return response;
   } catch (error) {
     if (error instanceof GitHubApiError) {
       return NextResponse.json(
@@ -149,7 +186,16 @@ export async function DELETE(request: NextRequest) {
   }
   try {
     await removeGitHubCredential(session.uid);
-    return NextResponse.json({ ok: true });
+    const response = NextResponse.json(
+      { ok: true },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+    response.cookies.set(
+      GITHUB_CREDENTIAL_COOKIE,
+      "",
+      githubCredentialCookieOptions(request, 0),
+    );
+    return response;
   } catch (error) {
     console.error("[github/settings] failed to remove GitHub token:", error);
     return NextResponse.json(

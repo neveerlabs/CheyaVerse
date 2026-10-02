@@ -16,6 +16,7 @@ import {
   LockKeyhole,
   RefreshCw,
   Star,
+  Tag,
 } from "lucide-react";
 
 type Project = {
@@ -43,6 +44,13 @@ type Project = {
     message: string;
     author: string;
     date: string;
+  } | null;
+  latestRelease: {
+    tagName: string;
+    name: string | null;
+    url: string;
+    publishedAt: string | null;
+    prerelease: boolean;
   } | null;
 };
 
@@ -190,7 +198,7 @@ function WeeklyChart({
 }
 
 function ProjectCard({ uid, project }: { uid: string; project: Project }) {
-  const { repository, history, latestCommit } = project;
+  const { repository, history, latestCommit, latestRelease } = project;
   const weeklyActivity = history.weeklyActivity ?? [];
   const peak = Math.max(...weeklyActivity, 1);
   return (
@@ -224,6 +232,18 @@ function ProjectCard({ uid, project }: { uid: string; project: Project }) {
         <p className="mt-2 min-h-[34px] line-clamp-2 text-[10px] leading-relaxed text-slate-500">
           {repository.description || "No description provided."}
         </p>
+        {latestRelease && (
+          <a
+            href={latestRelease.url}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-2 inline-flex max-w-full items-center gap-1.5 rounded-lg bg-violet-50 px-2 py-1 text-[9px] font-semibold text-violet-700 hover:bg-violet-100"
+          >
+            <Tag size={10} className="shrink-0" />
+            <span className="truncate">{latestRelease.tagName}</span>
+            {latestRelease.prerelease && <span className="shrink-0 font-medium">pre-release</span>}
+          </a>
+        )}
 
         <div className="mt-3 flex items-center gap-3 text-[9px] text-slate-500">
           {repository.language && (
@@ -304,6 +324,22 @@ function ProjectCard({ uid, project }: { uid: string; project: Project }) {
         ) : (
           <p className="mt-2 text-[10px] text-slate-400">No commit history is available.</p>
         )}
+        {latestRelease && (
+          <a
+            href={latestRelease.url}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-2 flex items-center gap-1.5 truncate text-[9px] font-medium text-violet-700 hover:text-violet-900"
+          >
+            <Tag size={10} className="shrink-0" />
+            {latestRelease.name || latestRelease.tagName}
+            {latestRelease.publishedAt && (
+              <span className="shrink-0 font-normal text-slate-400">
+                · {formatDate(latestRelease.publishedAt)}
+              </span>
+            )}
+          </a>
+        )}
       </div>
     </article>
   );
@@ -328,13 +364,39 @@ export function GitHubHomeDashboard({ uid }: { uid: string }) {
     setDisconnected(false);
     setNeedsGitHubReconnect(false);
     try {
-      const response = await fetch("/api/github/overview", {
+      let response = await fetch("/api/github/overview", {
         cache: "no-store",
         signal: controller.signal,
       });
-      const result = await readApiJson<
+      let result = await readApiJson<
         Overview & { error?: string; code?: string }
       >(response);
+      if (controller.signal.aborted) return;
+      if (response.status === 409 && result.code === "GITHUB_NOT_CONNECTED") {
+        const settingsResponse = await fetch("/api/github/settings", {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (settingsResponse.ok) {
+          const settings = await readApiJson<{
+            connected?: boolean;
+            tokenReadable?: boolean | null;
+          }>(settingsResponse);
+          if (
+            settings.connected === true &&
+            settings.tokenReadable === true &&
+            !controller.signal.aborted
+          ) {
+            response = await fetch("/api/github/overview", {
+              cache: "no-store",
+              signal: controller.signal,
+            });
+            result = await readApiJson<
+              Overview & { error?: string; code?: string }
+            >(response);
+          }
+        }
+      }
       if (controller.signal.aborted) return;
       if (response.status === 409) {
         setOverview(null);
@@ -582,7 +644,7 @@ export function GitHubHomeDashboard({ uid }: { uid: string }) {
                   Projects with the most history
                 </h2>
                 <p className="mt-1 text-[9px] text-slate-500">
-                  Ranked by commits across the last 12 months, then recent activity.
+                  Ranked by commit activity; the latest release helps break ties.
                 </p>
               </div>
               <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
@@ -613,6 +675,12 @@ export function GitHubHomeDashboard({ uid }: { uid: string }) {
                           <GitFork size={10} /> {formatNumber(project.repository.forks)}
                         </span>
                       </span>
+                      {project.latestRelease && (
+                        <span className="mt-1 flex items-center gap-1 text-[9px] font-medium text-violet-700">
+                          <Tag size={10} />
+                          <span className="truncate">{project.latestRelease.tagName}</span>
+                        </span>
+                      )}
                     </span>
                     <ArrowUpRight
                       size={14}

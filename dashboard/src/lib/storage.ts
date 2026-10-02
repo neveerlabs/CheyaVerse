@@ -388,7 +388,7 @@ export async function ensureWelcomeNotification(
     }
 
     const message = [
-      `Login Telegram berhasil dilakukan untuk akun ${userMention}. Perangkat ini sekarang terhubung ke akun CheyaVerse Anda.`,
+      `Login berhasil dilakukan dengan akun Telegram untuk akun ${userMention}. Perangkat ini sekarang terhubung ke akun CheyaVerse Anda.`,
       "",
       "<b>Session active:</b>",
       `• <b>Perangkat:</b> ${deviceLine}`,
@@ -398,7 +398,7 @@ export async function ensureWelcomeNotification(
       "",
       "⚠️ <b>PERINGATAN KEAMANAN:</b> Jangan bagikan kode login Telegram atau sesi browser Anda. Login dari perangkat baru akan dikirim sebagai laporan keamanan langsung melalui bot Telegram.",
       "",
-      "<i>Jika ini adalah aktivitas Anda, tidak ada tindakan lebih lanjut yang diperlukan. Selamat menggunakan layanan kami.</i>",
+      "<i>Jika ini adalah aktivitas Anda, tidak ada tindakan lebih lanjut yang diperlukan. Selamat menggunakan layanan CheyaVerse.</i>",
     ].join("\n");
 
     const createdAt = new Date().toISOString();
@@ -2351,6 +2351,29 @@ export async function getLatestDirectMessage(
   if (result.rows.length === 0) return null;
   return rowToDirectMessage(
     result.rows[0] as unknown as Record<string, unknown>,
+  );
+}
+
+export async function getRecentIncomingDirectMessages(
+  uid: number,
+): Promise<DirectMessage[]> {
+  await ensureDirectMessagesTable();
+  const result = await getTurso().execute({
+    sql: `SELECT * FROM (
+            SELECT dm.* FROM direct_messages dm
+            WHERE dm.recipient_uid = ?
+              AND dm.deleted_at IS NULL
+              AND NOT EXISTS (
+                SELECT 1 FROM direct_message_hides h
+                WHERE h.uid = ? AND h.message_id = dm.id
+              )
+            ORDER BY dm.created_at DESC LIMIT 100
+          )
+          ORDER BY created_at ASC`,
+    args: [uid, uid],
+  });
+  return result.rows.map((row) =>
+    rowToDirectMessage(row as unknown as Record<string, unknown>),
   );
 }
 

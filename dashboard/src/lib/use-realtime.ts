@@ -32,12 +32,21 @@ type Snapshot = {
     delivered_at: string | null;
     read_at: string | null;
   } | null;
+  directIncomingRecent: Array<{
+    id: string;
+    sender_uid: number;
+    recipient_uid: number;
+    content: string;
+    created_at: string;
+    delivered_at: string | null;
+    read_at: string | null;
+  }>;
 };
 
 type Listener = (event: RealtimeEvent) => void;
 
-const FALLBACK_VISIBLE_MS = 15000;
-const FALLBACK_HIDDEN_MS = 60000;
+const POLL_VISIBLE_MS = 5000;
+const POLL_HIDDEN_MS = 60000;
 const BACKOFF_BASE_MS = 4000;
 const BACKOFF_MAX_MS = 30000;
 const MAX_ERR_LEVEL = 6;
@@ -196,7 +205,6 @@ class RealtimeConnection {
   }
 
   private nextInterval(): number {
-    if (!this.streamConnected && this.errCount === 0) return FALLBACK_VISIBLE_MS;
     if (this.errCount > 0) {
       return Math.min(
         BACKOFF_MAX_MS,
@@ -204,13 +212,12 @@ class RealtimeConnection {
       );
     }
     return document.visibilityState === "visible"
-      ? FALLBACK_VISIBLE_MS
-      : FALLBACK_HIDDEN_MS;
+      ? POLL_VISIBLE_MS
+      : POLL_HIDDEN_MS;
   }
 
   private tick = async (): Promise<void> => {
     if (this.stopped || this.inflight) return;
-    if (this.streamConnected && this.previous) return;
 
     const controller = new AbortController();
     this.inflight = controller;
@@ -257,7 +264,10 @@ class RealtimeConnection {
           current.unread > this.previous.unread ||
           isNewNotification
         ) {
-          this.emit({ type: "notification:new" });
+          this.emit({
+            type: "notification:new",
+            notificationId: current.notifLastId,
+          });
         }
         if (unreadChanged && current.unread < this.previous.unread) {
           this.emit({ type: "notification:read" });
@@ -271,6 +281,11 @@ class RealtimeConnection {
         const previousMessageId = this.previous.msgLast?.id ?? "";
         if (currentMessageId && currentMessageId !== previousMessageId) {
           this.emit({ type: "message:new", message: current.msgLast });
+        }
+
+        for (const incoming of current.directIncomingRecent ?? []) {
+          if (this.recentDirectMessageIds.has(incoming.id)) continue;
+          this.emit({ type: "direct-message:new", message: incoming });
         }
 
         const currentDirectId = current.directLast?.id ?? "";
@@ -307,6 +322,11 @@ class RealtimeConnection {
         }
       }
 
+      if (!this.previous) {
+        for (const incoming of current.directIncomingRecent ?? []) {
+          this.recentDirectMessageIds.add(incoming.id);
+        }
+      }
       this.previous = current;
     } catch (error) {
       if ((error as { name?: string })?.name !== "AbortError") {
@@ -318,7 +338,7 @@ class RealtimeConnection {
       }
     } finally {
       if (this.inflight === controller) this.inflight = null;
-      if (!this.stopped && !this.streamConnected) {
+      if (!this.stopped) {
         const delay = this.refreshRequested ? 0 : this.nextInterval();
         this.refreshRequested = false;
         this.timer = setTimeout(() => {

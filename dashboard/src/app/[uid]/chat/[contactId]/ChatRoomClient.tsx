@@ -204,6 +204,9 @@ export function ChatRoomClient({
   const toastTimerRef = useRef<number | null>(null);
   const highlightTimerRef = useRef<number | null>(null);
   const initialMessagesRef = useRef(initialMessages);
+  const receivedSoundIdsRef = useRef(new Set<string>());
+  const notificationSoundIdsRef = useRef(new Set<string>());
+  const lastSystemSoundAtRef = useRef(0);
   const markReadRef = useRef<(() => void) | null>(null);
   const lastMarkReadAtRef = useRef(0);
   const markReadInflightRef = useRef(false);
@@ -748,6 +751,18 @@ export function ChatRoomClient({
           }
           return [...prev, incoming];
         });
+        if (
+          (incoming.sender === "bot" || incoming.sender_role === "admin") &&
+          !receivedSoundIdsRef.current.has(incoming.id)
+        ) {
+          receivedSoundIdsRef.current.add(incoming.id);
+          if (receivedSoundIdsRef.current.size > 100) {
+            const oldestId = receivedSoundIdsRef.current.values().next().value;
+            if (oldestId) receivedSoundIdsRef.current.delete(oldestId);
+          }
+          lastSystemSoundAtRef.current = Date.now();
+          playReceiveSound();
+        }
         setPending((prev) => {
           if (!prev.has(incoming.id)) return prev;
           const next = new Set(prev);
@@ -836,7 +851,21 @@ export function ChatRoomClient({
       return;
     }
     if (event.type === "notification:new") {
-      playReceiveSound();
+      const notificationId =
+        typeof event.notificationId === "string"
+          ? event.notificationId
+        : `${String(event.title ?? "")}:${String(event.body ?? "")}:${Math.floor(Date.now() / 2_000)}`;
+      if (
+        !notificationSoundIdsRef.current.has(notificationId) &&
+        Date.now() - lastSystemSoundAtRef.current > 1_000
+      ) {
+        notificationSoundIdsRef.current.add(notificationId);
+        if (notificationSoundIdsRef.current.size > 100) {
+          const oldestId = notificationSoundIdsRef.current.values().next().value;
+          if (oldestId) notificationSoundIdsRef.current.delete(oldestId);
+        }
+        playReceiveSound();
+      }
       markReadRef.current?.();
       router.refresh();
       return;
@@ -846,6 +875,48 @@ export function ChatRoomClient({
       return;
     }
   });
+
+  useEffect(() => {
+    let active = true;
+    let inFlight = false;
+    const refreshWhileOpen = async () => {
+      if (!active || inFlight || document.visibilityState !== "visible") return;
+      inFlight = true;
+      try {
+        const response = await fetch(
+          `/api/notifications/${encodeURIComponent(uid)}`,
+          { cache: "no-store" },
+        );
+        if (!response.ok) {
+          throw new Error(`Notification refresh failed: ${response.status}`);
+        }
+        const result = (await response.json()) as {
+          ok?: boolean;
+          unread?: unknown;
+        };
+        if (result.ok !== true || !Number.isSafeInteger(Number(result.unread))) {
+          throw new Error("Invalid notification refresh response.");
+        }
+        if (Number(result.unread) > 0) markReadRef.current?.();
+        else router.refresh();
+      } catch (error) {
+        console.error("[chat/system] background refresh failed:", error);
+      } finally {
+        inFlight = false;
+      }
+    };
+    const interval = window.setInterval(refreshWhileOpen, 5_000);
+    window.addEventListener("focus", refreshWhileOpen);
+    window.addEventListener("online", refreshWhileOpen);
+    document.addEventListener("visibilitychange", refreshWhileOpen);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refreshWhileOpen);
+      window.removeEventListener("online", refreshWhileOpen);
+      document.removeEventListener("visibilitychange", refreshWhileOpen);
+    };
+  }, [router, uid]);
 
   const visibleChatItems = searchText.trim()
     ? chatItems.filter((item) =>

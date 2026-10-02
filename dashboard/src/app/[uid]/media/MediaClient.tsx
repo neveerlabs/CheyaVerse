@@ -305,7 +305,7 @@ export function MediaClient({
         </div>
         <p className="text-[14.5px] font-medium text-ink mb-1.5">No media yet</p>
         <p className="text-[12.5px] text-ink-mute font-normal leading-relaxed">
-          Unggah foto atau video ke bot dengan caption /qr.
+          Belum ada media yang diunggah
         </p>
       </div>
     );
@@ -590,7 +590,7 @@ export function MediaClient({
               <span className="font-semibold text-ink break-all">{deleteItem.filename}</span>
             </p>
             <p className="text-[12px] text-ink-mute text-center mb-5 leading-relaxed">
-              File ini akan dihapus secara permanen dari server. Tindakan ini tidak dapat dibatalkan.
+              File ini akan dihapus secara permanen dari server. Tindakan ini tidak dapat dikembalikan.
             </p>
             <div className="flex gap-2.5">
               <button

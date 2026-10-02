@@ -145,6 +145,59 @@ a {
   animation: fade-up 180ms cubic-bezier(.2, .8, .2, 1) both;
 }
 
+.media-tab-glow {
+  position: absolute;
+  inset: -4px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, .95);
+  filter: blur(8px);
+  opacity: .56;
+  animation: media-tab-pulse 3.2s ease-in-out infinite;
+}
+
+.media-tab-glow::after {
+  position: absolute;
+  inset: 4px;
+  border-radius: inherit;
+  background: #fff;
+  content: "";
+}
+
+.media-tab-sheen {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.media-tab-sheen::after {
+  position: absolute;
+  inset: -30% auto -30% -80%;
+  width: 58%;
+  background: linear-gradient(
+    100deg,
+    transparent,
+    rgba(255, 255, 255, .3),
+    rgba(255, 255, 255, .04),
+    transparent
+  );
+  content: "";
+  transform: skewX(-18deg);
+  animation: media-tab-sheen 3.8s ease-in-out infinite;
+}
+
+@keyframes media-tab-sheen {
+  0%, 22% { left: -80%; opacity: 0; }
+  34% { opacity: 1; }
+  62%, 100% { left: 135%; opacity: 0; }
+}
+
+@keyframes media-tab-pulse {
+  0%, 100% { opacity: .34; scale: .96; }
+  50% { opacity: .72; scale: 1.06; }
+}
+
 .chat-rich-text b,
 .chat-rich-text strong {
   font-weight: 700;
@@ -390,5 +443,11 @@ a {
 @media (prefers-reduced-motion: reduce) {
   .animate-fade-up {
     animation-duration: 1ms;
+  }
+  .media-tab-glow {
+    animation: none;
+  }
+  .media-tab-sheen::after {
+    animation: none;
   }
 }

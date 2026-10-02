@@ -441,7 +441,7 @@ export function ProfileClient({
     try {
       if (navigator.clipboard?.writeText && window.isSecureContext) {
         await navigator.clipboard.writeText(deviceId);
-        showToast("ID perangkat disalin.");
+        showToast("DeviceID copied");
       } else {
         const ta = document.createElement("textarea");
         ta.value = deviceId;
@@ -451,10 +451,10 @@ export function ProfileClient({
         ta.select();
         document.execCommand("copy");
         document.body.removeChild(ta);
-        showToast("ID perangkat disalin.");
+        showToast("DeviceID copied");
       }
     } catch {
-      showToast("ID perangkat tidak dapat disalin.");
+      showToast("DeviceID cannot be copied");
     }
   }
 
@@ -828,7 +828,7 @@ export function ProfileClient({
               )}
             </h1>
             <p className="text-[13px] text-ink-mute font-normal mt-0.5 truncate">
-              Profil perangkat Anda.
+              Your device profile
             </p>
           </div>
         </div>
@@ -842,7 +842,7 @@ export function ProfileClient({
           className="w-full rounded-2xl bg-[#f5f5f5] sm:hover:bg-[#ededed] active:scale-[.99] px-4 py-3.5 text-center transition-all disabled:opacity-60"
         >
           <p className="text-[13.5px] text-ink-soft leading-none">
-            <span className="font-medium">Device ID: </span>
+            <span className="font-medium">DeviceID: </span>
             <span className="font-semibold text-ink tabular-nums tracking-[-.005em]">
               {deviceId ?? "Loading…"}
             </span>
@@ -877,7 +877,7 @@ export function ProfileClient({
             </div>
             <p className="text-[14.5px] font-medium text-ink mb-1.5">No media yet</p>
             <p className="text-[12.5px] text-ink-mute font-normal leading-relaxed">
-              Unggah foto atau video ke bot dengan keterangan /qr.
+              Belum ada media yang diunggah
             </p>
           </div>
         ) : (

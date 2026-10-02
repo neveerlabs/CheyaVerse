@@ -1,10 +1,16 @@
 import "server-only";
 
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import {
+  createCipheriv,
+  createDecipheriv,
+  randomBytes,
+} from "node:crypto";
 import { getTurso } from "@/lib/turso";
 
 const GITHUB_API = "https://api.github.com";
 const GITHUB_TIMEOUT_MS = 12_000;
+export const GITHUB_CREDENTIAL_COOKIE = "cheya_github_credential";
+export const GITHUB_CREDENTIAL_COOKIE_TTL_SECONDS = 5 * 60;
 let githubCredentialsReady: Promise<void> | null = null;
 
 export type GitHubCredentialStatus = {
@@ -95,6 +101,35 @@ function decryptToken(value: string): string {
   ]).toString("utf8");
 }
 
+export function createGitHubCredentialCookie(uid: number, token: string): string {
+  const expiresAt = Math.floor(Date.now() / 1000) + GITHUB_CREDENTIAL_COOKIE_TTL_SECONDS;
+  return encryptToken(`${uid}:${expiresAt}:${token}`);
+}
+
+function readGitHubCredentialCookie(
+  uid: number,
+  value: string | undefined,
+): string | null {
+  if (!value) return null;
+  try {
+    const decrypted = decryptToken(value);
+    const match = decrypted.match(/^(\d+):(\d+):([A-Za-z0-9_]{20,512})$/);
+    if (!match) return null;
+    const cookieUid = Number(match[1]);
+    const expiresAt = Number(match[2]);
+    if (
+      cookieUid !== uid ||
+      !Number.isSafeInteger(expiresAt) ||
+      expiresAt <= Math.floor(Date.now() / 1000)
+    ) {
+      return null;
+    }
+    return match[3];
+  } catch {
+    return null;
+  }
+}
+
 async function ensureGitHubCredentialsTable(): Promise<void> {
   if (!githubCredentialsReady) {
     githubCredentialsReady = getTurso()
@@ -117,43 +152,53 @@ async function ensureGitHubCredentialsTable(): Promise<void> {
 export async function getGitHubCredentialStatus(
   uid: number,
 ): Promise<GitHubCredentialStatus> {
+  const credential = await getGitHubCredential(uid);
+  return credential.status;
+}
+
+export async function getGitHubCredential(
+  uid: number,
+): Promise<{ status: GitHubCredentialStatus; token: string | null }> {
   await ensureGitHubCredentialsTable();
   const result = await getTurso().execute({
     sql: "SELECT encrypted_token, github_login, scopes, updated_at FROM github_credentials WHERE uid = ? LIMIT 1",
     args: [uid],
   });
   const row = result.rows[0] as Record<string, unknown> | undefined;
+  let token: string | null = null;
   let tokenReadable: boolean | null = null;
   if (row?.encrypted_token != null) {
     try {
-      decryptToken(String(row.encrypted_token));
+      token = decryptToken(String(row.encrypted_token));
       tokenReadable = true;
     } catch {
       tokenReadable = false;
     }
   }
   return {
-    connected: Boolean(row),
-    tokenReadable,
-    login: row?.github_login == null ? null : String(row.github_login),
-    scopes: row?.scopes == null ? null : String(row.scopes),
-    updatedAt: row?.updated_at == null ? null : String(row.updated_at),
+    status: {
+      connected: Boolean(row),
+      tokenReadable,
+      login: row?.github_login == null ? null : String(row.github_login),
+      scopes: row?.scopes == null ? null : String(row.scopes),
+      updatedAt: row?.updated_at == null ? null : String(row.updated_at),
+    },
+    token,
   };
 }
 
-export async function getGitHubToken(uid: number): Promise<string | null> {
-  await ensureGitHubCredentialsTable();
-  const result = await getTurso().execute({
-    sql: "SELECT encrypted_token FROM github_credentials WHERE uid = ? LIMIT 1",
-    args: [uid],
-  });
-  const encryptedToken = result.rows[0]?.encrypted_token;
-  if (encryptedToken == null) return null;
-  try {
-    return decryptToken(String(encryptedToken));
-  } catch {
+export async function getGitHubToken(
+  uid: number,
+  fallbackCookie?: string,
+): Promise<string | null> {
+  const credential = await getGitHubCredential(uid);
+  if (!credential.status.connected) {
+    return readGitHubCredentialCookie(uid, fallbackCookie);
+  }
+  if (credential.status.tokenReadable !== true || credential.token === null) {
     throw new GitHubCredentialError();
   }
+  return credential.token;
 }
 
 export async function saveGitHubCredential(

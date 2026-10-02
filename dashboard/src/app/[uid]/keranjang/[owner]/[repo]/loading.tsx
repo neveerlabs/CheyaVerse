@@ -1,16 +1,16 @@
 export default function GitHubProjectLoading() {
   return (
-    <div className="relative left-1/2 min-h-[calc(100dvh-56px)] w-screen -translate-x-1/2 bg-[#f5f7fb] px-4 pb-12 pt-5 sm:px-7 lg:px-10">
+    <div className="relative left-1/2 min-h-[calc(100dvh-56px)] w-screen -translate-x-1/2 bg-[#f4f5f9] px-4 pb-12 pt-4 sm:px-6 sm:pt-6 lg:px-10">
       <div
         role="status"
         aria-label="Loading GitHub project dashboard"
-        className="mx-auto max-w-[1440px] animate-pulse"
+        className="mx-auto max-w-[1680px] animate-pulse"
       >
         <div className="mb-6 flex items-center justify-between">
-          <div className="h-10 w-28 rounded-full bg-white ring-1 ring-slate-200/80" />
-          <div className="h-10 w-10 rounded-full bg-white ring-1 ring-slate-200/80" />
+          <div className="h-11 w-28 rounded-full bg-white shadow-sm" />
+          <div className="h-11 w-11 rounded-full bg-white shadow-sm" />
         </div>
-        <div className="mb-5 rounded-[28px] bg-white p-5 shadow-sm ring-1 ring-slate-200/80 sm:p-8">
+        <div className="mb-6 rounded-[28px] bg-white p-5 shadow-[0_12px_40px_-30px_rgba(15,23,42,0.28)] sm:mb-8 sm:rounded-[32px] sm:p-8">
           <div className="flex gap-4">
             <div className="h-14 w-14 shrink-0 rounded-[19px] bg-slate-100 sm:h-16 sm:w-16" />
             <div className="flex-1 space-y-3 py-1">
@@ -19,20 +19,20 @@ export default function GitHubProjectLoading() {
               <div className="h-3 w-full max-w-xl rounded bg-slate-50" />
             </div>
           </div>
-          <div className="mt-7 grid grid-cols-2 gap-4 sm:grid-cols-5">
-            {[0, 1, 2, 3, 4].map((item) => (
-              <div key={item} className="h-12 rounded-xl bg-slate-50" />
+          <div className="mt-7 grid grid-cols-2 gap-3 border-t border-slate-100/80 pt-4 sm:grid-cols-4 sm:gap-5">
+            {[0, 1, 2, 3].map((item) => (
+              <div key={item} className="h-12 rounded-2xl bg-slate-50" />
             ))}
           </div>
         </div>
-        <div className="grid gap-5 lg:grid-cols-[minmax(0,1.65fr)_minmax(310px,1fr)]">
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1.65fr)_minmax(320px,1fr)]">
           <div className="space-y-5">
-            <div className="h-[340px] rounded-[24px] bg-white ring-1 ring-slate-200/80" />
-            <div className="h-[310px] rounded-[24px] bg-white ring-1 ring-slate-200/80" />
+            <div className="h-[340px] rounded-[26px] bg-white shadow-sm sm:rounded-[30px]" />
+            <div className="h-[310px] rounded-[26px] bg-white shadow-sm sm:rounded-[30px]" />
           </div>
           <div className="space-y-5">
-            <div className="h-[330px] rounded-[24px] bg-white ring-1 ring-slate-200/80" />
-            <div className="h-[280px] rounded-[24px] bg-white ring-1 ring-slate-200/80" />
+            <div className="h-[330px] rounded-[26px] bg-white shadow-sm sm:rounded-[30px]" />
+            <div className="h-[280px] rounded-[26px] bg-white shadow-sm sm:rounded-[30px]" />
           </div>
         </div>
         <span className="sr-only">Loading repository statistics and commit history</span>

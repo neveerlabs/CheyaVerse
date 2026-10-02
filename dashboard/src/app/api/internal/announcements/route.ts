@@ -79,7 +79,11 @@ export async function POST(request: NextRequest) {
           const message = await saveBroadcastAnnouncement(uid, broadcastId, contentHtml);
           if (!message) return false;
           broadcastToUid(uid, { type: "message:new", message });
-          broadcastToUid(uid, { type: "notification:new", uid });
+          broadcastToUid(uid, {
+            type: "notification:new",
+            uid,
+            notificationId: message.id,
+          });
           try {
             await sendPushToUid(
               uid,

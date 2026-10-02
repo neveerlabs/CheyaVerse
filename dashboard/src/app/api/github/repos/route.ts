@@ -7,6 +7,7 @@ import {
   githubJson,
   hasNextLink,
   GitHubApiError,
+  GITHUB_CREDENTIAL_COOKIE,
 } from "@/lib/github";
 
 export const runtime = "nodejs";
@@ -40,14 +41,17 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const token = await getGitHubToken(session.uid);
+    const token = await getGitHubToken(
+      session.uid,
+      request.cookies.get(GITHUB_CREDENTIAL_COOKIE)?.value,
+    );
     if (!token) {
       return NextResponse.json(
         {
           code: "GITHUB_NOT_CONNECTED",
           error: "Connect a GitHub account in Settings to view repositories.",
         },
-        { status: 409 },
+        { status: 409, headers: { "Cache-Control": "no-store" } },
       );
     }
     const path = query

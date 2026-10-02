@@ -220,9 +220,9 @@ export function MediaQrModal({
       await navigator.clipboard.write([
         new ClipboardItem({ "image/png": png }),
       ]);
-      onToast("Image copied.");
+      onToast("Image copied");
     } catch (error) {
-      onToast(error instanceof Error ? error.message : "Image copy failed.");
+      onToast(error instanceof Error ? error.message : "Image copy failed");
     } finally {
       setWorking(false);
     }
@@ -255,7 +255,7 @@ export function MediaQrModal({
               QR Code media
             </h2>
             <p className="mt-0.5 text-[12px] text-ink-mute">
-              Simpan atau bagikan akses media dengan QR code.
+              Simpan atau bagikan akses media dengan QR code dibawah ini.
             </p>
           </div>
           <button
@@ -370,7 +370,7 @@ export function MediaQrModal({
             className="flex min-h-11 flex-col items-center justify-center gap-1 rounded-xl bg-[#f3f4f6] text-[10px] font-medium text-ink disabled:opacity-50"
           >
             <Download size={16} />
-            Unduh
+            Download
           </button>
           <button
             type="button"
@@ -379,7 +379,7 @@ export function MediaQrModal({
             className="flex min-h-11 flex-col items-center justify-center gap-1 rounded-xl bg-[#f3f4f6] text-[10px] font-medium text-ink disabled:opacity-50"
           >
             <Copy size={16} />
-            Salin
+            Copy image
           </button>
           <button
             type="button"
@@ -387,7 +387,7 @@ export function MediaQrModal({
             className="flex min-h-11 flex-col items-center justify-center gap-1 rounded-xl bg-[#f3f4f6] text-[10px] font-medium text-ink"
           >
             <RefreshCw size={16} />
-            Buat ulang
+            Regenerate
           </button>
           <button
             type="button"

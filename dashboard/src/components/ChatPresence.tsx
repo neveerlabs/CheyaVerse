@@ -42,7 +42,7 @@ export function ChatPresence() {
     };
 
     if (document.visibilityState === "visible") void heartbeat();
-    timer = window.setInterval(() => void heartbeat(), 60_000);
+    timer = window.setInterval(() => void heartbeat(), 20_000);
     document.addEventListener("visibilitychange", sync);
     window.addEventListener("focus", sync);
     return () => {

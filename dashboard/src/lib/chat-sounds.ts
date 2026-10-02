@@ -52,6 +52,25 @@ function getCtx(): AudioContext | null {
   return ctx;
 }
 
+function unlockAudio(): void {
+  const audioContext = getCtx();
+  if (audioContext?.state === "suspended") {
+    void audioContext.resume().catch(() => {});
+  }
+}
+
+if (typeof document !== "undefined") {
+  document.addEventListener("pointerdown", unlockAudio, {
+    once: true,
+    passive: true,
+  });
+  document.addEventListener("keydown", unlockAudio, { once: true });
+  document.addEventListener("touchstart", unlockAudio, {
+    once: true,
+    passive: true,
+  });
+}
+
 function outputNode(c: AudioContext): AudioNode {
   return compressor ?? c.destination;
 }
@@ -195,9 +214,15 @@ export function playSendSound() {
 }
 
 export function playReceiveSound() {
-  if (!tryPlayAudio("received", playSynthReceive)) playSynthReceive();
+  if (!getCtx()) {
+    if (tryPlayAudio("received", playSynthReceive)) return;
+  }
+  playSynthReceive();
 }
 
 export function playReceiveSoundOutside() {
-  if (!tryPlayAudio("notification", playSynthReceive)) playSynthReceive();
+  if (!getCtx()) {
+    if (tryPlayAudio("notification", playSynthReceive)) return;
+  }
+  playSynthReceive();
 }

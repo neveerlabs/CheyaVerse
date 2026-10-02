@@ -562,7 +562,7 @@ export function CoverClient({ uid, initialCover }: Props) {
       </section>
 
       <p className="text-center text-[11px] text-ink-mute py-6 font-normal">
-        Sampul ditampilkan pada header profil.
+        Set sampul sesuai keinginanmu...
       </p>
 
       {busy && (

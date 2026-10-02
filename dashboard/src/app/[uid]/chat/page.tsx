@@ -119,15 +119,10 @@ export default async function ChatListPage({
                 href={`/${uid}/chat/system`}
                 className="flex items-center gap-3 -ml-2 pr-1 py-3 transition-opacity active:opacity-60"
               >
-                <div className="relative h-12 w-12 flex-shrink-0">
+                <div className="h-12 w-12 flex-shrink-0">
                   <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-[#f0f0f0]">
                     <TelegramAvatar src="/icon.png" />
                   </div>
-                  {hasUnread && (
-                    <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-danger px-1 text-[10.5px] font-bold tabular-nums text-white shadow-[0_0_0_2px_#fff]">
-                      {unread > 99 ? "99+" : unread}
-                    </span>
-                  )}
                 </div>
                 <div className="flex min-w-0 flex-1 flex-col gap-1">
                   <VerifiedName
@@ -144,13 +139,17 @@ export default async function ChatListPage({
                     />
                   </span>
                 </div>
-                <div className="flex min-h-[36px] flex-shrink-0 flex-col items-end justify-center gap-1">
+                <div className="flex min-h-[36px] min-w-12 flex-shrink-0 flex-col items-end justify-center gap-1">
                   {lastIso && (
                     <span className={`text-[11px] tabular-nums ${hasUnread ? "font-semibold text-ink-soft" : "text-ink-mute"}`}>
                       {formatTimeShort(lastIso)}
                     </span>
                   )}
-                  {hasUnread && hasMessage && <span className="h-1.5 w-1.5 rounded-full bg-danger" />}
+                  {hasUnread && (
+                    <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-danger px-1 text-[10.5px] font-bold tabular-nums text-white">
+                      {unread > 99 ? "99+" : unread}
+                    </span>
+                  )}
                 </div>
               </Link>
             );
@@ -199,7 +198,7 @@ export default async function ChatListPage({
                   />
                 </span>
               </div>
-              <div className="flex min-h-[36px] flex-shrink-0 flex-col items-end justify-center gap-1">
+              <div className="flex min-h-[36px] min-w-12 flex-shrink-0 flex-col items-end justify-center gap-1">
                 <span className={`text-[11px] tabular-nums ${conversation.unread ? "font-semibold text-ink-soft" : "text-ink-mute"}`}>
                   {formatTimeShort(conversation.last_message.created_at)}
                 </span>

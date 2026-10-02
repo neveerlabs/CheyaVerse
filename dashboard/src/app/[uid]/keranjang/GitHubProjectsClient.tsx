@@ -32,6 +32,15 @@ type Repository = {
   pushedAt: string | null;
 };
 
+type RepositoriesResponse = {
+  repositories?: Repository[];
+  page?: number;
+  hasMore?: boolean;
+  totalCount?: number | null;
+  error?: string;
+  code?: string;
+};
+
 function formatDate(value: string): string {
   const date = new Date(value);
   return Number.isFinite(date.getTime())
@@ -63,25 +72,79 @@ export function GitHubProjectsClient({ uid }: { uid: string }) {
       try {
         const params = new URLSearchParams({ page: String(nextPage) });
         if (query) params.set("q", query);
-        const response = await fetch(`/api/github/repos?${params}`, {
+        const repositoriesUrl = `/api/github/repos?${params}`;
+        let credentialConfirmed = false;
+        let response = await fetch(repositoriesUrl, {
           cache: "no-store",
         });
-        const result = await readApiJson<{
-          repositories?: Repository[];
-          page?: number;
-          hasMore?: boolean;
-          totalCount?: number | null;
-          error?: string;
-          code?: string;
-        }>(response);
+        let result = await readApiJson<RepositoriesResponse>(response);
+        if (response.status === 409 && result.code === "GITHUB_NOT_CONNECTED") {
+          const settingsResponse = await fetch("/api/github/settings", {
+            cache: "no-store",
+          });
+          if (settingsResponse.ok) {
+            const settings = await readApiJson<{
+              connected?: boolean;
+              tokenReadable?: boolean | null;
+            }>(settingsResponse);
+            if (settings.connected === true && settings.tokenReadable === true) {
+              credentialConfirmed = true;
+              for (const delay of [250, 500, 1000, 2000]) {
+                await new Promise((resolve) => window.setTimeout(resolve, delay));
+                if (currentRequestId !== requestId.current) return;
+                response = await fetch(repositoriesUrl, { cache: "no-store" });
+                result = await readApiJson<RepositoriesResponse>(response);
+                if (
+                  response.status !== 409 ||
+                  result.code !== "GITHUB_NOT_CONNECTED"
+                ) {
+                  break;
+                }
+              }
+            }
+          }
+        }
         if (!response.ok || !Array.isArray(result.repositories)) {
-          setNeedsGitHubConnection(
+          if (
+            currentRequestId === requestId.current &&
+            credentialConfirmed &&
             response.status === 409 &&
+            result.code === "GITHUB_NOT_CONNECTED"
+          ) {
+            void fetch("/api/feedback/incident", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                kind: "github-credential-mismatch",
+                endpoint: "/api/github",
+                method: "GET",
+                status: 409,
+              }),
+              cache: "no-store",
+            })
+              .then((incidentResponse) => {
+                if (!incidentResponse.ok) {
+                  throw new Error(
+                    `GitHub incident alert failed with HTTP ${incidentResponse.status}.`,
+                  );
+                }
+              })
+              .catch((cause: unknown) => {
+                console.error("[github/projects] incident alert failed:", cause);
+              });
+          }
+          setNeedsGitHubConnection(
+            !credentialConfirmed &&
+              response.status === 409 &&
               ["GITHUB_NOT_CONNECTED", "GITHUB_RECONNECT_REQUIRED"].includes(
                 result.code ?? "",
               ),
           );
-          throw new Error(result.error || "GitHub projects could not be loaded.");
+          throw new Error(
+            credentialConfirmed && result.code === "GITHUB_NOT_CONNECTED"
+              ? "GitHub token is saved and readable, but the projects service cannot access it yet. Retry in a moment or reconnect GitHub in Settings."
+              : result.error || "GitHub projects could not be loaded.",
+          );
         }
         if (currentRequestId !== requestId.current) return;
         setRepositories((current) =>

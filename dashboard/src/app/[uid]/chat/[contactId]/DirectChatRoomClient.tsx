@@ -186,18 +186,23 @@ export function DirectChatRoomClient({
   const [replyingTo, setReplyingTo] = useState<DirectMessage | null>(null);
   const [muted, setMuted] = useState(false);
   const [contactLastSeen, setContactLastSeen] = useState<number | null>(null);
+  const [contactOnline, setContactOnline] = useState(false);
   const [contactTyping, setContactTyping] = useState(false);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [swipe, setSwipe] = useState<{ id: string; offset: number } | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
-  const [unreadMarkerId] = useState<string | null>(firstUnreadId);
+  const [unreadMarkerId, setUnreadMarkerId] = useState<string | null>(
+    firstUnreadId,
+  );
   const [, setPresenceClock] = useState(0);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [clearing, setClearing] = useState(false);
   const presenceLabel = contactTyping
     ? "mengetik..."
-    : formatPresence(contactLastSeen);
+    : contactOnline
+      ? "online"
+      : formatPresence(contactLastSeen);
   const [viewport, setViewport] = useState<ViewportState>({
     top: 0,
     height: 0,
@@ -210,6 +215,9 @@ export function DirectChatRoomClient({
   const menuRootRef = useRef<HTMLElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const refreshBusyRef = useRef(false);
+  const refreshRequestedRef = useRef(false);
+  const realtimeMessageRevisionRef = useRef(0);
+  const receivedSoundIdsRef = useRef(new Set<string>());
   const pendingIdsRef = useRef(new Set<string>());
   const toastTimerRef = useRef<number | null>(null);
   const highlightTimerRef = useRef<number | null>(null);
@@ -487,8 +495,13 @@ export function DirectChatRoomClient({
   }, []);
 
   const refreshMessages = useCallback(async () => {
-    if (refreshBusyRef.current) return;
+    if (refreshBusyRef.current) {
+      refreshRequestedRef.current = true;
+      return;
+    }
     refreshBusyRef.current = true;
+    refreshRequestedRef.current = false;
+    const revisionAtStart = realtimeMessageRevisionRef.current;
     try {
       const response = await fetch(`/api/chats/${contact.uid}`, {
         cache: "no-store",
@@ -499,6 +512,10 @@ export function DirectChatRoomClient({
         pinned?: DirectMessage | null;
       };
       if (!Array.isArray(result.items)) throw new Error("Invalid chat response");
+      if (revisionAtStart !== realtimeMessageRevisionRef.current) {
+        refreshRequestedRef.current = true;
+        return;
+      }
       const pending = messagesRef.current.filter((message) =>
         pendingIdsRef.current.has(message.id),
       );
@@ -508,10 +525,15 @@ export function DirectChatRoomClient({
         ),
       );
       setPinned(result.pinned ?? null);
-    } catch {
+    } catch (error) {
+      console.error("[direct-chat] message refresh failed:", error);
       return;
     } finally {
       refreshBusyRef.current = false;
+      if (refreshRequestedRef.current) {
+        refreshRequestedRef.current = false;
+        window.setTimeout(() => void refreshMessages(), 0);
+      }
     }
   }, [contact.uid]);
 
@@ -520,21 +542,43 @@ export function DirectChatRoomClient({
       const response = await fetch(`/api/presence?uid=${contact.uid}`, {
         cache: "no-store",
       });
-      if (!response.ok) return;
-      const result = await response.json();
-      if (result?.ok === true) {
-        setContactLastSeen(
-          typeof result.lastSeen === "number" ? result.lastSeen : null,
-        );
+      if (!response.ok) {
+        throw new Error(`Presence refresh failed: ${response.status}`);
       }
-    } catch {}
+      const result = (await response.json()) as {
+        ok?: boolean;
+        online?: unknown;
+        lastSeen?: unknown;
+      };
+      if (
+        result.ok !== true ||
+        typeof result.online !== "boolean" ||
+        (result.lastSeen !== null && typeof result.lastSeen !== "number")
+      ) {
+        throw new Error("Invalid presence response.");
+      }
+      setContactOnline(result.online);
+      setContactLastSeen(
+        typeof result.lastSeen === "number" ? result.lastSeen : null,
+      );
+    } catch (error) {
+      console.error("[direct-chat] presence refresh failed:", error);
+    }
   }, [contact.uid]);
 
   useEffect(() => {
     void refreshPresence();
+    const refreshWhenActive = () => {
+      if (document.visibilityState === "visible") void refreshMessages();
+    };
+    const refreshInterval = window.setInterval(refreshWhenActive, 5_000);
     const clock = window.setInterval(() => {
       setPresenceClock((value) => value + 1);
-    }, 30_000);
+      void refreshPresence();
+    }, 15_000);
+    window.addEventListener("focus", refreshWhenActive);
+    window.addEventListener("online", refreshWhenActive);
+    document.addEventListener("visibilitychange", refreshWhenActive);
     const refreshWhenVisible = () => {
       if (document.visibilityState === "visible") void refreshPresence();
     };
@@ -542,16 +586,27 @@ export function DirectChatRoomClient({
     window.addEventListener("online", refreshWhenVisible);
     document.addEventListener("visibilitychange", refreshWhenVisible);
     return () => {
+      window.clearInterval(refreshInterval);
       window.clearInterval(clock);
+      window.removeEventListener("focus", refreshWhenActive);
+      window.removeEventListener("online", refreshWhenActive);
+      document.removeEventListener("visibilitychange", refreshWhenActive);
       window.removeEventListener("focus", refreshWhenVisible);
       window.removeEventListener("online", refreshWhenVisible);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
-  }, [refreshPresence]);
+  }, [refreshMessages, refreshPresence]);
 
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+
+  useEffect(() => {
+    setUnreadMarkerId(firstUnreadId);
+    if (!firstUnreadId) return;
+    const timeout = window.setTimeout(() => setUnreadMarkerId(null), 5_000);
+    return () => window.clearTimeout(timeout);
+  }, [firstUnreadId]);
 
   useEffect(() => {
     try {
@@ -859,11 +914,25 @@ export function DirectChatRoomClient({
           (incoming.sender_uid === contact.uid &&
             incoming.recipient_uid === myUid))
       ) {
-        if (messagesRef.current.some((message) => message.id === incoming.id))
-          return;
         const isFromContact =
           incoming.sender_uid === contact.uid && incoming.recipient_uid === myUid;
-        if (isFromContact) void refreshPresence();
+        if (isFromContact) {
+          void refreshPresence();
+          if (
+            !mutedRef.current &&
+            !receivedSoundIdsRef.current.has(incoming.id)
+          ) {
+            receivedSoundIdsRef.current.add(incoming.id);
+            if (receivedSoundIdsRef.current.size > 100) {
+              const oldestId = receivedSoundIdsRef.current.values().next().value;
+              if (oldestId) receivedSoundIdsRef.current.delete(oldestId);
+            }
+            playReceiveSound();
+          }
+        }
+        if (messagesRef.current.some((message) => message.id === incoming.id))
+          return;
+        realtimeMessageRevisionRef.current += 1;
         setMessages((current) => {
           const index = current.findIndex(
             (message) => message.id === incoming.id,
@@ -878,15 +947,13 @@ export function DirectChatRoomClient({
           );
         });
         void refreshMessages();
-        if (isFromContact && !mutedRef.current) {
-          playReceiveSound();
-        }
       }
       return;
     }
     if (event.type === "direct-message:updated") {
       const incoming = event.message as DirectMessage | undefined;
       if (incoming) {
+        realtimeMessageRevisionRef.current += 1;
         setMessages((current) =>
           current.map((message) =>
             message.id === incoming.id
@@ -898,6 +965,7 @@ export function DirectChatRoomClient({
       return;
     }
     if (event.type === "direct-message:deleted") {
+      realtimeMessageRevisionRef.current += 1;
       void refreshMessages();
       return;
     }
@@ -905,6 +973,7 @@ export function DirectChatRoomClient({
       event.type === "direct-message:cleared" &&
       Number(event.contactUid) === contact.uid
     ) {
+      realtimeMessageRevisionRef.current += 1;
       setMessages([]);
       setPinned(null);
       return;
@@ -913,6 +982,7 @@ export function DirectChatRoomClient({
       event.type === "direct-message:cleared-for-me" &&
       Number(event.contactUid) === contact.uid
     ) {
+      realtimeMessageRevisionRef.current += 1;
       setMessages([]);
       setPinned(null);
       return;
@@ -921,6 +991,7 @@ export function DirectChatRoomClient({
       event.type === "direct-message:hidden" &&
       Number(event.contactUid) === contact.uid
     ) {
+      realtimeMessageRevisionRef.current += 1;
       const messageId = typeof event.messageId === "string" ? event.messageId : "";
       if (messageId) {
         setMessages((current) =>
@@ -933,6 +1004,7 @@ export function DirectChatRoomClient({
       event.type === "direct-message:read" ||
       event.type === "direct-message:delivered"
     ) {
+      realtimeMessageRevisionRef.current += 1;
       void refreshMessages();
     }
   });

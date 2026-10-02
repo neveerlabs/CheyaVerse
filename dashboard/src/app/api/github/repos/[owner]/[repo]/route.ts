@@ -6,6 +6,7 @@ import {
   githubFetch,
   githubJson,
   GitHubApiError,
+  GITHUB_CREDENTIAL_COOKIE,
 } from "@/lib/github";
 
 export const runtime = "nodejs";
@@ -88,6 +89,26 @@ type TrafficPath = {
   uniques: number;
 };
 
+type GitHubRelease = {
+  id: number;
+  tag_name: string;
+  name: string | null;
+  body: string | null;
+  html_url: string;
+  created_at: string;
+  published_at: string | null;
+  target_commitish: string;
+  prerelease: boolean;
+  draft: boolean;
+  assets: Array<{
+    id: number;
+    name: string;
+    browser_download_url: string;
+    size: number;
+    download_count: number;
+  }>;
+};
+
 function validSegment(value: string): boolean {
   return /^[A-Za-z0-9_.-]{1,100}$/.test(value) && value !== "." && value !== "..";
 }
@@ -121,7 +142,10 @@ export async function GET(
   }
 
   try {
-    const token = await getGitHubToken(session.uid);
+    const token = await getGitHubToken(
+      session.uid,
+      request.cookies.get(GITHUB_CREDENTIAL_COOKIE)?.value,
+    );
     if (!token) {
       return NextResponse.json(
         { error: "Connect a GitHub account in Settings to view repositories." },
@@ -139,6 +163,7 @@ export async function GET(
       trafficClones,
       topReferrers,
       popularPaths,
+      releases,
     ] = await Promise.all([
       githubJson<Repository>(token, repoPath),
       githubJson<Array<{ name: string; protected: boolean }>>(
@@ -176,6 +201,11 @@ export async function GET(
       optionalJson<TrafficPath[]>(
         token,
         `${repoPath}/traffic/popular/paths`,
+        [],
+      ),
+      optionalJson<GitHubRelease[]>(
+        token,
+        `${repoPath}/releases?per_page=10`,
         [],
       ),
     ]);
@@ -220,6 +250,25 @@ export async function GET(
         },
         branches,
         languages,
+        releases: releases.map((release) => ({
+          id: release.id,
+          tagName: release.tag_name,
+          name: release.name,
+          body: release.body,
+          url: release.html_url,
+          createdAt: release.created_at,
+          publishedAt: release.published_at,
+          targetCommitish: release.target_commitish,
+          prerelease: release.prerelease,
+          draft: release.draft,
+          assets: release.assets.map((asset) => ({
+            id: asset.id,
+            name: asset.name,
+            url: asset.browser_download_url,
+            size: asset.size,
+            downloads: asset.download_count,
+          })),
+        })),
         deployments: deployments.slice(0, 8),
         production: deploymentForStatus
           ? {

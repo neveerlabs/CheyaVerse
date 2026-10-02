@@ -40,6 +40,7 @@ export async function POST(req: NextRequest) {
 
   broadcastToUid(uid, {
     type: "notification:new",
+    notificationId: notif.id,
     title,
     body: plain.slice(0, 200),
   });

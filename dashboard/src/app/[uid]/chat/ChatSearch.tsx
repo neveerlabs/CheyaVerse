@@ -164,7 +164,7 @@ export function ChatSearch({ uid }: { uid: string }) {
           {!loading && users.length === 0 && !error && (
             <div className="px-4 py-3">
               <p className="mb-2 text-[12.5px] leading-relaxed text-ink-soft">
-                Akun itu belum terdaftar di CheyaVerse. Telegram tidak
+                Akun yg anda cari belum terdaftar di CheyaVerse. Telegram tidak
                 mengizinkan web mencari user yang belum pernah login.
               </p>
               <a

@@ -77,7 +77,7 @@ export async function DELETE(
   const now = new Date();
   const wib = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Jakarta" }));
   const formattedTime = `${wib.getFullYear()}-${String(wib.getMonth() + 1).padStart(2, "0")}-${String(wib.getDate()).padStart(2, "0")} ${String(wib.getHours()).padStart(2, "0")}:${String(wib.getMinutes()).padStart(2, "0")}:${String(wib.getSeconds()).padStart(2, "0")} WIB`;
-  const message = `Halo, <b>${displayName}</b>\n\nTindakan penghapusan berkas media hasil generate barcode Anda telah berhasil diproses oleh sistem.\n\n<b>Detail Aktivitas:</b>\n• <b>ID Barcode:</b> <code>${params.id}</code>\n• <b>Nama Berkas:</b> <code>${safeFilename}</code>\n• <b>Waktu:</b> <code>${formattedTime}</code>\n\nTautan unduhan dan data media terkait kini sudah tidak dapat diakses lagi.`;
+  const message = `Halo, <b>${displayName}</b>\n\nTindakan penghapusan berkas media hasil generate barcode Anda telah berhasil diproses oleh sistem.\n\n<b>Detail Aktivitas:</b>\n• <b>ID Barcode:</b> <code>${params.id}</code>\n• <b>Nama Berkas:</b> <code>${safeFilename}</code>\n• <b>Waktu:</b> <code>${formattedTime}</code>\n\nTautan media dan QR code terkait kini sudah tidak dapat diakses lagi.`;
 
   const notif = await createNotification({
     uid,
@@ -92,6 +92,7 @@ export async function DELETE(
   } else {
     broadcastToUid(uid, {
       type: "notification:new",
+      notificationId: notif.id,
       title: "CheyaVerse · Admin",
       body: stripHtml(message).slice(0, 200),
     });

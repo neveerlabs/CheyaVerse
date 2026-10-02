@@ -17,7 +17,7 @@ const SECTIONS: { title: string; body: string }[] = [
   },
   {
     title: "Keamanan akun",
-    body: "Akun web terhubung dengan ID Telegram. Token GitHub dienkripsi sebelum disimpan dan tidak dikirim kembali ke browser setelah tersimpan. Pengguna dapat memutus koneksi GitHub, mengelola sesi perangkat, atau keluar dari akun melalui Settings. Gunakan token GitHub dengan izin minimum yang diperlukan.",
+    body: "Akun web terhubung dengan ID Telegram. Token GitHub dienkripsi sebelum disimpan dan tidak dikirim kembali ke browser setelah tersimpan. Pengguna dapat memutus koneksi GitHub, mengelola sesi perangkat, atau keluar dari akun melalui Settings. Gunakan token GitHub dengan izin minimum yang diperlukan (minim scopes: `repo`, `user`).",
   },
   {
     title: "Masa penyimpanan",

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Home, Image as ImageIcon, User, Send, Github,
@@ -11,6 +11,7 @@ import { readApiJson } from "@/lib/read-api-json";
 
 export function TabBar({ uid }: { uid: string }) {
   const pathname = usePathname();
+  const router = useRouter();
   const [unread, setUnread] = useState(0);
   const inflightRef = useRef(false);
   const refreshRequestedRef = useRef(false);
@@ -32,7 +33,9 @@ export function TabBar({ uid }: { uid: string }) {
         fetch("/api/chats/unread", { cache: "no-store" }),
       ]);
       if (!notificationResponse.ok || !chatResponse.ok) {
-        return;
+        throw new Error(
+          `Unread count request failed (notifications: ${notificationResponse.status}, chats: ${chatResponse.status}).`,
+        );
       }
       const [notifications, chats] = await Promise.all([
         readApiJson<{ ok?: boolean; unread?: unknown }>(notificationResponse),
@@ -101,7 +104,7 @@ export function TabBar({ uid }: { uid: string }) {
     const refreshOnHistoryRestore = () => scheduleLoad();
     const refreshInterval = window.setInterval(() => {
       if (document.visibilityState === "visible") scheduleLoad();
-    }, 60_000);
+    }, 5_000);
     window.addEventListener("focus", refreshWhenConnected);
     window.addEventListener("online", refreshWhenConnected);
     window.addEventListener("pageshow", refreshOnHistoryRestore);
@@ -152,6 +155,9 @@ export function TabBar({ uid }: { uid: string }) {
   const chatActive = pathname.startsWith(chatHref);
   const projectsActive =
     pathname.startsWith(projectsHref) || pathname.startsWith(`${base}/keranjang`);
+  const refreshCurrentTab = (href: string) => {
+    if (pathname === href) router.refresh();
+  };
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 rounded-t-[20px] border-t border-slate-200/70 bg-white/85 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_30px_-24px_rgba(15,23,42,.45)] backdrop-blur-2xl">
@@ -159,6 +165,7 @@ export function TabBar({ uid }: { uid: string }) {
         <Link
           prefetch={false}
           href={base}
+          onClick={() => refreshCurrentTab(base)}
           className="group flex-1 flex flex-col items-center justify-center gap-[3px] transition-opacity active:opacity-60"
         >
           <Home
@@ -178,6 +185,7 @@ export function TabBar({ uid }: { uid: string }) {
         <Link
           prefetch={false}
           href={chatHref}
+          onClick={() => refreshCurrentTab(chatHref)}
           className="group relative flex-1 flex flex-col items-center justify-center gap-[3px] transition-opacity active:opacity-60"
         >
           <div className="relative">
@@ -202,13 +210,21 @@ export function TabBar({ uid }: { uid: string }) {
         </Link>
 
         <div className="group relative w-[78px] flex-shrink-0">
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute left-1/2 top-0 z-0 h-[60px] w-[60px] -translate-x-1/2 -translate-y-1/2 rounded-full"
+          >
+            <span className="media-tab-glow" />
+          </span>
           <Link
             prefetch={false}
             href={mediaHref}
+            onClick={() => refreshCurrentTab(mediaHref)}
             aria-label="Media"
-            className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 flex h-[50px] w-[50px] items-center justify-center rounded-full border border-white bg-slate-950 text-white shadow-[0_8px_22px_-6px_rgba(0,0,0,.4)] transition-transform active:scale-95"
+            className="absolute left-1/2 top-0 z-10 flex h-[52px] w-[52px] -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-white/90 bg-gradient-to-br from-slate-800 via-slate-950 to-black text-white shadow-[0_4px_10px_rgba(15,23,42,.24),0_12px_26px_-12px_rgba(15,23,42,.55)] transition-[transform,box-shadow] active:scale-95"
           >
-            <ImageIcon size={20} strokeWidth={2.2} />
+            <span className="media-tab-sheen" aria-hidden="true" />
+            <ImageIcon size={20} strokeWidth={2.1} className="relative z-10 drop-shadow-[0_1px_3px_rgba(255,255,255,.28)]" />
           </Link>
           <span
             className={`absolute bottom-[7px] left-1/2 -translate-x-1/2 text-[10px] tracking-[-.005em] leading-none ${
@@ -222,6 +238,7 @@ export function TabBar({ uid }: { uid: string }) {
         <Link
           prefetch={false}
           href={projectsHref}
+          onClick={() => refreshCurrentTab(projectsHref)}
           className="group flex-1 flex flex-col items-center justify-center gap-[3px] transition-opacity active:opacity-60"
         >
           <Github
@@ -241,6 +258,7 @@ export function TabBar({ uid }: { uid: string }) {
         <Link
           prefetch={false}
           href={profileHref}
+          onClick={() => refreshCurrentTab(profileHref)}
           className="group flex-1 flex flex-col items-center justify-center gap-[3px] transition-opacity active:opacity-60"
         >
           <User

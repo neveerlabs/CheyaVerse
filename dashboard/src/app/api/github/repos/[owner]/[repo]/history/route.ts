@@ -6,6 +6,7 @@ import {
   githubJson,
   hasNextLink,
   GitHubApiError,
+  GITHUB_CREDENTIAL_COOKIE,
   lastPageFromLink,
 } from "@/lib/github";
 
@@ -74,7 +75,10 @@ export async function GET(
   }
 
   try {
-    const token = await getGitHubToken(session.uid);
+    const token = await getGitHubToken(
+      session.uid,
+      request.cookies.get(GITHUB_CREDENTIAL_COOKIE)?.value,
+    );
     if (!token) {
       return NextResponse.json({ error: "Connect GitHub in Settings first." }, { status: 409 });
     }

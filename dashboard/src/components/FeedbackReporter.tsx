@@ -5,7 +5,6 @@ import {
   Camera,
   Check,
   Copy,
-  GripHorizontal,
   ImagePlus,
   Maximize2,
   Minimize2,
@@ -106,24 +105,12 @@ async function captureViewportCanvas(): Promise<HTMLCanvasElement> {
   const viewportWidth =
     document.documentElement.clientWidth || window.innerWidth;
   const viewportHeight = window.innerHeight;
-  const scrollX = window.scrollX;
-  const scrollY = window.scrollY;
-  const documentWidth = Math.max(
-    viewportWidth,
-    document.documentElement.scrollWidth,
-    document.body.scrollWidth,
-  );
-  const documentHeight = Math.max(
-    viewportHeight,
-    document.documentElement.scrollHeight,
-    document.body.scrollHeight,
-  );
   const deviceScale = Math.max(1, window.devicePixelRatio || 1);
   const scale = Math.min(
     2,
     deviceScale,
-    16_000 / documentWidth,
-    16_000 / documentHeight,
+    16_000 / viewportWidth,
+    16_000 / viewportHeight,
   );
   const { domToCanvas } = await import("modern-screenshot");
   const fixedElements = new Map<string, DOMRect>();
@@ -155,13 +142,16 @@ async function captureViewportCanvas(): Promise<HTMLCanvasElement> {
     element.setAttribute(marker, id);
   });
 
-  let fullPageCanvas: HTMLCanvasElement;
   try {
-    fullPageCanvas = await domToCanvas(document.documentElement, {
+    return await domToCanvas(document.documentElement, {
+      width: viewportWidth,
+      height: viewportHeight,
       scale,
       backgroundColor: "#ffffff",
+      style: { overflow: "hidden" },
       timeout: 15_000,
       maximumCanvasSize: 16_000,
+      features: { restoreScrollPosition: true },
       filter: (node) =>
         !(node instanceof Element && node.hasAttribute("data-screenshot-ignore")),
       onCloneEachNode: (node) => {
@@ -177,8 +167,8 @@ async function captureViewportCanvas(): Promise<HTMLCanvasElement> {
           const rect = id ? fixedElements.get(id) : undefined;
           if (rect) {
             node.style.setProperty("position", "absolute", "important");
-            node.style.setProperty("left", `${rect.left + scrollX}px`, "important");
-            node.style.setProperty("top", `${rect.top + scrollY}px`, "important");
+            node.style.setProperty("left", `${rect.left + window.scrollX}px`, "important");
+            node.style.setProperty("top", `${rect.top + window.scrollY}px`, "important");
             node.style.setProperty("right", "auto", "important");
             node.style.setProperty("bottom", "auto", "important");
             node.style.setProperty("width", `${rect.width}px`, "important");
@@ -194,40 +184,6 @@ async function captureViewportCanvas(): Promise<HTMLCanvasElement> {
       else element.setAttribute(marker, previous);
     }
   }
-
-  const scaleX = fullPageCanvas.width / documentWidth;
-  const scaleY = fullPageCanvas.height / documentHeight;
-  const cropX = Math.round(scrollX * scaleX);
-  const cropY = Math.round(scrollY * scaleY);
-  const cropWidth = Math.min(
-    Math.round(viewportWidth * scaleX),
-    fullPageCanvas.width - cropX,
-  );
-  const cropHeight = Math.min(
-    Math.round(viewportHeight * scaleY),
-    fullPageCanvas.height - cropY,
-  );
-  if (cropWidth <= 0 || cropHeight <= 0) {
-    throw new Error("Screenshot tidak dapat mencakup layar yang sedang terlihat.");
-  }
-
-  const viewportCanvas = document.createElement("canvas");
-  viewportCanvas.width = cropWidth;
-  viewportCanvas.height = cropHeight;
-  const context = viewportCanvas.getContext("2d");
-  if (!context) throw new Error("Canvas screenshot tidak tersedia.");
-  context.drawImage(
-    fullPageCanvas,
-    cropX,
-    cropY,
-    cropWidth,
-    cropHeight,
-    0,
-    0,
-    cropWidth,
-    cropHeight,
-  );
-  return viewportCanvas;
 }
 
 function imageName(name: string, extension: "jpg" | "png"): string {
@@ -409,8 +365,10 @@ export function FeedbackReporter() {
   const [sending, setSending] = useState(false);
   const [notice, setNotice] = useState("");
   const [copied, setCopied] = useState(false);
+  const [reportButtonBottom, setReportButtonBottom] = useState<number | null>(null);
   const pathnameRef = useRef(pathname);
   pathnameRef.current = pathname;
+  const panelRef = useRef<HTMLElement | null>(null);
   const modalRef = useRef(modal);
   modalRef.current = modal;
   const lastShakeAtRef = useRef(0);
@@ -423,9 +381,13 @@ export function FeedbackReporter() {
   const panelDragRef = useRef<{
     pointerId: number;
     startY: number;
+    startHeight: number;
   } | null>(null);
   const apiFailureWindowRef = useRef<number[]>([]);
+  const serverFailureWindowsRef = useRef(new Map<string, number[]>());
+  const serverAlertAttemptAtRef = useRef(new Map<string, number>());
   const apiNoticeAtRef = useRef(0);
+  const inChatRoom = /^\/[^/]+\/chat\/[^/]+\/?$/.test(pathname);
 
   const showNotice = useCallback((message: string) => {
     setNotice(message);
@@ -491,6 +453,59 @@ export function FeedbackReporter() {
     setMinimized(false);
     setExpanded(false);
   }, [attachments.length, description]);
+
+  useEffect(() => {
+    if (!inChatRoom) {
+      setReportButtonBottom(null);
+      return;
+    }
+
+    let footer: HTMLElement | null = null;
+    let resizeObserver: ResizeObserver | null = null;
+    let footerMutationObserver: MutationObserver | null = null;
+
+    const updatePosition = () => {
+      const currentFooter = document.querySelector<HTMLElement>(".chat-footer");
+      if (currentFooter !== footer) {
+        if (footer) resizeObserver?.unobserve(footer);
+        footerMutationObserver?.disconnect();
+        footer = currentFooter;
+        if (footer) {
+          resizeObserver?.observe(footer);
+          footerMutationObserver = new MutationObserver(updatePosition);
+          footerMutationObserver.observe(footer, {
+            attributes: true,
+            attributeFilter: ["style"],
+          });
+        }
+      }
+      if (!footer) {
+        setReportButtonBottom(null);
+        return;
+      }
+      const footerTop = footer.getBoundingClientRect().top;
+      setReportButtonBottom(
+        Math.max(0, window.innerHeight - footerTop + 14),
+      );
+    };
+    resizeObserver = new ResizeObserver(updatePosition);
+    const mutationObserver = new MutationObserver(updatePosition);
+    mutationObserver.observe(document.body, { childList: true, subtree: true });
+    const visualViewport = window.visualViewport;
+    window.addEventListener("resize", updatePosition);
+    visualViewport?.addEventListener("resize", updatePosition);
+    visualViewport?.addEventListener("scroll", updatePosition);
+    updatePosition();
+
+    return () => {
+      mutationObserver.disconnect();
+      footerMutationObserver?.disconnect();
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", updatePosition);
+      visualViewport?.removeEventListener("resize", updatePosition);
+      visualViewport?.removeEventListener("scroll", updatePosition);
+    };
+  }, [inChatRoom, pathname]);
 
   const captureScreenshot = useCallback(
     async (fromShake = false) => {
@@ -736,6 +751,7 @@ export function FeedbackReporter() {
       method: string,
       apiPath: string,
       description: string,
+      status?: number,
     ) => {
       const now = Date.now();
       apiFailureWindowRef.current = apiFailureWindowRef.current.filter(
@@ -757,6 +773,48 @@ export function FeedbackReporter() {
           "Beberapa permintaan server gagal. Koneksi sedang dicoba kembali; detailnya tersimpan untuk laporan.",
         );
       }
+      if (status !== undefined) {
+        const routeGroup = `/${apiPath.split("/").filter(Boolean).slice(0, 2).join("/")}`;
+        const incidentKey = `${method}:${routeGroup}`;
+        const recentServerFailures = (
+          serverFailureWindowsRef.current.get(incidentKey) ?? []
+        ).filter((timestamp) => now - timestamp < 30_000);
+        recentServerFailures.push(now);
+        serverFailureWindowsRef.current.set(incidentKey, recentServerFailures);
+
+        const lastAlertAttempt = serverAlertAttemptAtRef.current.get(incidentKey) ?? 0;
+        if (
+          recentServerFailures.length >= 3 &&
+          now - lastAlertAttempt >= 10 * 60_000
+        ) {
+          serverAlertAttemptAtRef.current.set(incidentKey, now);
+          void originalFetch("/api/feedback/incident", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              kind: "repeated-5xx",
+              endpoint: routeGroup,
+              method,
+              status,
+            }),
+            cache: "no-store",
+          })
+            .then((response) => {
+              if (!response.ok) {
+                throw new Error(
+                  `Incident alert request failed with HTTP ${response.status}.`,
+                );
+              }
+            })
+            .catch((error: unknown) => {
+              serverAlertAttemptAtRef.current.set(
+                incidentKey,
+                Date.now() - 9 * 60_000,
+              );
+              console.error("[feedback] automatic incident alert failed:", error);
+            });
+        }
+      }
     };
     const trackedFetch: typeof window.fetch = async (input, init) => {
       const apiPath = getApiPath(input);
@@ -766,6 +824,7 @@ export function FeedbackReporter() {
         if (
           apiPath &&
           apiPath !== "/api/feedback/report" &&
+          apiPath !== "/api/feedback/incident" &&
           apiPath !== "/api/events/poll" &&
           response.status >= 500
         ) {
@@ -773,6 +832,7 @@ export function FeedbackReporter() {
             method,
             apiPath,
             `${method} ${apiPath} failed with HTTP ${response.status}.`,
+            response.status,
           );
         }
         return response;
@@ -780,6 +840,7 @@ export function FeedbackReporter() {
         if (
           apiPath &&
           apiPath !== "/api/feedback/report" &&
+          apiPath !== "/api/feedback/incident" &&
           apiPath !== "/api/events/poll" &&
           error instanceof TypeError
         ) {
@@ -833,8 +894,38 @@ export function FeedbackReporter() {
     panelDragRef.current = {
       pointerId: event.pointerId,
       startY: event.clientY,
+      startHeight: panelRef.current?.getBoundingClientRect().height ?? 0,
     };
+    if (panelRef.current) {
+      panelRef.current.style.transition = "none";
+      panelRef.current.style.maxHeight = "100dvh";
+    }
     event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function movePanelDrag(event: React.PointerEvent<HTMLDivElement>) {
+    const drag = panelDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const distance = Math.max(
+      -window.innerHeight,
+      Math.min(drag.startHeight - 180, event.clientY - drag.startY),
+    );
+    const panel = panelRef.current;
+    if (!panel) return;
+    panel.style.height = `${Math.min(
+      window.innerHeight,
+      Math.max(180, drag.startHeight - distance),
+    )}px`;
+  }
+
+  function clearPanelDragStyles() {
+    const panel = panelRef.current;
+    if (!panel) return;
+    panel.style.height = "";
+    panel.style.maxHeight = "";
+    window.requestAnimationFrame(() => {
+      if (panel.isConnected) panel.style.transition = "";
+    });
   }
 
   function endPanelDrag(event: React.PointerEvent<HTMLDivElement>) {
@@ -842,13 +933,39 @@ export function FeedbackReporter() {
     if (!drag || drag.pointerId !== event.pointerId) return;
     panelDragRef.current = null;
     const distance = event.clientY - drag.startY;
+    clearPanelDragStyles();
     if (distance > 70) {
-      setMinimized(true);
+      setModal(null);
       setExpanded(false);
     } else if (distance < -55) {
       setExpanded(true);
     }
   }
+
+  function cancelPanelDrag(event: React.PointerEvent<HTMLDivElement>) {
+    if (panelDragRef.current?.pointerId !== event.pointerId) return;
+    panelDragRef.current = null;
+    clearPanelDragStyles();
+  }
+
+  useEffect(() => {
+    if (!modal || minimized) return;
+
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      const target = event.target;
+      if (target instanceof Node && panelRef.current?.contains(target)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      if (!sending) {
+        setModal(null);
+        setExpanded(false);
+      }
+    };
+    document.addEventListener("click", closeOnOutsideClick, true);
+    panelRef.current?.focus({ preventScroll: true });
+    return () => document.removeEventListener("click", closeOnOutsideClick, true);
+  }, [modal, minimized, sending]);
 
   useEffect(() => {
     if (!shakeEnabled) return;
@@ -1016,7 +1133,7 @@ export function FeedbackReporter() {
       showNotice(
         result.attachmentsDelivered === false
           ? "Laporan terkirim, tetapi screenshot gagal dikirim."
-          : "Laporan berhasil dikirim ke admin.",
+          : "Laporan bug berhasil dikirim kepada admin.",
       );
       setModal(null);
       setDescription("");
@@ -1064,6 +1181,14 @@ export function FeedbackReporter() {
           aria-label="Laporkan bug"
           onClick={() => void openReport()}
           className="fixed bottom-[calc(70px+env(safe-area-inset-bottom))] left-3 z-[390] flex h-10 w-10 items-center justify-center rounded-full border border-line bg-white text-ink-soft shadow-md"
+          style={
+            inChatRoom
+              ? {
+                  bottom: `${reportButtonBottom ?? 14}px`,
+                  left: "max(12px, calc((100vw - 600px) / 2 + 12px))",
+                }
+              : undefined
+          }
         >
           <Bug size={17} />
         </button>
@@ -1074,6 +1199,14 @@ export function FeedbackReporter() {
           data-screenshot-ignore="true"
           onClick={() => setMinimized(false)}
           className="fixed bottom-[calc(70px+env(safe-area-inset-bottom))] right-3 z-[490] inline-flex min-h-11 max-w-[calc(100vw-6rem)] items-center gap-2 rounded-full border border-line bg-white px-4 text-xs font-semibold text-ink shadow-lg"
+          style={
+            inChatRoom
+              ? {
+                  bottom: `${reportButtonBottom ?? 14}px`,
+                  right: "max(12px, calc((100vw - 600px) / 2 + 12px))",
+                }
+              : undefined
+          }
         >
           <Maximize2 size={15} />
           <span className="truncate">
@@ -1084,32 +1217,40 @@ export function FeedbackReporter() {
       {modal && !minimized && (
         <div
           data-screenshot-ignore="true"
-          className="fixed inset-0 z-[500] flex items-end justify-center bg-slate-950/25"
+          className="pointer-events-none fixed inset-0 z-[500] flex items-end justify-center bg-slate-950/25"
           role="presentation"
-          onClick={(event) => {
-            if (event.target === event.currentTarget && !sending) setModal(null);
-          }}
         >
           <section
+            ref={panelRef}
             data-feedback-kind={modal}
             role="dialog"
             aria-modal="true"
             aria-labelledby="feedback-title"
-            className={`w-full max-w-[600px] overflow-y-auto rounded-t-[26px] border border-slate-200/80 bg-white px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-3 shadow-[0_-20px_70px_-28px_rgba(0,0,0,.42)] sm:mb-3 sm:rounded-[26px] sm:p-5 ${
-              expanded ? "max-h-[96dvh]" : "max-h-[90dvh]"
+            tabIndex={-1}
+            className={`pointer-events-auto w-full max-w-[600px] overflow-y-auto border border-slate-200/80 bg-white px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-3 shadow-[0_-20px_70px_-28px_rgba(0,0,0,.42)] transition-[height,transform] duration-200 ease-out sm:p-5 ${
+              expanded
+                ? "h-[100dvh] max-h-[100dvh] rounded-none"
+                : "max-h-[90dvh] rounded-t-[26px] sm:mb-3 sm:rounded-[26px]"
             }`}
           >
             <div
-              className="mb-3 flex cursor-ns-resize touch-none flex-col items-center justify-center gap-1 text-slate-400"
+              role="separator"
+              tabIndex={0}
+              aria-orientation="horizontal"
+              aria-label="Resize report panel. Drag up to expand and down to close."
+              className="mb-3 flex cursor-ns-resize touch-none justify-center py-2"
               onPointerDown={startPanelDrag}
+              onPointerMove={movePanelDrag}
               onPointerUp={endPanelDrag}
-              onPointerCancel={endPanelDrag}
-              aria-label="Tarik ke atas untuk memperbesar panel atau ke bawah untuk menutup"
+              onPointerCancel={cancelPanelDrag}
+              onKeyDown={(event) => {
+                if (event.key === "ArrowUp") setExpanded(true);
+                if (event.key === "ArrowDown" || event.key === "Escape") {
+                  setExpanded(false);
+                }
+              }}
             >
-              <GripHorizontal size={20} />
-              <span className="text-[9px] font-medium">
-                Tarik ke atas untuk memperbesar · ke bawah untuk menutup
-              </span>
+              <span aria-hidden="true" className="h-1.5 w-10 rounded-full bg-slate-300 transition-colors hover:bg-slate-400" />
             </div>
             <div className="flex items-center justify-between gap-3">
               <h2 id="feedback-title" className="text-[17px] font-bold tracking-tight text-ink">
@@ -1166,7 +1307,7 @@ export function FeedbackReporter() {
                 {issues.length > 0 ? (
                   <pre className="whitespace-pre-wrap break-words font-sans">{logs}</pre>
                 ) : (
-                  <p>Belum ada error otomatis yang tercatat.</p>
+                  <p>Belum ada error yang tercatat oleh sistem.</p>
                 )}
               </div>
               {shakeNotice && (

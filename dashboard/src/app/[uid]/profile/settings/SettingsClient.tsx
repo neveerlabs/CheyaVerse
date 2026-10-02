@@ -811,7 +811,7 @@ export function SettingsClient({
                   <p className="mt-1 text-[11.5px] leading-relaxed text-ink-mute">
                     Token digunakan untuk membaca repositori yang dapat diakses
                     akun GitHub ini. Token dienkripsi saat disimpan dan
-                    tidak ditampilkan kembali.
+                    tidak ditampilkan kembali ke browser.
                   </p>
                 </div>
               </div>

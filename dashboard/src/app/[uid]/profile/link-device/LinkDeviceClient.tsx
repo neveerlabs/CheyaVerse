@@ -282,7 +282,7 @@ export function LinkDeviceClient({ uid }: { uid: string }) {
                           </svg>
                         )}
                         <p className={styles.qrHint}>
-                          Buka kamera pada perangkat yang akan ditautkan, lalu pindai kode ini.
+                          Buka kamera pada perangkat yang akan ditautkan, lalu scan QR code ini.
                         </p>
                       </div>
                     ) : (
