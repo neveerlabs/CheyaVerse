@@ -34,8 +34,28 @@ type Project = {
   };
   history: {
     weeklyActivity: number[] | null;
+    commitActivity: Array<{
+      sha: string;
+      url: string;
+      message: string;
+      date: string;
+      additions: number;
+      deletions: number;
+      changedLines: number;
+    }>;
     commitsLastYear: number;
     commitsLastFiveWeeks: number;
+    commitsLastMonth: number;
+    commitsLastMonthCapped: boolean;
+    activeWeeks: number;
+    activeMonths: number;
+    activityRuns: number;
+    recentChanges: {
+      additions: number;
+      deletions: number;
+      averageLinesChanged: number;
+      measuredCommits: number;
+    };
   };
   latestCommit: {
     sha: string;
@@ -51,6 +71,7 @@ type Project = {
     publishedAt: string | null;
     prerelease: boolean;
   } | null;
+  rankingScore: number;
 };
 
 type Overview = {
@@ -66,7 +87,7 @@ type Overview = {
   };
   accountActivity: Array<{ week: number; commits: number }>;
   projects: Project[];
-  popular: Project[];
+  featuredProjectId: number | null;
 };
 
 function formatDate(value: string): string {
@@ -104,8 +125,9 @@ function DashboardSkeleton() {
       </div>
       <div className="mt-4 h-[228px] rounded-[24px] bg-white" />
       <div className="mt-6 mb-3 h-5 w-40 rounded bg-slate-200" />
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {[0, 1, 2, 3, 4, 5].map((item) => (
+      <div className="h-[270px] rounded-[26px] bg-white" />
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        {[0, 1, 2, 3].map((item) => (
           <div key={item} className="h-[230px] rounded-[22px] bg-white" />
         ))}
       </div>
@@ -114,11 +136,95 @@ function DashboardSkeleton() {
   );
 }
 
+function ActivitySparkline({
+  activity,
+  commitCount,
+  capped,
+  wide = false,
+  compact = false,
+}: {
+  activity: Project["history"]["commitActivity"];
+  commitCount: number;
+  capped: boolean;
+  wide?: boolean;
+  compact?: boolean;
+}) {
+  if (activity.length === 0) {
+    return (
+      <p className={`${wide ? "min-w-0 flex-1" : "w-[48%] min-w-[132px] max-w-[260px] shrink-0"} text-right text-[9px] text-slate-400`}>
+        No recent updates
+      </p>
+    );
+  }
+  const width = wide ? 800 : 260;
+  const height = 42;
+  const max = Math.max(
+    1,
+    ...activity.map((commit) => Math.log1p(commit.changedLines)),
+  );
+  const points = activity.map((commit, index) => ({
+    commit,
+    x: activity.length === 1 ? width / 2 : 2 + (index / (activity.length - 1)) * (width - 4),
+    y: height - 5 - (Math.log1p(commit.changedLines) / max) * 27,
+  }));
+  const line = points.map(({ x, y }) => `${x},${y}`).join(" ");
+  const area = `${points[0].x},${height} ${line} ${points[points.length - 1].x},${height}`;
+  const dotRadius = Math.max(0.65, Math.min(2, width / activity.length / 2));
+  return (
+    <div className={wide ? "min-w-0 flex-1" : "w-[48%] min-w-[132px] max-w-[260px] shrink-0"}>
+      <div className="mb-0.5 flex items-center justify-between gap-2 text-[8px]">
+        <p className="font-medium text-slate-500">Velocity trend</p>
+        {wide && (
+          <p className="text-slate-400">
+            {formatNumber(commitCount)} commits · last 30 days
+            {capped ? " · latest 1,000 shown" : ""}
+          </p>
+        )}
+      </div>
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        role="img"
+        aria-label={`${formatNumber(commitCount)} commits in the last 30 days${capped ? "; chart limited to the latest 1,000 commits" : ""}; each point represents one commit and its changed lines`}
+        className={`block w-full overflow-visible ${compact ? "h-[30px]" : "h-[38px]"}`}
+        preserveAspectRatio="none"
+      >
+        <polygon points={area} fill="rgb(124 58 237 / 12%)" />
+        <polyline
+          points={line}
+          fill="none"
+          stroke="rgb(124 58 237 / 60%)"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        {points.map(({ commit, x, y }) => (
+          <circle
+            key={commit.sha}
+            cx={x}
+            cy={y}
+            r={dotRadius}
+            fill="#a995c5"
+            stroke="white"
+            strokeWidth="0.65"
+          >
+            <title>
+              {`${formatDate(commit.date)} · ${commit.message} · +${formatNumber(commit.additions)} / −${formatNumber(commit.deletions)} lines`}
+            </title>
+          </circle>
+        ))}
+      </svg>
+    </div>
+  );
+}
+
 function ProjectCard({ uid, project }: { uid: string; project: Project }) {
   const { repository, latestCommit, latestRelease } = project;
+  const averageChange = project.history.recentChanges.measuredCommits
+    ? Math.round(project.history.recentChanges.averageLinesChanged)
+    : null;
   return (
-    <article className="group flex min-w-0 flex-col overflow-hidden rounded-[22px] border border-slate-200/80 bg-white shadow-[0_10px_30px_-26px_rgba(15,23,42,.35)] transition hover:-translate-y-0.5 hover:shadow-[0_16px_36px_-26px_rgba(15,23,42,.4)]">
-      <div className="p-4 sm:p-5">
+    <article className="group min-w-0 overflow-hidden rounded-[22px] border border-slate-200/80 bg-white shadow-[0_10px_30px_-26px_rgba(15,23,42,.35)] transition hover:-translate-y-0.5 hover:shadow-[0_16px_36px_-26px_rgba(15,23,42,.4)]">
+      <div className="p-3 sm:p-4">
         <div className="flex items-start justify-between gap-3">
           <Link href={projectHref(uid, project)} className="min-w-0">
             <span className="flex min-w-0 items-center gap-1.5">
@@ -144,79 +250,138 @@ function ProjectCard({ uid, project }: { uid: string; project: Project }) {
           </span>
         </div>
 
-        <p className="mt-2 min-h-[34px] line-clamp-2 text-[10px] leading-relaxed text-slate-500">
+        <p className="mt-1.5 line-clamp-2 text-[10px] leading-relaxed text-slate-500">
           {repository.description || "No description provided."}
         </p>
-        {latestRelease && (
-          <a
-            href={latestRelease.url}
-            target="_blank"
-            rel="noreferrer"
-            className="mt-2 inline-flex max-w-full items-center gap-1.5 rounded-lg bg-violet-50 px-2 py-1 text-[9px] font-semibold text-violet-700 hover:bg-violet-100"
-          >
-            <Tag size={10} className="shrink-0" />
-            <span className="truncate">{latestRelease.tagName}</span>
-            {latestRelease.prerelease && <span className="shrink-0 font-medium">pre-release</span>}
-          </a>
-        )}
-
-        <div className="mt-3 flex items-center gap-3 text-[9px] text-slate-500">
-          {repository.language && (
-            <span className="max-w-[40%] truncate rounded-full bg-slate-50 px-2 py-1 font-medium text-slate-600">
-              {repository.language}
-            </span>
-          )}
-          <span className="inline-flex min-w-0 items-center gap-1 truncate">
+        <div className="mt-2 flex items-center justify-between gap-2">
+          {latestRelease ? (
+            <a
+              href={latestRelease.url}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex min-w-0 items-center gap-1.5 rounded-lg bg-violet-50 px-2 py-1 text-[9px] font-semibold text-violet-700 hover:bg-violet-100"
+            >
+              <Tag size={10} className="shrink-0" />
+              <span className="truncate">{latestRelease.tagName}</span>
+              {latestRelease.prerelease && <span className="shrink-0 font-medium">pre-release</span>}
+            </a>
+          ) : <span />}
+          <ActivitySparkline
+            activity={project.history.commitActivity}
+            commitCount={project.history.commitsLastMonth}
+            capped={project.history.commitsLastMonthCapped}
+            compact
+          />
+        </div>
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[9px] text-slate-500">
+          <span className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2 py-1 font-medium text-slate-600">
+            {repository.language || "Unknown"}
+          </span>
+          <span className="inline-flex items-center gap-1 truncate">
             <GitBranch size={10} /> {repository.defaultBranch}
           </span>
-          <span className="ml-auto shrink-0">{formatDate(repository.pushedAt ?? "")}</span>
+          <span className="ml-auto">{formatDate(repository.pushedAt ?? "")}</span>
         </div>
-
-      </div>
-
-      <div className="mt-auto border-t border-slate-100 px-4 py-3 sm:px-5">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[9px] text-slate-500">
-          <span className="inline-flex items-center gap-1">
-            <GitFork size={10} /> {formatNumber(repository.forks)}
-          </span>
-          <span className="inline-flex items-center gap-1">
-            <Star size={10} /> {formatNumber(repository.stars)}
-          </span>
-          {latestCommit && (
-            <span className="ml-auto inline-flex min-w-0 items-center gap-1 truncate">
-              <GitCommitHorizontal size={10} />
-              {latestCommit.author} · {formatDate(latestCommit.date)}
+        <div className="mt-2 border-t border-slate-100 pt-2">
+          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[9px] text-slate-500">
+            <span className="inline-flex items-center gap-1"><GitCommitHorizontal size={10} /> {formatNumber(project.history.commitsLastMonth)} commits / 30d</span>
+            <span className="inline-flex items-center gap-1"><Activity size={10} /> {project.history.activeMonths} active months · {project.history.activityRuns} cycles</span>
+            <span className="inline-flex items-center gap-1"><GitFork size={10} /> {formatNumber(repository.forks)}</span>
+            <span className="inline-flex items-center gap-1"><Star size={10} /> {formatNumber(repository.stars)}</span>
+            <span className="inline-flex items-center gap-1">
+              <Activity size={10} />
+              {averageChange === null ? "Change data unavailable" : `~${formatNumber(averageChange)} lines / ${project.history.commitsLastMonthCapped ? "measured commit" : "commit"}`}
             </span>
-          )}
+          </div>
+          <p className="mt-1 truncate text-[9px] text-slate-500">
+            {latestCommit ? (
+              <a href={latestCommit.url} target="_blank" rel="noreferrer" className="font-medium text-slate-700 hover:text-indigo-700">
+                {latestCommit.message.split("\n")[0] || "Latest commit"}
+              </a>
+            ) : "No recent commit available."}
+          </p>
         </div>
-        {latestCommit ? (
-          <a
-            href={latestCommit.url}
-            target="_blank"
-            rel="noreferrer"
-            className="mt-2 block truncate text-[10px] font-medium text-slate-700 hover:text-indigo-700"
-          >
+      </div>
+    </article>
+  );
+}
+
+function FeaturedProjectCard({ uid, project }: { uid: string; project: Project }) {
+  const { repository, latestCommit, latestRelease, history } = project;
+  const average = history.recentChanges.measuredCommits
+    ? Math.round(history.recentChanges.averageLinesChanged)
+    : null;
+  return (
+    <article className="overflow-hidden rounded-[26px] border border-violet-100 bg-white shadow-[0_18px_48px_-34px_rgba(79,70,229,.5)]">
+      <div className="p-4 sm:p-6">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <Link href={projectHref(uid, project)} className="flex min-w-0 items-center gap-2 text-indigo-800 hover:underline">
+              <Github size={18} className="shrink-0 text-slate-500" />
+              <span className="truncate text-[15px] font-bold sm:text-[18px]">{repository.fullName}</span>
+            </Link>
+          </div>
+          <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1.5 text-[8px] font-bold uppercase tracking-wide ${repository.visibility === "private" ? "bg-slate-100 text-slate-600" : "bg-emerald-50 text-emerald-700"}`}>
+            {repository.visibility === "private" ? <LockKeyhole size={9} /> : <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />}
+            {repository.visibility}
+          </span>
+        </div>
+        <p className="mt-2 line-clamp-2 text-[11px] leading-relaxed text-slate-500">
+          {repository.description || "No description provided."}
+        </p>
+
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className="rounded-xl bg-violet-50/80 px-3 py-2">
+            <p className="text-[8px] font-semibold uppercase tracking-wide text-violet-600">Commits · 30d</p>
+            <p className="mt-0.5 text-[15px] font-bold text-slate-900">{formatNumber(history.commitsLastMonth)}</p>
+          </div>
+          <div className="rounded-xl bg-slate-50 px-3 py-2">
+            <p className="text-[8px] font-semibold uppercase tracking-wide text-slate-500">{history.commitsLastMonthCapped ? "Avg. change / measured commit" : "Avg. change / commit"}</p>
+            <p className="mt-0.5 text-[15px] font-bold text-slate-900">{average === null ? "—" : `${formatNumber(average)} lines`}</p>
+          </div>
+          <div className="rounded-xl bg-slate-50 px-3 py-2">
+            <p className="text-[8px] font-semibold uppercase tracking-wide text-slate-500">Active months</p>
+            <p className="mt-0.5 text-[15px] font-bold text-slate-900">{history.activeMonths}<span className="ml-1 text-[10px] font-medium text-slate-400">/ 12 mo</span></p>
+            <p className="mt-0.5 text-[8px] text-slate-500">{history.activityRuns} separate activity cycles</p>
+          </div>
+          <div className="rounded-xl bg-slate-50 px-3 py-2">
+            <p className="text-[8px] font-semibold uppercase tracking-wide text-slate-500">Popularity</p>
+            <p className="mt-0.5 flex items-center gap-2 text-[13px] font-bold text-slate-900">
+              <span className="inline-flex items-center gap-1"><Star size={11} />{formatNumber(repository.stars)}</span>
+              <span className="inline-flex items-center gap-1"><GitFork size={11} />{formatNumber(repository.forks)}</span>
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-2 text-[9px] text-slate-500">
+            <span className="rounded-full bg-slate-50 px-2.5 py-1 font-medium text-slate-600">{repository.language || "Unknown"}</span>
+            <span className="inline-flex items-center gap-1"><GitBranch size={11} />{repository.defaultBranch}</span>
+            <span>{formatDate(repository.pushedAt ?? "")}</span>
+            {latestRelease && (
+              <a href={latestRelease.url} target="_blank" rel="noreferrer" className="inline-flex max-w-[150px] items-center gap-1 truncate rounded-lg bg-violet-50 px-2 py-1 font-semibold text-violet-700">
+                <Tag size={10} className="shrink-0" />{latestRelease.tagName}
+              </a>
+            )}
+          </div>
+        </div>
+        <div className="mt-3 min-w-0">
+          <ActivitySparkline
+            activity={history.commitActivity}
+            commitCount={history.commitsLastMonth}
+            capped={history.commitsLastMonthCapped}
+            wide
+          />
+        </div>
+        {latestCommit && (
+          <a href={latestCommit.url} target="_blank" rel="noreferrer" className="mt-3 block truncate border-t border-slate-100 pt-3 text-[10px] font-medium text-slate-700 hover:text-indigo-700">
+            <span className="mr-1.5 text-slate-400">{latestCommit.author} · {formatDate(latestCommit.date)}</span>
             {latestCommit.message.split("\n")[0] || "Latest commit"}
           </a>
-        ) : (
-          <p className="mt-2 text-[10px] text-slate-400">No commit history is available.</p>
         )}
-        {latestRelease && (
-          <a
-            href={latestRelease.url}
-            target="_blank"
-            rel="noreferrer"
-            className="mt-2 flex items-center gap-1.5 truncate text-[9px] font-medium text-violet-700 hover:text-violet-900"
-          >
-            <Tag size={10} className="shrink-0" />
-            {latestRelease.name || latestRelease.tagName}
-            {latestRelease.publishedAt && (
-              <span className="shrink-0 font-normal text-slate-400">
-                · {formatDate(latestRelease.publishedAt)}
-              </span>
-            )}
-          </a>
-        )}
+        <p className="mt-2 text-[8px] text-slate-400">
+          Change size measured for {formatNumber(history.recentChanges.measuredCommits)} of {formatNumber(history.commitsLastMonth)} recent commits · +{formatNumber(history.recentChanges.additions)} / −{formatNumber(history.recentChanges.deletions)} lines
+        </p>
       </div>
     </article>
   );
@@ -231,6 +396,14 @@ export function GitHubHomeDashboard({ uid }: { uid: string }) {
   const [needsGitHubReconnect, setNeedsGitHubReconnect] = useState(false);
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const requestController = useRef<AbortController | null>(null);
+  const featuredProject = overview?.projects.find(
+    (project) => project.repository.id === overview.featuredProjectId,
+  ) ?? overview?.projects[0] ?? null;
+  const otherProjects = featuredProject
+    ? overview?.projects.filter(
+        (project) => project.repository.id !== featuredProject.repository.id,
+      ) ?? []
+    : overview?.projects ?? [];
 
   const loadOverview = useCallback(async () => {
     requestController.current?.abort();
@@ -399,9 +572,6 @@ export function GitHubHomeDashboard({ uid }: { uid: string }) {
           <>
             <header className="mb-5 flex items-start justify-between gap-3">
               <div>
-                <p className="text-[9px] font-bold uppercase tracking-[.17em] text-indigo-600">
-                  CheyaVerse · Project journal
-                </p>
                 <h1 className="mt-1 text-[23px] font-semibold tracking-[-.045em] text-slate-950 sm:text-[28px]">
                   Repository activity
                 </h1>
@@ -426,7 +596,7 @@ export function GitHubHomeDashboard({ uid }: { uid: string }) {
                   Project showcase
                 </p>
                 <h2 className="mt-1 text-[17px] font-semibold tracking-tight text-slate-950">
-                  Projects & recent history
+                  Five standout projects
                 </h2>
               </div>
               <Link
@@ -436,11 +606,18 @@ export function GitHubHomeDashboard({ uid }: { uid: string }) {
                 Browse all <ArrowRight size={12} />
               </Link>
             </div>
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {overview.projects.map((project) => (
-                <ProjectCard key={project.repository.id} uid={uid} project={project} />
-              ))}
-            </div>
+            {featuredProject && (
+              <div className="mb-3">
+                <FeaturedProjectCard uid={uid} project={featuredProject} />
+              </div>
+            )}
+            {otherProjects.length > 0 && (
+              <div className="grid items-stretch gap-3 sm:grid-cols-2">
+                {otherProjects.map((project) => (
+                  <ProjectCard key={project.repository.id} uid={uid} project={project} />
+                ))}
+              </div>
+            )}
           </>
         ) : (
           <DashboardSkeleton />

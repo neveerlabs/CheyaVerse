@@ -229,20 +229,25 @@ export async function removeGitHubCredential(uid: number): Promise<void> {
   });
 }
 
-export async function githubFetch(
+async function requestGitHub(
   token: string,
   path: string,
+  method = "GET",
+  body?: string,
 ): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), GITHUB_TIMEOUT_MS);
   try {
     return await fetch(`${GITHUB_API}${path}`, {
+      method,
       headers: {
         Accept: "application/vnd.github+json",
+        "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
         "X-GitHub-Api-Version": "2022-11-28",
         "User-Agent": "CheyaVerse",
       },
+      body,
       cache: "no-store",
       signal: controller.signal,
     });
@@ -256,6 +261,13 @@ export async function githubFetch(
   }
 }
 
+export async function githubFetch(
+  token: string,
+  path: string,
+): Promise<Response> {
+  return requestGitHub(token, path);
+}
+
 export async function githubJson<T>(
   token: string,
   path: string,
@@ -263,6 +275,158 @@ export async function githubJson<T>(
   const response = await githubFetch(token, path);
   if (!response.ok) throw await getGitHubResponseError(response);
   return { data: (await response.json()) as T, response };
+}
+
+export async function githubGraphql<T>(
+  token: string,
+  query: string,
+  variables: Record<string, string | null>,
+): Promise<T> {
+  const response = await requestGitHub(
+    token,
+    "/graphql",
+    "POST",
+    JSON.stringify({ query, variables }),
+  );
+  if (!response.ok) throw await getGitHubResponseError(response);
+
+  const payload = (await response.json()) as {
+    data?: T;
+    errors?: unknown[];
+  };
+  if (payload.errors?.length) {
+    throw new GitHubApiError("GitHub could not load repository commit history.", 502);
+  }
+  if (!payload.data) {
+    throw new GitHubApiError("GitHub returned invalid GraphQL data.", 502);
+  }
+  return payload.data;
+}
+
+export type GitHubCommitActivityPoint = {
+  sha: string;
+  url: string;
+  message: string;
+  date: string;
+  additions: number;
+  deletions: number;
+  changedLines: number;
+};
+
+const RECENT_COMMIT_HISTORY_QUERY = `
+  query RecentRepositoryCommits(
+    $owner: String!
+    $name: String!
+    $since: GitTimestamp!
+    $after: String
+  ) {
+    repository(owner: $owner, name: $name) {
+      defaultBranchRef {
+        target {
+          ... on Commit {
+            history(first: 100, since: $since, after: $after) {
+              totalCount
+              pageInfo {
+                hasNextPage
+                endCursor
+              }
+              nodes {
+                oid
+                url
+                messageHeadline
+                committedDate
+                additions
+                deletions
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
+type RecentCommitHistory = {
+  totalCount: number;
+  pageInfo: { hasNextPage: boolean; endCursor: string | null };
+  nodes: Array<{
+    oid: string;
+    url: string;
+    messageHeadline: string;
+    committedDate: string;
+    additions: number;
+    deletions: number;
+  }>;
+};
+
+type RecentCommitHistoryResponse = {
+  repository: {
+    defaultBranchRef: {
+      target: { history: RecentCommitHistory } | null;
+    } | null;
+  } | null;
+};
+
+export async function getGitHubCommitActivity(
+  token: string,
+  owner: string,
+  repository: string,
+  since: string,
+  limit = 1000,
+): Promise<{
+  commits: GitHubCommitActivityPoint[];
+  totalCount: number;
+  capped: boolean;
+}> {
+  const commits: RecentCommitHistory["nodes"] = [];
+  let after: string | null = null;
+  let totalCount = 0;
+  let hasNextPage = false;
+
+  do {
+    const response: RecentCommitHistoryResponse =
+      await githubGraphql<RecentCommitHistoryResponse>(
+      token,
+      RECENT_COMMIT_HISTORY_QUERY,
+      { owner, name: repository, since, after },
+    );
+    const history: RecentCommitHistory | undefined =
+      response.repository?.defaultBranchRef?.target?.history;
+    if (!history) {
+      if (after !== null) {
+        throw new GitHubApiError(
+          "GitHub returned incomplete repository commit history.",
+          502,
+        );
+      }
+      return { commits: [], totalCount: 0, capped: false };
+    }
+
+    if (after === null) totalCount = history.totalCount;
+    commits.push(...history.nodes);
+    hasNextPage = history.pageInfo.hasNextPage;
+    after = history.pageInfo.endCursor;
+  } while (hasNextPage && after && commits.length < limit);
+
+  const activity = commits
+    .filter((commit) => new Date(commit.committedDate).getTime() >= Date.parse(since))
+    .slice(0, limit)
+    .map((commit): GitHubCommitActivityPoint => ({
+      sha: commit.oid,
+      url: commit.url,
+      message: commit.messageHeadline,
+      date: commit.committedDate,
+      additions: commit.additions,
+      deletions: commit.deletions,
+      changedLines: commit.additions + commit.deletions,
+    }))
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+  return {
+    commits: activity,
+    totalCount: Math.max(totalCount, activity.length),
+    capped: totalCount > activity.length || hasNextPage,
+  };
 }
 
 export async function getGitHubResponseError(

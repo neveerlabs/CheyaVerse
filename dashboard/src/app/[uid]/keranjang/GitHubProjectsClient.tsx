@@ -5,8 +5,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { readApiJson } from "@/lib/read-api-json";
 import {
+  Activity,
   ArrowRight,
   GitBranch,
+  GitCommitHorizontal,
   GitFork,
   Github,
   LockKeyhole,
@@ -30,6 +32,23 @@ type Repository = {
   defaultBranch: string;
   updatedAt: string;
   pushedAt: string | null;
+  activity: {
+    commitsLastMonth: number;
+    commitsLastMonthCapped: boolean;
+    commitActivity: Array<{
+      sha: string;
+      url: string;
+      message: string;
+      date: string;
+      additions: number;
+      deletions: number;
+      changedLines: number;
+    }>;
+    additions: number;
+    deletions: number;
+    measuredCommits: number;
+    averageLinesChanged: number;
+  };
 };
 
 type RepositoriesResponse = {
@@ -46,6 +65,72 @@ function formatDate(value: string): string {
   return Number.isFinite(date.getTime())
     ? new Intl.DateTimeFormat("id-ID", { dateStyle: "medium" }).format(date)
     : "Unknown";
+}
+
+function formatNumber(value: number): string {
+  return new Intl.NumberFormat("en", { notation: "compact" }).format(value);
+}
+
+function ProjectActivityChart({
+  activity,
+  commitCount,
+  capped,
+}: {
+  activity: Repository["activity"]["commitActivity"];
+  commitCount: number;
+  capped: boolean;
+}) {
+  if (!activity.length) {
+    return <p className="text-[9px] text-ink-mute">No commits in the last 30 days</p>;
+  }
+  const width = 260;
+  const height = 42;
+  const maximum = Math.max(
+    1,
+    ...activity.map((commit) => Math.log1p(commit.changedLines)),
+  );
+  const points = activity.map((commit, index) => ({
+    commit,
+    x: activity.length === 1 ? width / 2 : 2 + (index / (activity.length - 1)) * (width - 4),
+    y: height - 5 - (Math.log1p(commit.changedLines) / maximum) * 27,
+  }));
+  const line = points.map(({ x, y }) => `${x},${y}`).join(" ");
+  const area = `${points[0].x},${height} ${line} ${points[points.length - 1].x},${height}`;
+
+  return (
+    <div className="min-w-0 flex-1">
+      <div className="mb-0.5 flex items-center justify-between gap-2 text-[8px]">
+        <span className="font-medium text-ink-mute">Velocity trend</span>
+        <span className="text-ink-mute">
+          {formatNumber(commitCount)} commits · 30d{capped ? " · latest 1,000" : ""}
+        </span>
+      </div>
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        role="img"
+        aria-label={`${commitCount} commits in the last 30 days; each point represents one commit`}
+        className="block h-[30px] w-full"
+        preserveAspectRatio="none"
+      >
+        <polygon points={area} fill="rgb(124 58 237 / 12%)" />
+        <polyline
+          points={line}
+          fill="none"
+          stroke="rgb(124 58 237 / 60%)"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        {points.map(({ commit, x, y }) => (
+          <circle key={commit.sha} cx={x} cy={y} r="1.5" fill="#a995c5">
+            <title>
+              {`${formatDate(commit.date)} · ${commit.message} · +${formatNumber(commit.additions)} / −${formatNumber(commit.deletions)} lines`}
+            </title>
+          </circle>
+        ))}
+      </svg>
+    </div>
+  );
 }
 
 export function GitHubProjectsClient({ uid }: { uid: string }) {
@@ -322,56 +407,89 @@ export function GitHubProjectsClient({ uid }: { uid: string }) {
             >
               <Link
                 href={`/${uid}/project/${encodeURIComponent(repository.fullName.split("/")[0])}/${encodeURIComponent(repository.name)}`}
-                className="block p-4"
+                className="block p-3 sm:p-4"
               >
                 <div className="flex items-start justify-between gap-3">
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[14px] bg-[#f3f4f6] text-ink">
-                    <Github size={19} />
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <Github size={15} className="shrink-0 text-ink-mute" />
+                    <h3 className="truncate text-[12px] font-semibold text-indigo-700 group-hover:underline">
+                      {repository.fullName}
+                    </h3>
+                    <ArrowRight
+                      size={12}
+                      className="shrink-0 text-ink-mute transition-transform group-hover:translate-x-0.5"
+                    />
                   </span>
                   <span
-                    className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[9px] font-semibold ${
+                    className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[8px] font-bold uppercase tracking-wide ${
                       repository.visibility === "private"
                         ? "bg-[#f3f3f4] text-ink-soft"
                         : "bg-emerald-50 text-emerald-700"
                     }`}
                   >
                     {repository.visibility === "private" ? (
-                      <LockKeyhole size={11} />
+                      <LockKeyhole size={9} />
                     ) : (
                       <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                     )}
                     {repository.visibility}
                   </span>
                 </div>
-                <div className="mt-3 flex items-center gap-1.5">
-                  <h3 className="min-w-0 truncate text-[14px] font-semibold tracking-tight text-ink">
-                    {repository.fullName}
-                  </h3>
-                  <ArrowRight
-                    size={14}
-                    className="shrink-0 text-ink-mute transition-transform group-hover:translate-x-0.5"
-                  />
-                </div>
-                <p className="mt-1.5 line-clamp-2 min-h-[34px] text-[11px] leading-relaxed text-ink-mute">
+                <p className="mt-1.5 line-clamp-2 text-[10px] leading-relaxed text-ink-mute">
                   {repository.description || "No project description provided."}
                 </p>
-                <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-[#f0f0f2] pt-3 text-[10px] text-ink-mute">
-                  {repository.language && (
-                    <span className="inline-flex items-center gap-1.5 text-ink-soft">
-                      <span className="h-2 w-2 rounded-full bg-[#6b7280]" />
-                      {repository.language}
+                <div className="mt-2 flex items-center gap-2">
+                  <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#f7f7f8] px-2 py-1 text-[9px] font-medium text-ink-soft">
+                    {repository.language || "Unknown"}
+                  </span>
+                  <span className="inline-flex min-w-0 items-center gap-1 truncate text-[9px] text-ink-mute">
+                    <GitBranch size={10} /> {repository.defaultBranch}
+                  </span>
+                  <span className="ml-auto shrink-0 text-[9px] text-ink-mute">
+                    {formatDate(repository.pushedAt || repository.updatedAt)}
+                  </span>
+                </div>
+                <div className="mt-2">
+                  <ProjectActivityChart
+                    activity={repository.activity.commitActivity}
+                    commitCount={repository.activity.commitsLastMonth}
+                    capped={repository.activity.commitsLastMonthCapped}
+                  />
+                </div>
+                <div className="mt-2 border-t border-[#f0f0f2] pt-2">
+                  <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[9px] text-ink-mute">
+                    <span className="inline-flex items-center gap-1">
+                      <GitCommitHorizontal size={10} />
+                      {formatNumber(repository.activity.commitsLastMonth)} commits / 30d
                     </span>
+                    <span className="inline-flex items-center gap-1">
+                      <GitFork size={10} /> {formatNumber(repository.forks)}
+                    </span>
+                    <span className="inline-flex items-center gap-1">
+                      <Star size={10} /> {formatNumber(repository.stars)}
+                    </span>
+                    <span className="inline-flex items-center gap-1">
+                      <Activity size={10} />
+                      {repository.activity.measuredCommits > 0
+                        ? `~${formatNumber(Math.round(repository.activity.averageLinesChanged))} lines / commit`
+                        : "Change data unavailable"}
+                    </span>
+                  </div>
+                  {repository.activity.commitActivity.at(-1) && (
+                    <p className="mt-1 block truncate text-[9px] font-medium text-slate-700">
+                      {repository.activity.commitActivity.at(-1)!.message ||
+                        "Latest commit"}
+                    </p>
                   )}
-                  <span className="inline-flex items-center gap-1">
-                    <GitBranch size={12} /> {repository.defaultBranch}
-                  </span>
-                  <span className="inline-flex items-center gap-1">
-                    <Star size={12} /> {repository.stars}
-                  </span>
-                  <span className="inline-flex items-center gap-1">
-                    <GitFork size={12} /> {repository.forks}
-                  </span>
-                  <span className="ml-auto">Updated {formatDate(repository.updatedAt)}</span>
+                  {repository.activity.measuredCommits > 0 && (
+                    <p className="mt-1 text-[8px] text-ink-mute">
+                      +{formatNumber(repository.activity.additions)} / −
+                      {formatNumber(repository.activity.deletions)} lines
+                      {repository.activity.commitsLastMonthCapped
+                        ? " · latest 1,000 commits measured"
+                        : ""}
+                    </p>
+                  )}
                 </div>
               </Link>
             </article>

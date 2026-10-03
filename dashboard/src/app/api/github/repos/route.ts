@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserSession } from "@/lib/auth-request";
 import {
+  getGitHubCommitActivity,
   getGitHubMessage,
   getGitHubToken,
   GitHubCredentialError,
@@ -12,6 +13,7 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+const REPOSITORY_ACTIVITY_CONCURRENCY = 6;
 
 type GitHubRepository = {
   id: number;
@@ -61,6 +63,34 @@ export async function GET(request: NextRequest) {
       GitHubRepository[] | { items: GitHubRepository[]; total_count: number }
     >(token, path);
     const repositories = Array.isArray(data) ? data : data.items;
+    const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const repositoryActivity = new Map<
+      number,
+      Awaited<ReturnType<typeof getGitHubCommitActivity>>
+    >();
+    for (
+      let index = 0;
+      index < repositories.length;
+      index += REPOSITORY_ACTIVITY_CONCURRENCY
+    ) {
+      const group = repositories.slice(
+        index,
+        index + REPOSITORY_ACTIVITY_CONCURRENCY,
+      );
+      const activity = await Promise.all(
+        group.map((repo) =>
+          getGitHubCommitActivity(
+            token,
+            repo.full_name.split("/")[0],
+            repo.name,
+            since,
+          ),
+        ),
+      );
+      activity.forEach((result, groupIndex) => {
+        repositoryActivity.set(group[groupIndex].id, result);
+      });
+    }
     return NextResponse.json(
       {
         repositories: repositories.map((repo) => ({
@@ -77,6 +107,30 @@ export async function GET(request: NextRequest) {
           defaultBranch: repo.default_branch,
           updatedAt: repo.updated_at,
           pushedAt: repo.pushed_at,
+          activity: (() => {
+            const result = repositoryActivity.get(repo.id);
+            const commits = result?.commits ?? [];
+            const additions = commits.reduce(
+              (total, commit) => total + commit.additions,
+              0,
+            );
+            const deletions = commits.reduce(
+              (total, commit) => total + commit.deletions,
+              0,
+            );
+            return {
+              commitsLastMonth: result?.totalCount ?? 0,
+              commitsLastMonthCapped: result?.capped ?? false,
+              commitActivity: commits,
+              additions,
+              deletions,
+              measuredCommits: commits.length,
+              averageLinesChanged:
+                commits.length > 0
+                  ? (additions + deletions) / commits.length
+                  : 0,
+            };
+          })(),
         })),
         page: requestedPage,
         hasMore: hasNextLink(response.headers.get("link")),

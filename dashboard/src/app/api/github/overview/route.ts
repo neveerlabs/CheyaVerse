@@ -2,10 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { getUserSession } from "@/lib/auth-request";
 import {
   getGitHubMessage,
+  getGitHubCommitActivity,
   getGitHubResponseError,
   getGitHubToken,
   GitHubCredentialError,
+  GitHubCommitActivityPoint,
   githubFetch,
+  githubGraphql,
   githubJson,
   GitHubApiError,
   GITHUB_CREDENTIAL_COOKIE,
@@ -15,7 +18,10 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const PROJECT_ACTIVITY_LIMIT = 12;
+const CANDIDATE_LIMIT = 24;
+const RANKING_LIMIT = 12;
+const HOME_PROJECT_LIMIT = 5;
+const COMMIT_ACTIVITY_LIMIT = 1000;
 const ACTIVITY_CONCURRENCY = 6;
 
 type Repository = {
@@ -40,6 +46,7 @@ type CommitSummary = {
   commit: {
     message: string;
     author: { name: string; date: string } | null;
+    committer?: { name: string; date: string } | null;
   };
   author: { login: string } | null;
 };
@@ -70,8 +77,20 @@ type ProjectActivity = {
   };
   history: {
     weeklyActivity: number[] | null;
+    commitActivity: GitHubCommitActivityPoint[];
     commitsLastYear: number;
     commitsLastFiveWeeks: number;
+    commitsLastMonth: number;
+    commitsLastMonthCapped: boolean;
+    activeWeeks: number;
+    activeMonths: number;
+    activityRuns: number;
+    recentChanges: {
+      additions: number;
+      deletions: number;
+      averageLinesChanged: number;
+      measuredCommits: number;
+    };
   };
   latestCommit: {
     sha: string;
@@ -87,7 +106,10 @@ type ProjectActivity = {
     publishedAt: string | null;
     prerelease: boolean;
   } | null;
+  rankingScore: number;
 };
+
+type ActivityCandidate = ProjectActivity;
 
 async function getWeeklyActivity(
   token: string,
@@ -129,33 +151,53 @@ async function getWeeklyActivity(
   return [...Array(Math.max(0, 52 - counts.length)).fill(0), ...counts];
 }
 
-async function loadProjectActivity(
+async function loadActivityCandidate(
   token: string,
   repository: Repository,
-): Promise<ProjectActivity> {
+): Promise<ActivityCandidate> {
   const repoPath = `/repos/${encodeURIComponent(repository.full_name.split("/")[0])}/${encodeURIComponent(repository.name)}`;
-  const [weeklyActivity, commitSummaries, releases] = await Promise.all([
+  const since = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  const [weeklyActivity, recentCommitPage] = await Promise.all([
     getWeeklyActivity(token, repository.full_name.split("/")[0], repository.name),
     githubJson<CommitSummary[]>(
       token,
-      `${repoPath}/commits?per_page=3`,
-    ).then(({ data }) => data).catch((error: unknown) => {
-      if (error instanceof GitHubApiError && error.status === 409) return [];
-      throw error;
-    }),
-    githubJson<GitHubRelease[]>(token, `${repoPath}/releases?per_page=1`)
-      .then(({ data }) => data[0] ?? null)
-      .catch((error: unknown) => {
-        if (
-          error instanceof GitHubApiError &&
-          [403, 404].includes(error.status)
-        ) {
-          return null;
-        }
-        throw error;
-      }),
+      `${repoPath}/commits?per_page=100`,
+    ).then(({ data, response }) => ({ commits: data, response })),
   ]);
-  const latest = commitSummaries[0];
+  const monthlyCommitSummaries = recentCommitPage.commits.filter((commit) => {
+    const date =
+      commit.commit.author?.date ?? commit.commit.committer?.date;
+    return date ? new Date(date).getTime() >= since : false;
+  });
+  const monthlyCommitsCapped =
+    monthlyCommitSummaries.length === recentCommitPage.commits.length &&
+    hasNextLink(recentCommitPage.response.headers.get("link"));
+  const activeWeeks =
+    weeklyActivity?.filter((count) => count > 0).length ?? 0;
+  const activityMonths = new Set<number>();
+  const currentMonth = new Date();
+  const earliestMonth =
+    currentMonth.getUTCFullYear() * 12 + currentMonth.getUTCMonth() - 11;
+  weeklyActivity?.forEach((count, index) => {
+    if (count <= 0) return;
+    const weekDate = new Date(
+      Date.now() -
+        (weeklyActivity.length - 1 - index) * 7 * 24 * 60 * 60 * 1000,
+    );
+    const month = weekDate.getUTCFullYear() * 12 + weekDate.getUTCMonth();
+    if (month < earliestMonth) return;
+    activityMonths.add(month);
+  });
+  const sortedActivityMonths = [...activityMonths].sort((a, b) => a - b);
+  const activeMonths = sortedActivityMonths.length;
+  const activityRuns = sortedActivityMonths.reduce(
+    (runs, month, index) =>
+      index === 0 || month - sortedActivityMonths[index - 1] > 1
+        ? runs + 1
+        : runs,
+    0,
+  );
+  const latest = recentCommitPage.commits[0];
   const latestCommit: ProjectActivity["latestCommit"] = latest
     ? {
         sha: latest.sha,
@@ -165,7 +207,11 @@ async function loadProjectActivity(
           latest.author?.login ||
           latest.commit.author?.name ||
           "Unknown author",
-        date: latest.commit.author?.date ?? repository.pushed_at ?? "",
+        date:
+          latest.commit.author?.date ??
+          latest.commit.committer?.date ??
+          repository.pushed_at ??
+          "",
       }
     : null;
 
@@ -185,34 +231,39 @@ async function loadProjectActivity(
     },
     history: {
       weeklyActivity,
+      commitActivity: [],
       commitsLastYear: weeklyActivity?.reduce((sum, count) => sum + count, 0) ?? 0,
       commitsLastFiveWeeks:
         weeklyActivity?.slice(-5).reduce((sum, count) => sum + count, 0) ?? 0,
+      commitsLastMonth: monthlyCommitSummaries.length,
+      commitsLastMonthCapped: monthlyCommitsCapped,
+      activeWeeks,
+      activeMonths,
+      activityRuns,
+      recentChanges: {
+        additions: 0,
+        deletions: 0,
+        averageLinesChanged: 0,
+        measuredCommits: 0,
+      },
     },
     latestCommit,
-    latestRelease: releases
-      ? {
-          tagName: releases.tag_name,
-          name: releases.name,
-          url: releases.html_url,
-          publishedAt: releases.published_at,
-          prerelease: releases.prerelease,
-        }
-      : null,
+    latestRelease: null,
+    rankingScore: 0,
   };
 }
 
-async function loadActivities(
+async function loadActivityCandidates(
   token: string,
   repositories: Repository[],
-): Promise<ProjectActivity[]> {
-  const projects: ProjectActivity[] = [];
+): Promise<ActivityCandidate[]> {
+  const projects: ActivityCandidate[] = [];
   for (let index = 0; index < repositories.length; index += ACTIVITY_CONCURRENCY) {
     const group = repositories.slice(index, index + ACTIVITY_CONCURRENCY);
     const loaded = await Promise.all(
       group.map(async (repository) => {
         try {
-          return await loadProjectActivity(token, repository);
+          return await loadActivityCandidate(token, repository);
         } catch (error) {
           if (
             error instanceof GitHubApiError &&
@@ -224,7 +275,127 @@ async function loadActivities(
         }
       }),
     );
-    projects.push(...loaded.filter((project): project is ProjectActivity => project !== null));
+    projects.push(...loaded.filter((project): project is ActivityCandidate => project !== null));
+  }
+  return projects;
+}
+
+function scoreProjects(projects: ProjectActivity[]): ProjectActivity[] {
+  const max = (select: (project: ProjectActivity) => number) =>
+    Math.max(1, ...projects.map((project) => select(project)));
+  const maxMonth = max((project) => Math.log1p(project.history.commitsLastMonth));
+  const maxYear = max((project) => Math.log1p(project.history.commitsLastYear));
+  const maxChanges = max((project) =>
+    Math.log1p(project.history.recentChanges.averageLinesChanged),
+  );
+  const maxPopularity = max(
+    (project) =>
+      Math.log1p(project.repository.stars) +
+      Math.log1p(project.repository.forks) * 0.6,
+  );
+
+  return projects
+    .map((project) => {
+      const pushedAt = project.repository.pushedAt
+        ? new Date(project.repository.pushedAt).getTime()
+        : Number.NaN;
+      const ageDays = Number.isFinite(pushedAt)
+        ? Math.max(0, (Date.now() - pushedAt) / (24 * 60 * 60 * 1000))
+        : Number.POSITIVE_INFINITY;
+      const popularity =
+        Math.log1p(project.repository.stars) +
+        Math.log1p(project.repository.forks) * 0.6;
+      const score =
+        0.3 * Math.log1p(project.history.commitsLastMonth) / maxMonth +
+        0.16 * Math.log1p(project.history.commitsLastYear) / maxYear +
+        0.12 * project.history.activeWeeks / 52 +
+        0.08 * project.history.activeMonths / 12 +
+        0.06 * project.history.activityRuns / 12 +
+        0.14 *
+          Math.log1p(project.history.recentChanges.averageLinesChanged) /
+          maxChanges +
+        0.08 * popularity / maxPopularity +
+        0.06 * Math.exp(-ageDays / 120);
+      return { ...project, rankingScore: score };
+    })
+    .sort(
+      (a, b) =>
+        b.rankingScore - a.rankingScore ||
+        b.history.commitsLastMonth - a.history.commitsLastMonth ||
+        b.repository.stars - a.repository.stars,
+    );
+}
+
+async function addProjectInsights(
+  token: string,
+  candidates: ActivityCandidate[],
+): Promise<ProjectActivity[]> {
+  const projects: ProjectActivity[] = [];
+  for (let index = 0; index < candidates.length; index += ACTIVITY_CONCURRENCY) {
+    const group = candidates.slice(index, index + ACTIVITY_CONCURRENCY);
+    const loaded = await Promise.all(
+      group.map(async (candidate) => {
+        const owner = candidate.repository.fullName.split("/")[0];
+        const repoPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(candidate.repository.name)}`;
+        const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+        const [commitActivity, release] = await Promise.all([
+          getGitHubCommitActivity(
+            token,
+            owner,
+            candidate.repository.name,
+            since,
+            COMMIT_ACTIVITY_LIMIT,
+          ),
+          githubJson<GitHubRelease[]>(token, `${repoPath}/releases?per_page=1`)
+            .then(({ data }) => data[0] ?? null)
+            .catch((error: unknown) => {
+              if (error instanceof GitHubApiError && [403, 404].includes(error.status)) {
+                return null;
+              }
+              throw error;
+            }),
+        ]);
+        const additions = commitActivity.commits.reduce(
+          (total, commit) => total + commit.additions,
+          0,
+        );
+        const deletions = commitActivity.commits.reduce(
+          (total, commit) => total + commit.deletions,
+          0,
+        );
+        const measuredCommits = commitActivity.commits.length;
+        return {
+          repository: candidate.repository,
+          history: {
+            ...candidate.history,
+            commitActivity: commitActivity.commits,
+            commitsLastMonth: commitActivity.totalCount,
+            commitsLastMonthCapped: commitActivity.capped,
+            recentChanges: {
+              measuredCommits,
+              additions,
+              deletions,
+              averageLinesChanged:
+                measuredCommits > 0
+                  ? (additions + deletions) / measuredCommits
+                  : 0,
+            },
+          },
+          latestCommit: candidate.latestCommit,
+          latestRelease: release
+            ? {
+                tagName: release.tag_name,
+                name: release.name,
+                url: release.html_url,
+                publishedAt: release.published_at,
+                prerelease: release.prerelease,
+              }
+            : null,
+          rankingScore: candidate.rankingScore,
+        };
+      }),
+    );
+    projects.push(...loaded);
   }
   return projects;
 }
@@ -253,23 +424,55 @@ export async function GET(request: NextRequest) {
       token,
       "/user/repos?sort=pushed&direction=desc&per_page=100&page=1&affiliation=owner,collaborator,organization_member",
     );
+    const now = Date.now();
     const candidates = repositories
-      .sort((a, b) =>
-        (b.pushed_at ?? b.updated_at).localeCompare(
-          a.pushed_at ?? a.updated_at,
-        ),
+      .map((repository) => {
+        const pushedAt = new Date(repository.pushed_at ?? repository.updated_at).getTime();
+        const ageDays = Number.isFinite(pushedAt)
+          ? Math.max(0, (now - pushedAt) / (24 * 60 * 60 * 1000))
+          : Number.POSITIVE_INFINITY;
+        return {
+          repository,
+          popularity:
+            Math.log1p(repository.stargazers_count) +
+            Math.log1p(repository.forks_count) * 0.6,
+          recency: Math.exp(-ageDays / 120),
+        };
+      })
+      .sort(
+        (a, b) =>
+          b.popularity + b.recency * 8 - (a.popularity + a.recency * 8),
       )
-      .slice(0, PROJECT_ACTIVITY_LIMIT);
-    const activities = await loadActivities(token, candidates);
+      .slice(0, CANDIDATE_LIMIT)
+      .map(({ repository }) => repository);
+    const activityCandidates = await loadActivityCandidates(
+      token,
+      candidates,
+    );
+    const candidateById = new Map(
+      activityCandidates.map((candidate) => [candidate.repository.id, candidate]),
+    );
+    const preliminaryRanking = scoreProjects(activityCandidates).slice(
+      0,
+      RANKING_LIMIT,
+    );
+    const detailedProjects = await addProjectInsights(
+      token,
+      preliminaryRanking.flatMap((project) => {
+        const candidate = candidateById.get(project.repository.id);
+        return candidate ? [candidate] : [];
+      }),
+    );
+    const rankedProjects = scoreProjects(detailedProjects);
+    const projects = rankedProjects.slice(0, HOME_PROJECT_LIMIT);
     const accountActivity = Array.from({ length: 52 }, (_, index) => ({
       week: index,
-      commits: activities.reduce(
+      commits: activityCandidates.reduce(
         (sum, project) =>
           sum + (project.history.weeklyActivity?.[index] ?? 0),
         0,
       ),
     }));
-    const now = Date.now();
     const activeThisMonth = repositories.filter(
       (project) =>
         project.pushed_at &&
@@ -283,23 +486,18 @@ export async function GET(request: NextRequest) {
       activeThisMonth,
       commitsLastYear: accountActivity.reduce((sum, week) => sum + week.commits, 0),
       commitsLastFiveWeeks: accountActivity.slice(-5).reduce((sum, week) => sum + week.commits, 0),
-      repositoriesWithHistory: activities.filter(
+      repositoriesWithHistory: activityCandidates.filter(
         (project) => project.history.weeklyActivity !== null,
       ).length,
       hasMore: hasNextLink(response.headers.get("link")),
     };
-    const popular = [...activities].sort(
-      (a, b) =>
-        b.history.commitsLastYear - a.history.commitsLastYear ||
-        b.history.commitsLastFiveWeeks - a.history.commitsLastFiveWeeks ||
-        (b.latestRelease?.publishedAt ?? "").localeCompare(
-          a.latestRelease?.publishedAt ?? "",
-        ) ||
-        (b.repository.pushedAt ?? "").localeCompare(a.repository.pushedAt ?? ""),
-    );
-
     return NextResponse.json(
-      { stats, accountActivity, projects: activities, popular },
+      {
+        stats,
+        accountActivity,
+        projects,
+        featuredProjectId: projects[0]?.repository.id ?? null,
+      },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
