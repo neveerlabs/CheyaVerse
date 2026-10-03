@@ -355,6 +355,7 @@ export function FeedbackReporter() {
   const [copied, setCopied] = useState(false);
   const [reportButtonBottom, setReportButtonBottom] = useState<number | null>(null);
   const [reportButtonLeft, setReportButtonLeft] = useState<number | null>(null);
+  const [reportButtonRight, setReportButtonRight] = useState<number | null>(null);
   const [botChatOpen, setBotChatOpen] = useState(false);
   const pathnameRef = useRef(pathname);
   pathnameRef.current = pathname;
@@ -521,89 +522,153 @@ export function FeedbackReporter() {
   }
 
   useEffect(() => {
-    if (!inChatRoom && !botChatOpen) {
-      setReportButtonBottom(null);
-      setReportButtonLeft(null);
-      return;
-    }
-
-    let footer: HTMLElement | null = null;
-    let composer: HTMLElement | null = null;
-    let resizeObserver: ResizeObserver | null = null;
-    let footerMutationObserver: MutationObserver | null = null;
-
+    let dialogResizeObserver: ResizeObserver | null = null;
     const updatePosition = () => {
-      const currentComposer = botChatOpen
-        ? document.querySelector<HTMLElement>(
-            '[data-bot-chat-dialog] [data-chat-composer-input="true"]',
-          ) ??
-          document.querySelector<HTMLElement>(
-            '[data-bot-chat-dialog] [data-chat-report-anchor="true"]',
-          )
-        : null;
-      if (currentComposer !== composer) {
-        if (composer) resizeObserver?.unobserve(composer);
-        composer = currentComposer;
-        if (composer) resizeObserver?.observe(composer);
-      }
-      if (composer) {
-        const inputRect = composer.getBoundingClientRect();
-        const isFooterAnchor = composer.hasAttribute("data-chat-report-anchor");
-        const anchorStyle = isFooterAnchor ? window.getComputedStyle(composer) : null;
-        const inputTop =
-          inputRect.top + (anchorStyle ? Number.parseFloat(anchorStyle.paddingTop) || 0 : 0);
-        const inputLeft =
-          inputRect.left + (anchorStyle ? Number.parseFloat(anchorStyle.paddingLeft) || 0 : 0);
-        setReportButtonBottom(Math.max(0, window.innerHeight - inputTop + 14));
-        setReportButtonLeft(Math.max(0, inputLeft));
-        return;
-      }
-      setReportButtonLeft(null);
-      const currentFooter = document.querySelector<HTMLElement>(".chat-footer");
-      if (currentFooter !== footer) {
-        if (footer) resizeObserver?.unobserve(footer);
-        footerMutationObserver?.disconnect();
-        footer = currentFooter;
-        if (footer) {
-          resizeObserver?.observe(footer);
-          footerMutationObserver = new MutationObserver(updatePosition);
-          footerMutationObserver.observe(footer, {
-            attributes: true,
-            attributeFilter: ["style"],
-          });
-        }
-      }
-      if (!footer) {
-        if (botChatOpen) {
-          setReportButtonBottom(null);
+      if (botChatOpen) {
+        const dialog = document.querySelector<HTMLElement>(
+          "[data-bot-chat-dialog]",
+        );
+        if (dialog) {
+          dialogResizeObserver?.observe(dialog);
+          const rect = dialog.getBoundingClientRect();
+          const dropBy = 50;
+          setReportButtonBottom(
+            window.innerHeight - rect.bottom - dropBy,
+          );
+          setReportButtonRight(
+            Math.max(8, window.innerWidth - rect.right),
+          );
+          setReportButtonLeft(null);
           return;
         }
-        setReportButtonBottom(null);
+      }
+
+      const reportAnchor = document.querySelector<HTMLElement>(
+        "[data-report-anchor]",
+      );
+      if (reportAnchor) {
+        const rect = reportAnchor.getBoundingClientRect();
+        if (reportAnchor.dataset.reportAnchor === "sheet") {
+          const gap = 16;
+          const controlBottom = window.innerHeight - rect.top + gap;
+          setReportButtonBottom(controlBottom);
+          setReportButtonLeft(Math.max(8, rect.left + 12));
+          setReportButtonRight(Math.max(8, window.innerWidth - rect.right + 12));
+          return;
+        }
+
+        const configuredGap = Number(reportAnchor.dataset.reportGap ?? 8);
+        const reportGap = Number.isFinite(configuredGap) ? configuredGap : 8;
+        const buttonTop = Math.min(
+          rect.bottom + reportGap,
+          window.innerHeight - 48,
+        );
+        setReportButtonBottom(
+          Math.max(8, window.innerHeight - buttonTop - 40),
+        );
+        const shiftLeft = Number(reportAnchor.dataset.reportShiftLeft ?? 0);
+        const leftShift = Number.isFinite(shiftLeft) ? shiftLeft : 0;
+        const shiftRight = Number(reportAnchor.dataset.reportShiftRight ?? 0);
+        const rightShift = Number.isFinite(shiftRight) ? shiftRight : 0;
+        setReportButtonLeft(Math.max(8, rect.left - 1 + rightShift - leftShift));
+        setReportButtonRight(
+          reportAnchor.dataset.reportResumeAlign === "true"
+            ? Math.max(
+                8,
+                window.innerWidth -
+                  rect.right +
+                  Number(reportAnchor.dataset.reportResumeShiftLeft ?? 0),
+              )
+            : null,
+        );
         return;
       }
-      const footerTop = footer.getBoundingClientRect().top;
-      setReportButtonBottom(
-        Math.max(0, window.innerHeight - footerTop + 14),
-      );
+      setReportButtonRight(null);
+      setReportButtonLeft(null);
+      if (inChatRoom) {
+        const footer = document.querySelector<HTMLElement>(".chat-footer");
+        if (footer) {
+          const footerRect = footer.getBoundingClientRect();
+          setReportButtonBottom(Math.max(8, window.innerHeight - footerRect.top + 10));
+          return;
+        }
+      }
+
+      const activeElement = document.activeElement;
+      const visualViewport = window.visualViewport;
+      const settingsNameFocused =
+        pathname.startsWith(`/${uid}/profile/settings`) &&
+        activeElement instanceof HTMLInputElement &&
+        activeElement.id === "account-display-name";
+      const projectSearchFocused =
+        (pathname.startsWith(`/${uid}/project`) ||
+          pathname.startsWith(`/${uid}/keranjang`)) &&
+        activeElement instanceof HTMLInputElement &&
+        activeElement.type === "search";
+      if (
+        (projectSearchFocused || settingsNameFocused) &&
+        visualViewport &&
+        window.matchMedia("(max-width: 767px)").matches &&
+        window.innerHeight - visualViewport.height > 120
+      ) {
+        const keyboardTop = visualViewport.offsetTop + visualViewport.height;
+        setReportButtonBottom(
+          Math.max(8, window.innerHeight - keyboardTop + 10),
+        );
+        setReportButtonLeft(12);
+        return;
+      }
+
+      if (pathname.endsWith("/profile/link-device")) {
+        setReportButtonBottom(18);
+        setReportButtonLeft(12);
+        return;
+      }
+
+      const tabBar = document.querySelector<HTMLElement>("[data-app-tabbar]");
+      if (tabBar && getComputedStyle(tabBar).display !== "none") {
+        const rect = tabBar.getBoundingClientRect();
+        setReportButtonBottom(Math.max(8, window.innerHeight - rect.top + 12));
+        setReportButtonLeft(
+          Math.max(12, Math.round((window.innerWidth - Math.min(600, window.innerWidth)) / 2 + 12)),
+        );
+      } else {
+        setReportButtonBottom(18);
+        setReportButtonLeft(12);
+      }
     };
-    resizeObserver = new ResizeObserver(updatePosition);
+    dialogResizeObserver = new ResizeObserver(updatePosition);
     const mutationObserver = new MutationObserver(updatePosition);
-    mutationObserver.observe(document.body, { childList: true, subtree: true });
+    mutationObserver.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: [
+        "data-report-anchor",
+        "data-hide-bot-launcher",
+        "data-report-shift-right",
+        "data-report-resume-align",
+      ],
+    });
+    const onFocusChange = () => updatePosition();
     const visualViewport = window.visualViewport;
     window.addEventListener("resize", updatePosition);
+    document.addEventListener("focusin", onFocusChange);
+    document.addEventListener("focusout", onFocusChange);
     visualViewport?.addEventListener("resize", updatePosition);
     visualViewport?.addEventListener("scroll", updatePosition);
     updatePosition();
 
     return () => {
       mutationObserver.disconnect();
-      footerMutationObserver?.disconnect();
-      resizeObserver?.disconnect();
+      dialogResizeObserver.disconnect();
       window.removeEventListener("resize", updatePosition);
+      document.removeEventListener("focusin", onFocusChange);
+      document.removeEventListener("focusout", onFocusChange);
       visualViewport?.removeEventListener("resize", updatePosition);
       visualViewport?.removeEventListener("scroll", updatePosition);
     };
-  }, [botChatOpen, inChatRoom, pathname]);
+  }, [botChatOpen, inChatRoom, pathname, uid]);
 
   const captureScreenshot = useCallback(
     async (fromShake = false) => {
@@ -1228,30 +1293,23 @@ export function FeedbackReporter() {
         >
         </div>
       )}
-      {uid && !inChatRoom && !botChatOpen && !modal && (
+      {uid &&
+        (!inChatRoom || (modal && minimized)) &&
+        !botChatOpen &&
+        (!modal || minimized) && (
         <button
           type="button"
           data-screenshot-ignore="true"
           aria-label="Laporkan bug"
           onClick={() => void openReport()}
-          className="fixed bottom-[calc(70px+env(safe-area-inset-bottom))] left-3 z-[390] flex h-10 w-10 items-center justify-center rounded-full border border-line bg-white text-ink-soft shadow-md"
-          style={
-            botChatOpen
-              ? {
-                  bottom: `${reportButtonBottom ?? 14}px`,
-                  left: reportButtonLeft === null
-                    ? "max(12px, calc((100vw - 600px) / 2 + 12px))"
-                    : `${reportButtonLeft}px`,
-                }
-              : inChatRoom
-              ? {
-                  bottom: `${reportButtonBottom ?? 14}px`,
-                  left: "max(12px, calc((100vw - 600px) / 2 + 12px))",
-                }
-              : {
-                  left: "max(12px, calc((100vw - 600px) / 2 + 12px))",
-                }
-          }
+          className="pointer-events-auto fixed bottom-[calc(70px+env(safe-area-inset-bottom))] left-3 z-[999] flex h-10 w-10 items-center justify-center rounded-full border border-line bg-white text-ink-soft shadow-md"
+          style={{
+            bottom: `${reportButtonBottom ?? 18}px`,
+            left:
+              reportButtonLeft === null
+                ? "max(12px, calc((100vw - 600px) / 2 + 12px))"
+                : `${reportButtonLeft}px`,
+          }}
         >
           <Bug size={17} />
         </button>
@@ -1261,19 +1319,22 @@ export function FeedbackReporter() {
           type="button"
           data-screenshot-ignore="true"
           onClick={() => setMinimized(false)}
-          className="fixed bottom-[calc(70px+env(safe-area-inset-bottom))] right-3 z-[490] inline-flex min-h-11 max-w-[calc(100vw-6rem)] items-center gap-2 rounded-full border border-line bg-white px-4 text-xs font-semibold text-ink shadow-lg"
-          style={
-            inChatRoom
-              ? {
-                  bottom: `${reportButtonBottom ?? 14}px`,
-                  right: "max(12px, calc((100vw - 600px) / 2 + 12px))",
-                }
-              : undefined
-          }
+          className="pointer-events-auto fixed bottom-[calc(70px+env(safe-area-inset-bottom))] right-3 z-[999] inline-flex min-h-11 max-w-[calc(100vw-6rem)] items-center gap-2 rounded-full border border-line bg-white px-4 text-xs font-semibold text-ink shadow-lg"
+          style={{
+            bottom: `${reportButtonBottom ?? 18}px`,
+            ...(reportButtonRight !== null
+              ? { right: `${reportButtonRight}px` }
+              : {
+                  right:
+                    inChatRoom || botChatOpen
+                      ? "max(12px, calc((100vw - 600px) / 2 + 12px))"
+                      : "12px",
+                }),
+          }}
         >
           <Maximize2 size={15} />
           <span className="truncate">
-            Lanjutkan laporan{attachments.length ? ` · ${attachments.length} gambar` : ""}
+            Lanjutkan laporan
           </span>
         </button>
       )}

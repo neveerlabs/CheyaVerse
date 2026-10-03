@@ -959,12 +959,13 @@ export function ProfileClient({
       {menuItem && isMobile && (
         <div
           data-media-menu
+          data-hide-bot-launcher="true"
           onClick={(e) => {
             if (e.target === e.currentTarget) closeMediaMenu();
           }}
           className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-sm flex items-end justify-center"
         >
-          <div className="w-full bg-white border-t border-line
+          <div data-report-anchor="sheet" className="w-full bg-white border-t border-line
                           rounded-t-3xl p-2 pt-3 animate-fade-up pb-[calc(12px+env(safe-area-inset-bottom))]">
             <div className="w-10 h-1 rounded-full bg-[#e0e0e0] mx-auto mb-3" />
             <div className="px-3 pb-2 mb-1 border-b border-divider">
@@ -1046,15 +1047,13 @@ export function ProfileClient({
 
       {deleteItem && (
         <div
+          data-hide-bot-launcher="true"
           onClick={(e) => {
             if (e.target === e.currentTarget && !busy) setDeleteItem(null);
           }}
           className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-md flex items-center justify-center p-5"
         >
-          <div className="w-full max-w-[360px] rounded-2xl bg-white border border-line p-6 animate-fade-up">
-            <div className="w-12 h-12 rounded-full bg-[#fff0f0] mx-auto mb-4 flex items-center justify-center">
-              <Trash2 size={22} className="text-danger" strokeWidth={2} />
-            </div>
+          <div data-report-anchor="left" data-report-gap="4" data-report-shift-right="2" data-report-resume-align="true" data-report-resume-shift-left="2" className="w-full max-w-[360px] rounded-2xl bg-white border border-line p-6 animate-fade-up">
             <h2 className="text-[16px] font-semibold text-center mb-1.5 text-ink">Delete this media?</h2>
             <p className="text-[12.5px] text-ink-soft text-center mb-1.5 leading-relaxed">
               <span className="font-semibold text-ink break-all">{deleteItem.filename}</span>
@@ -1088,12 +1087,13 @@ export function ProfileClient({
 
       {captchaItem && config.recaptchaSiteKey && (
         <div
+          data-hide-bot-launcher="true"
           onClick={(e) => {
             if (e.target === e.currentTarget) setCaptchaItem(null);
           }}
           className="fixed inset-0 z-[110] bg-black/60 backdrop-blur-md flex items-center justify-center p-5"
         >
-          <div className="w-full max-w-[380px] rounded-2xl bg-white border border-line p-6 animate-fade-up">
+          <div data-report-anchor="left" data-report-shift-right="2" data-report-resume-align="true" data-report-resume-shift-left="2" className="w-full max-w-[380px] rounded-2xl bg-white border border-line p-6 animate-fade-up">
             <div className="flex items-center justify-between mb-1">
               <h2 className="text-[16px] font-semibold text-ink">
                 Verification required

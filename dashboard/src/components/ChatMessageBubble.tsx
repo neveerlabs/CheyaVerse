@@ -116,7 +116,7 @@ export function ChatMessageBubble({
         const label = language
           ? `<span class="chat-code-language">${language}</span>`
           : "<span></span>";
-        return `<div class="chat-code-block"><div class="chat-code-header">${label}<button type="button" class="chat-code-copy" aria-label="Salin kode" title="Salin kode" data-code-copy><svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg><svg class="chat-code-check" aria-hidden="true" viewBox="0 0 24 24" fill="none"><path d="m5 12 4 4L19 6"/></svg></button></div><pre class="my-0 block overflow-x-auto font-mono text-[12.5px] leading-[1.5]"><code>${code}</code></pre></div>`;
+        return `<div class="chat-code-block"><div class="chat-code-header">${label}<button type="button" class="chat-code-copy" aria-label="Salin kode" title="Salin kode" data-code-copy><svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg><svg class="chat-code-check" aria-hidden="true" viewBox="0 0 24 24" fill="none"><path d="m5 12 4 4L19 6"/></svg><svg class="chat-code-error" aria-hidden="true" viewBox="0 0 24 24" fill="none"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div><pre class="my-0 block overflow-x-auto font-mono text-[12.5px] leading-[1.5]"><code>${code}</code></pre></div>`;
       },
     );
   }, [richText, deleted, content]);
@@ -218,21 +218,53 @@ export function ChatMessageBubble({
       if (!code) return;
 
       try {
-        await navigator.clipboard.writeText(code.textContent ?? "");
+        const codeText = code.textContent ?? "";
+        try {
+          if (!navigator.clipboard?.writeText) {
+            throw new Error("Clipboard API is unavailable.");
+          }
+          await navigator.clipboard.writeText(codeText);
+        } catch {
+          const temporaryInput = document.createElement("textarea");
+          temporaryInput.value = codeText;
+          temporaryInput.setAttribute("readonly", "");
+          temporaryInput.style.position = "fixed";
+          temporaryInput.style.top = "0";
+          temporaryInput.style.left = "0";
+          temporaryInput.style.width = "1px";
+          temporaryInput.style.height = "1px";
+          temporaryInput.style.opacity = "0.01";
+          document.body.appendChild(temporaryInput);
+          let copied = false;
+          try {
+            temporaryInput.focus({ preventScroll: true });
+            temporaryInput.select();
+            temporaryInput.setSelectionRange(0, temporaryInput.value.length);
+            copied = document.execCommand("copy");
+          } finally {
+            temporaryInput.remove();
+          }
+          if (!copied) throw new Error("Could not copy code.");
+        }
         button.dataset.copied = "true";
+        button.dataset.copyError = "false";
         button.setAttribute("aria-label", "Kode disalin");
         button.title = "Kode disalin";
         const timer = window.setTimeout(() => {
           button.dataset.copied = "false";
+          button.dataset.copyError = "false";
           button.setAttribute("aria-label", "Salin kode");
           button.title = "Salin kode";
           timers.delete(timer);
         }, 1500);
         timers.add(timer);
       } catch {
+        button.dataset.copied = "false";
+        button.dataset.copyError = "true";
         button.setAttribute("aria-label", "Tidak dapat menyalin kode");
         button.title = "Tidak dapat menyalin kode";
         const timer = window.setTimeout(() => {
+          button.dataset.copyError = "false";
           button.setAttribute("aria-label", "Salin kode");
           button.title = "Salin kode";
           timers.delete(timer);
@@ -241,9 +273,9 @@ export function ChatMessageBubble({
       }
     };
 
-    container.addEventListener("click", handleCopy);
+    container.addEventListener("click", handleCopy, true);
     return () => {
-      container.removeEventListener("click", handleCopy);
+      container.removeEventListener("click", handleCopy, true);
       timers.forEach((timer) => window.clearTimeout(timer));
     };
   }, [markdown, richText, deleted, markdownHtml, richTextHtml]);

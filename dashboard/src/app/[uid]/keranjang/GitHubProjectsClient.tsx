@@ -217,14 +217,8 @@ export function GitHubProjectsClient({ uid }: { uid: string }) {
           onChange={(event) => setSearchInput(event.target.value)}
           placeholder="Search repositories by name or description"
           aria-label="Search GitHub repositories"
-          className="min-w-0 flex-1 bg-transparent text-[12px] text-ink outline-none placeholder:text-ink-mute"
+          className="min-w-0 flex-1 appearance-none bg-transparent text-[12px] text-ink outline-none placeholder:text-ink-mute [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-decoration]:hidden"
         />
-        <button
-          type="submit"
-          className="shrink-0 rounded-xl bg-ink px-3 py-2 text-[10px] font-semibold text-white transition-opacity hover:opacity-85"
-        >
-          Search
-        </button>
         {searchInput && (
           <button
             type="button"
@@ -238,6 +232,12 @@ export function GitHubProjectsClient({ uid }: { uid: string }) {
             <X size={14} />
           </button>
         )}
+        <button
+          type="submit"
+          className="shrink-0 rounded-xl bg-ink px-3 py-2 text-[10px] font-semibold text-white transition-opacity hover:opacity-85"
+        >
+          Search
+        </button>
       </form>
 
       {activeSearch && !loading && !error && totalCount !== null && (

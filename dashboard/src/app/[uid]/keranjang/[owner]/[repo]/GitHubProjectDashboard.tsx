@@ -228,6 +228,7 @@ export function GitHubProjectDashboard({
   const [treeLoading, setTreeLoading] = useState(true);
   const [treeError, setTreeError] = useState("");
   const [historyRange, setHistoryRange] = useState<HistoryRange>("all");
+  const [historyMenuOpen, setHistoryMenuOpen] = useState(false);
   const [history, setHistory] = useState<CommitRecord[]>([]);
   const [historyTotals, setHistoryTotals] = useState({
     commits: 0,
@@ -247,6 +248,25 @@ export function GitHubProjectDashboard({
   const [historyError, setHistoryError] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
   const historyRequestId = useRef(0);
+  const historyMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!historyMenuOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!historyMenuRef.current?.contains(event.target as Node)) {
+        setHistoryMenuOpen(false);
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setHistoryMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [historyMenuOpen]);
 
   const loadHistory = useCallback(
     async (range: HistoryRange, page: number, append: boolean) => {
@@ -646,16 +666,46 @@ export function GitHubProjectDashboard({
                         detail={`${history.length} of ${historyTotalPages ? formatCount(historyTotalPages * 3) : "available"} commits loaded · additions and removals`}
                       />
                     </div>
-                    <select
-                      aria-label="History period"
-                      value={historyRange}
-                      onChange={(event) => setHistoryRange(event.target.value as HistoryRange)}
-                      className="h-10 rounded-xl bg-slate-50 px-3 text-[12px] font-semibold text-slate-600 outline-none transition focus:ring-2 focus:ring-indigo-200"
-                    >
-                      {HISTORY_RANGES.map((item) => (
-                        <option key={item.value} value={item.value}>{item.label}</option>
-                      ))}
-                    </select>
+                    <div className="relative z-20" ref={historyMenuRef}>
+                      <button
+                        type="button"
+                        aria-label="History period"
+                        aria-haspopup="menu"
+                        aria-expanded={historyMenuOpen}
+                        onClick={() => setHistoryMenuOpen((open) => !open)}
+                        className="flex h-10 min-w-[142px] items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 text-[12px] font-semibold text-slate-600 shadow-sm transition hover:border-indigo-200 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                      >
+                        {HISTORY_RANGES.find((item) => item.value === historyRange)?.label}
+                        <ChevronDown size={14} className={`transition-transform ${historyMenuOpen ? "rotate-180" : ""}`} />
+                      </button>
+                      {historyMenuOpen && (
+                        <div
+                          role="menu"
+                          aria-label="History period options"
+                          className="absolute right-0 top-[calc(100%+8px)] min-w-full overflow-hidden rounded-xl border border-slate-200 bg-white p-1.5 shadow-[0_16px_40px_-18px_rgba(15,23,42,.35)]"
+                        >
+                          {HISTORY_RANGES.map((item) => (
+                            <button
+                              key={item.value}
+                              type="button"
+                              role="menuitemradio"
+                              aria-checked={historyRange === item.value}
+                              onClick={() => {
+                                setHistoryRange(item.value);
+                                setHistoryMenuOpen(false);
+                              }}
+                              className={`block w-full whitespace-nowrap rounded-lg px-3 py-2.5 text-left text-[12px] font-medium transition ${
+                                historyRange === item.value
+                                  ? "bg-indigo-50 text-indigo-700"
+                                  : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                              }`}
+                            >
+                              {item.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   <div className="mt-6 grid grid-cols-2 gap-x-5 gap-y-4 sm:grid-cols-4">

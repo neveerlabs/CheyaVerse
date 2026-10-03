@@ -56,13 +56,20 @@ type KeyboardViewport = {
   offsetTop: number;
 };
 
-export function BotChatLauncher({ uid }: { uid: string }) {
+export function BotChatLauncher({
+  uid,
+  hideLauncher = false,
+}: {
+  uid: string;
+  hideLauncher?: boolean;
+}) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [unread, setUnread] = useState(0);
   const [hasDraft, setHasDraft] = useState(false);
+  const [launcherHiddenByModal, setLauncherHiddenByModal] = useState(false);
   const [chatData, setChatData] = useState<UserChatData | null>(null);
   const [keyboardViewport, setKeyboardViewport] = useState<KeyboardViewport>({
     open: false,
@@ -188,7 +195,7 @@ export function BotChatLauncher({ uid }: { uid: string }) {
       void refreshBadge();
     } catch (cause) {
       console.error("[bot-chat] failed to load chat:", cause);
-      setError("Chat bot belum dapat dimuat. Periksa koneksi lalu coba lagi.");
+      setError("Tidak dapat memuat room chat. Periksa koneksi internet stabil!.");
     } finally {
       setLoading(false);
       dataRequestRef.current = false;
@@ -215,6 +222,18 @@ export function BotChatLauncher({ uid }: { uid: string }) {
     void refreshBadge();
     refreshDraft();
   }, [pathname, refreshBadge, refreshDraft]);
+
+  useEffect(() => {
+    const updateLauncherVisibility = () => {
+      setLauncherHiddenByModal(
+        Boolean(document.querySelector("[data-hide-bot-launcher='true']")),
+      );
+    };
+    const observer = new MutationObserver(updateLauncherVisibility);
+    observer.observe(document.body, { childList: true, subtree: true });
+    updateLauncherVisibility();
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     const updateDraft = () => refreshDraft();
@@ -295,7 +314,10 @@ export function BotChatLauncher({ uid }: { uid: string }) {
 
   return (
     <>
-      {!open && (
+      {!open &&
+        !launcherHiddenByModal &&
+        !hideLauncher &&
+        !pathname?.endsWith("/profile/link-device") && (
         <button
           type="button"
           aria-label={`Open CheyaVerse bot chat${unread ? `, ${unread} unread` : ""}`}
@@ -352,45 +374,58 @@ export function BotChatLauncher({ uid }: { uid: string }) {
             onClick={(event) => event.stopPropagation()}
           >
             {loading && (
-              <div className="absolute inset-0 z-20 flex flex-col bg-white px-3 pt-3 pb-2">
-                <div className="flex items-center gap-2">
-                  <div className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-full border border-slate-200 bg-white px-1.5 shadow-[0_2px_8px_rgba(15,23,42,.04)]">
-                    <div className="h-9 w-9 shrink-0 animate-pulse rounded-full bg-slate-200" />
-                    <div className="min-w-0 flex-1 space-y-1.5">
-                      <div className="h-3 w-28 animate-pulse rounded-full bg-slate-200" />
-                      <div className="h-2.5 w-36 animate-pulse rounded-full bg-slate-100" />
+              <div
+                role="status"
+                aria-label="Loading CheyaVerse chat"
+                className="absolute inset-0 z-20 flex flex-col bg-white"
+              >
+                <div className="shrink-0 bg-transparent px-3 pt-3 pb-2">
+                  <div className="flex items-center gap-2">
+                    <div className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-full border border-[#dfe3e8] bg-white px-1.5">
+                      <div className="h-9 w-9 shrink-0 animate-pulse rounded-full bg-slate-200" />
+                      <div className="min-w-0 flex-1 space-y-1.5">
+                        <div className="h-3 w-28 animate-pulse rounded-full bg-slate-200" />
+                        <div className="h-2.5 w-32 animate-pulse rounded-full bg-slate-100" />
+                      </div>
+                      <div className="mr-1 h-8 w-8 shrink-0 animate-pulse rounded-full bg-slate-100" />
                     </div>
-                    <div className="mr-1 h-8 w-8 shrink-0 animate-pulse rounded-full bg-slate-100" />
-                  </div>
-                  <div className="h-10 w-10 shrink-0 animate-pulse rounded-full border border-slate-200 bg-white" />
-                </div>
-                <div className="flex min-h-0 flex-1 flex-col justify-end gap-3 overflow-hidden px-1 py-4">
-                  <div className="mb-1 flex justify-center">
-                    <div className="h-7 w-16 animate-pulse rounded-full bg-slate-100" />
-                  </div>
-                  <div className="w-[78%] animate-pulse rounded-[18px] rounded-bl-[5px] border border-slate-100 bg-slate-100 p-3.5">
-                    <div className="mb-3 h-3 w-[44%] animate-pulse rounded-full bg-slate-200" />
-                    <div className="space-y-2">
-                      <div className="h-3 w-full animate-pulse rounded-full bg-slate-200" />
-                      <div className="h-3 w-[82%] animate-pulse rounded-full bg-slate-200" />
-                      <div className="h-3 w-[62%] animate-pulse rounded-full bg-slate-200" />
-                    </div>
-                  </div>
-                  <div className="ml-auto w-[68%] animate-pulse rounded-[18px] rounded-br-[5px] bg-slate-200 p-3">
-                    <div className="mb-2 h-10 rounded-xl bg-slate-300/70" />
-                    <div className="h-3 w-[72%] rounded-full bg-slate-300/70" />
-                    <div className="mt-3 flex justify-end">
-                      <div className="h-2 w-12 rounded-full bg-slate-300/70" />
-                    </div>
-                  </div>
-                  <div className="w-[54%] animate-pulse rounded-[18px] rounded-bl-[5px] bg-slate-100 p-3">
-                    <div className="h-3 w-[78%] rounded-full bg-slate-200" />
-                    <div className="mt-2 h-2 w-10 rounded-full bg-slate-200" />
+                    <div className="h-10 w-10 shrink-0 animate-pulse rounded-full border border-[#dfe3e8] bg-white" />
+                    <div className="h-10 w-10 shrink-0 animate-pulse rounded-full border border-[#dfe3e8] bg-white" />
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <div className="h-11 min-w-0 flex-1 animate-pulse rounded-full border border-slate-200 bg-slate-50" />
-                  <div className="h-11 w-11 shrink-0 animate-pulse rounded-full border border-slate-200 bg-slate-50" />
+                <div className="flex min-h-0 flex-1 flex-col justify-end gap-3 overflow-hidden px-4 py-4">
+                  <div className="flex justify-center pb-1">
+                    <div className="h-7 w-[68px] animate-pulse rounded-full bg-[#f0f1f3]" />
+                  </div>
+                  <div className="w-[82%] animate-pulse rounded-[20px] rounded-bl-[6px] bg-[#f1f2f4] p-3">
+                    <div className="mb-2.5 h-3 w-24 rounded-full bg-slate-300/70" />
+                    <div className="space-y-1.5">
+                      <div className="h-3 w-full rounded-full bg-slate-300/60" />
+                      <div className="h-3 w-[86%] rounded-full bg-slate-300/60" />
+                      <div className="h-3 w-[65%] rounded-full bg-slate-300/60" />
+                    </div>
+                  </div>
+                  <div className="ml-auto w-[70%] animate-pulse rounded-[20px] rounded-br-[6px] bg-slate-900 p-3">
+                    <div className="mb-2.5 h-9 rounded-xl bg-white/15" />
+                    <div className="h-3 w-[72%] rounded-full bg-white/25" />
+                    <div className="mt-2.5 flex justify-end">
+                      <div className="h-2 w-12 rounded-full bg-white/25" />
+                    </div>
+                  </div>
+                  <div className="ml-auto w-[58%] animate-pulse rounded-[20px] rounded-br-[6px] bg-slate-900 p-3">
+                    <div className="h-3 w-[82%] rounded-full bg-white/25" />
+                    <div className="mt-2.5 flex justify-end">
+                      <div className="h-2 w-10 rounded-full bg-white/25" />
+                    </div>
+                  </div>
+                </div>
+                <div className="shrink-0 bg-transparent px-3 pt-2 pb-[calc(8px+env(safe-area-inset-bottom))]">
+                  <div className="flex items-center gap-2">
+                    <div className="flex h-11 min-w-0 flex-1 items-center rounded-[22px] border border-[#dfe3e8] bg-white px-3">
+                      <div className="h-3 w-20 animate-pulse rounded-full bg-slate-200" />
+                    </div>
+                    <div className="h-11 w-11 shrink-0 animate-pulse rounded-full border border-[#dfe3e8] bg-white" />
+                  </div>
                 </div>
               </div>
             )}
@@ -402,7 +437,7 @@ export function BotChatLauncher({ uid }: { uid: string }) {
                   onClick={() => void loadChat()}
                   className="rounded-full bg-ink px-5 py-2.5 text-sm font-semibold text-white"
                 >
-                  Coba lagi
+                  Try again
                 </button>
               </div>
             )}

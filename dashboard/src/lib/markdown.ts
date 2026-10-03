@@ -105,7 +105,7 @@ function renderInternal(input: string, mode: RenderMode): string {
     text = text.replace(/```([\w+-]*)[ \t]*\n([\s\S]*?)```/g, (_m, lang, code) => {
       const clean = code.replace(/\n$/, "");
       const safeLanguage = /^[A-Za-z0-9_+-]+$/.test(lang) ? lang : "";
-      const header = `<div class="chat-code-header">${safeLanguage ? `<span class="chat-code-language">${safeLanguage}</span>` : "<span></span>"}<button type="button" class="chat-code-copy" aria-label="Salin kode" title="Salin kode" data-code-copy><svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg><svg class="chat-code-check" aria-hidden="true" viewBox="0 0 24 24" fill="none"><path d="m5 12 4 4L19 6"/></svg></button></div>`;
+      const header = `<div class="chat-code-header">${safeLanguage ? `<span class="chat-code-language">${safeLanguage}</span>` : "<span></span>"}<button type="button" class="chat-code-copy" aria-label="Salin kode" title="Salin kode" data-code-copy><svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg><svg class="chat-code-check" aria-hidden="true" viewBox="0 0 24 24" fill="none"><path d="m5 12 4 4L19 6"/></svg><svg class="chat-code-error" aria-hidden="true" viewBox="0 0 24 24" fill="none"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>`;
       return stash(
         `<div class="chat-code-block">${header}<pre class="my-0 block overflow-x-auto font-mono"><code>${clean}</code></pre></div>`,
       );

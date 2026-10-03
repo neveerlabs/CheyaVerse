@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   Home, Image as ImageIcon, User, Send, Github,
 } from "lucide-react";
+import { useEffect, useState } from "react";
 import { BotChatLauncher } from "@/components/BotChatLauncher";
 
 export function TabBar({ uid }: { uid: string }) {
@@ -24,14 +25,58 @@ export function TabBar({ uid }: { uid: string }) {
   const chatActive = pathname.startsWith(chatHref);
   const projectsActive =
     pathname.startsWith(projectsHref) || pathname.startsWith(`${base}/keranjang`);
+  const [keyboardOverlayActive, setKeyboardOverlayActive] = useState(false);
+
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+
+    const updateKeyboardState = () => {
+      const focused = document.activeElement;
+      const target = focused instanceof HTMLElement ? focused : null;
+      const searchFocused =
+        target instanceof HTMLInputElement &&
+        target.type === "search" &&
+        (pathname.startsWith(projectsHref) ||
+          pathname.startsWith(`${base}/keranjang`));
+      const displayNameFocused =
+        target?.id === "account-display-name" &&
+        pathname.startsWith(`${base}/profile/settings`);
+      const keyboardVisible =
+        window.matchMedia("(max-width: 767px)").matches &&
+        window.innerHeight - viewport.height > 120;
+      setKeyboardOverlayActive(
+        keyboardVisible && (searchFocused || displayNameFocused),
+      );
+    };
+
+    updateKeyboardState();
+    viewport.addEventListener("resize", updateKeyboardState);
+    viewport.addEventListener("scroll", updateKeyboardState);
+    document.addEventListener("focusin", updateKeyboardState);
+    document.addEventListener("focusout", updateKeyboardState);
+    return () => {
+      viewport.removeEventListener("resize", updateKeyboardState);
+      viewport.removeEventListener("scroll", updateKeyboardState);
+      document.removeEventListener("focusin", updateKeyboardState);
+      document.removeEventListener("focusout", updateKeyboardState);
+    };
+  }, [base, pathname, projectsHref]);
+
   const refreshCurrentTab = (href: string) => {
     if (pathname === href) router.refresh();
   };
 
   return (
     <>
-    {!mediaViewerActive && <BotChatLauncher uid={uid} />}
-    <nav data-app-tabbar="true" className="fixed bottom-0 left-0 right-0 z-50 rounded-t-[20px] border-t border-slate-200/70 bg-white/85 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_30px_-24px_rgba(15,23,42,.45)] backdrop-blur-2xl">
+    {!mediaViewerActive && (
+      <BotChatLauncher uid={uid} hideLauncher={keyboardOverlayActive} />
+    )}
+    <nav
+      data-app-tabbar="true"
+      style={keyboardOverlayActive ? { display: "none" } : undefined}
+      className="fixed bottom-0 left-0 right-0 z-50 rounded-t-[20px] border-t border-slate-200/70 bg-white/85 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_30px_-24px_rgba(15,23,42,.45)] backdrop-blur-2xl"
+    >
       <div className="relative flex h-[56px] max-w-[600px] mx-auto">
         <Link
           prefetch={false}

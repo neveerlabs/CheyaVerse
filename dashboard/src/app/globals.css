@@ -354,11 +354,24 @@ a {
   display: none;
 }
 
+.chat-code-copy .chat-code-error {
+  display: none;
+}
+
 .chat-code-copy[data-copied="true"] svg:first-child {
   display: none;
 }
 
 .chat-code-copy[data-copied="true"] .chat-code-check {
+  display: block;
+}
+
+.chat-code-copy[data-copy-error="true"] svg:first-child,
+.chat-code-copy[data-copy-error="true"] .chat-code-check {
+  display: none;
+}
+
+.chat-code-copy[data-copy-error="true"] .chat-code-error {
   display: block;
 }
 

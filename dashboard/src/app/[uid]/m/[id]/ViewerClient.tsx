@@ -1380,10 +1380,11 @@ export default function ViewerClient({
 
       {modalOpen && (
         <div
+          data-hide-bot-launcher="true"
           onClick={(e) => { if (e.target === e.currentTarget) setModalOpen(false); }}
           className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-md flex items-center justify-center p-5"
         >
-          <div className="w-full max-w-[380px] rounded-2xl bg-white border border-line p-6 animate-fade-up">
+          <div data-report-anchor="left" data-report-shift-right="2" data-report-resume-align="true" data-report-resume-shift-left="2" className="w-full max-w-[380px] rounded-2xl bg-white border border-line p-6 animate-fade-up">
             {siteKey ? (
               <>
                 <h2 className="text-[16px] font-semibold text-center mb-1 text-ink">
@@ -1464,13 +1465,11 @@ export default function ViewerClient({
 
       {confirmDelete && (
         <div
+          data-hide-bot-launcher="true"
           onClick={(e) => { if (e.target === e.currentTarget && !deleting) setConfirmDelete(false); }}
           className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-md flex items-center justify-center p-5"
         >
-          <div className="w-full max-w-[360px] rounded-2xl bg-white border border-line p-6 animate-fade-up">
-            <div className="w-12 h-12 rounded-full bg-[#fff0f0] mx-auto mb-4 flex items-center justify-center">
-              <Trash2 size={22} className="text-danger" strokeWidth={2} />
-            </div>
+          <div data-report-anchor="left" data-report-gap="4" data-report-shift-right="2" data-report-resume-align="true" data-report-resume-shift-left="2" className="w-full max-w-[360px] rounded-2xl bg-white border border-line p-6 animate-fade-up">
             <h2 className="text-[16px] font-semibold text-center mb-1.5 text-ink">
               Delete this media?
             </h2>

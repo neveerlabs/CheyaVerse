@@ -372,9 +372,9 @@ export function ChatRoomClient({
       try {
         await persistPreference(true);
         setBrowserNotificationsMuted(true);
-        showToast("Notifikasi browser dimatikan");
+        showToast("Notifications muted");
       } catch (error) {
-        showToast(error instanceof Error ? error.message : "Notifikasi browser tidak dapat dimatikan");
+        showToast(error instanceof Error ? error.message : "Deactivation failed");
       }
       return;
     }
@@ -384,13 +384,13 @@ export function ChatRoomClient({
       return;
     }
     if (window.Notification.permission === "denied") {
-      showToast("Izin notifikasi diblokir di pengaturan browser.");
+      showToast("Permission denied");
       return;
     }
     if (window.Notification.permission === "default") {
       const permission = await window.Notification.requestPermission();
       if (permission !== "granted") {
-        showToast("Izin notifikasi browser belum diberikan.");
+        showToast("Permission required");
         return;
       }
     }
@@ -398,9 +398,9 @@ export function ChatRoomClient({
     try {
       await persistPreference(false);
       setBrowserNotificationsMuted(false);
-      showToast("Notifikasi browser diaktifkan");
+      showToast("Notifications enabled");
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "Notifikasi browser tidak dapat diaktifkan");
+      showToast(error instanceof Error ? error.message : "Permission denied");
     }
   }
 
@@ -1131,7 +1131,7 @@ export function ChatRoomClient({
           return next;
         });
       } else {
-        throw new Error("Pesan gagal dikirim. Silakan coba lagi.");
+        throw new Error("Failed to send message. Please try again");
       }
     } catch (error) {
       if (navigator.onLine) {
@@ -1146,7 +1146,7 @@ export function ChatRoomClient({
             : "Server belum mengonfirmasi pesan",
         );
       } else {
-        showToast("Tidak ada koneksi internet. Pesan belum terkirim");
+        showToast("Tidak ada koneksi internet. Pesan tidak dapat terkirim");
       }
     } finally {
       setSending(false);
@@ -1184,9 +1184,9 @@ export function ChatRoomClient({
         : formatChatItems(selected);
     try {
       await navigator.clipboard.writeText(texts.filter(Boolean).join("\n"));
-      showToast("Pesan disalin.");
+      showToast("Message copied");
     } catch {
-      showToast("Pesan tidak dapat disalin. Periksa izin clipboard browser.");
+      showToast("Failed to copy message");
     }
   }
 
@@ -1224,7 +1224,7 @@ export function ChatRoomClient({
             `/api/notifications/${encodeURIComponent(uid)}?id=${encodeURIComponent(id)}`,
             { method: "DELETE" },
           ).then((res) => {
-            if (!res.ok) throw new Error("Pesan gagal dihapus.");
+            if (!res.ok) throw new Error("Failed to delete message");
           }),
         ),
         ...msgIds.map((id) =>
@@ -1232,15 +1232,15 @@ export function ChatRoomClient({
             `/api/messages/${encodeURIComponent(uid)}?messageId=${encodeURIComponent(id)}&scope=${scope}`,
             { method: "DELETE" },
           ).then((res) => {
-            if (!res.ok) throw new Error("Pesan gagal dihapus.");
+            if (!res.ok) throw new Error("Failed to delete message");
           }),
         ),
       ]);
-      showToast("Pesan dihapus.");
+      showToast("Message deleted");
     } catch (error) {
       setMessages(messageSnapshot);
       setHiddenNotificationIds(hiddenSnapshot);
-      showToast(error instanceof Error ? error.message : "Pesan gagal dihapus.");
+      showToast(error instanceof Error ? error.message : "Failed to delete message");
     }
   }
 
@@ -1290,7 +1290,7 @@ export function ChatRoomClient({
         error?: string;
       };
       if (!response.ok || !result.message) {
-        throw new Error(result.error || "Pesan gagal diperbarui.");
+        throw new Error(result.error || "Failed to update message");
       }
       setMessages((current) =>
         current.map((message) =>
@@ -1298,9 +1298,9 @@ export function ChatRoomClient({
         ),
       );
       cancelInlineEdit();
-      showToast("Pesan diperbarui");
+      showToast("Message updated");
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "Pesan gagal diperbarui");
+      showToast(error instanceof Error ? error.message : "Failed to update message");
     } finally {
       setSending(false);
     }
@@ -1363,11 +1363,11 @@ export function ChatRoomClient({
       });
       const result = (await response.json()) as { ok?: boolean; error?: string };
       if (!response.ok || !result.ok) {
-        throw new Error(result.error || "Laporan pesan tidak dapat dikirim");
+        throw new Error(result.error || "Failed to submit message report");
       }
       closeMessageReport();
       exitSelectMode();
-      showToast("Laporan pesan berhasil dikirim kepada admin");
+      showToast("Message report submitted successfully to admin");
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Laporan pesan tidak dapat dikirim");
     } finally {

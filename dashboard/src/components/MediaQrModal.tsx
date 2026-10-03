@@ -247,6 +247,8 @@ export function MediaQrModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="media-qr-title"
+        data-report-anchor="left"
+        data-report-gap="4"
         className="flex max-h-[min(92dvh,760px)] w-full max-w-[430px] flex-col overflow-hidden rounded-[28px] border border-white/60 bg-[#f7f8fa] shadow-[0_24px_90px_-24px_rgba(0,0,0,.45)] animate-fade-up"
       >
         <header className="flex items-center justify-between border-b border-black/[.06] bg-white px-5 py-4">
