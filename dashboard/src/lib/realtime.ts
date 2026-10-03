@@ -4,11 +4,22 @@ export type RealtimeEvent = {
 };
 
 type Client = {
-  uid: number | null;
+  uid: number;
   send: (event: RealtimeEvent) => void;
 };
 
 const clients = new Set<Client>();
+
+function deliverToLocalClients(uid: number, event: RealtimeEvent): void {
+  for (const client of clients) {
+    if (client.uid !== uid) continue;
+    try {
+      client.send(event);
+    } catch (error) {
+      console.error("[realtime] failed to deliver event to local SSE client:", error);
+    }
+  }
+}
 
 export function subscribe(client: Client): () => void {
   clients.add(client);
@@ -17,11 +28,6 @@ export function subscribe(client: Client): () => void {
   };
 }
 
-export function broadcastToUid(uid: number, event: RealtimeEvent) {
-  for (const c of clients) {
-    if (c.uid !== uid) continue;
-    try {
-      c.send(event);
-    } catch {}
-  }
+export function broadcastToUid(uid: number, event: RealtimeEvent): void {
+  deliverToLocalClients(uid, event);
 }

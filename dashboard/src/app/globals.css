@@ -47,6 +47,21 @@ main {
   transition: filter 320ms cubic-bezier(.4,0,.2,1), opacity 320ms cubic-bezier(.4,0,.2,1);
 }
 
+.app-shell {
+  width: min(100%, 1180px);
+  background: #fff;
+}
+
+@media (min-width: 768px) {
+  body:has(.app-shell) {
+    background: #f7f8fa;
+  }
+
+  .app-shell {
+    box-shadow: 0 0 0 1px rgba(15, 23, 42, .025);
+  }
+}
+
 html.nav-loading main {
   filter: blur(4px);
   opacity: .45;

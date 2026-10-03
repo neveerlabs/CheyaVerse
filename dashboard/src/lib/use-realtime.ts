@@ -17,30 +17,11 @@ type MsgPayload = {
 
 type Snapshot = {
   unread: number;
-  directUnread: number;
   notifLastId: string | null;
   notifLastAt: string | null;
   mediaCount: number;
   mediaLastId: string | null;
   msgLast: MsgPayload | null;
-  directLast: {
-    id: string;
-    sender_uid: number;
-    recipient_uid: number;
-    content: string;
-    created_at: string;
-    delivered_at: string | null;
-    read_at: string | null;
-  } | null;
-  directIncomingRecent: Array<{
-    id: string;
-    sender_uid: number;
-    recipient_uid: number;
-    content: string;
-    created_at: string;
-    delivered_at: string | null;
-    read_at: string | null;
-  }>;
 };
 
 type Listener = (event: RealtimeEvent) => void;
@@ -53,9 +34,8 @@ const MAX_ERR_LEVEL = 6;
 
 class RealtimeConnection {
   private readonly listeners = new Set<Listener>();
-  private readonly recentDirectMessageIds = new Set<string>();
+  private readonly recentEventKeys = new Set<string>();
   private timer: ReturnType<typeof setTimeout> | null = null;
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private inflight: AbortController | null = null;
   private source: EventSource | null = null;
   private previous: Snapshot | null = null;
@@ -64,6 +44,7 @@ class RealtimeConnection {
   private realtimeUnavailable = false;
   private realtimeStatusTimer: ReturnType<typeof setTimeout> | null = null;
   private refreshRequested = false;
+  private forcePollRequested = false;
   private started = false;
   private stopped = false;
 
@@ -80,20 +61,30 @@ class RealtimeConnection {
 
   reconnect(): void {
     if (this.stopped) return;
-    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     if (this.timer) {
       clearTimeout(this.timer);
       this.timer = null;
     }
+    this.source?.close();
+    this.streamConnected = false;
     if (this.inflight) {
       this.refreshRequested = true;
+      this.forcePollRequested = true;
       this.inflight.abort();
     }
-    this.reconnectTimer = setTimeout(() => {
-      this.reconnectTimer = null;
+    this.connectStream();
+    this.kick(true);
+  }
+
+  reconcile(): void {
+    if (this.stopped) return;
+    if (
+      typeof EventSource !== "undefined" &&
+      this.source?.readyState === EventSource.CLOSED
+    ) {
       this.connectStream();
-      this.kick();
-    }, 80);
+    }
+    this.kick(true);
   }
 
   get listenerCount(): number {
@@ -105,23 +96,13 @@ class RealtimeConnection {
     this.started = true;
 
     this.connectStream();
-
-    window.addEventListener("pageshow", this.onPageShow);
-    window.addEventListener("popstate", this.onPopState);
-    window.addEventListener("online", this.onOnline);
-    document.addEventListener("visibilitychange", this.onVisibility);
     this.kick();
   }
 
   stop(): void {
     if (this.stopped) return;
     this.stopped = true;
-    window.removeEventListener("pageshow", this.onPageShow);
-    window.removeEventListener("popstate", this.onPopState);
-    window.removeEventListener("online", this.onOnline);
-    document.removeEventListener("visibilitychange", this.onVisibility);
     if (this.timer) clearTimeout(this.timer);
-    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     if (this.realtimeStatusTimer) clearTimeout(this.realtimeStatusTimer);
     this.source?.close();
     this.inflight?.abort();
@@ -135,15 +116,17 @@ class RealtimeConnection {
       `/api/events?uid=${encodeURIComponent(this.uid)}`,
     );
     this.source.onopen = () => {
-      this.streamConnected = true;
       this.errCount = 0;
-      this.setRealtimeUnavailable(false);
-      if (!this.previous) this.kick();
     };
     this.source.onmessage = (message) => {
       try {
         const event = JSON.parse(message.data) as RealtimeEvent;
-        if (typeof event.type === "string" && event.type !== "ready") {
+        if (event.type === "ready") {
+          this.streamConnected = true;
+          this.errCount = 0;
+          this.setRealtimeUnavailable(false);
+          this.kick(true);
+        } else if (typeof event.type === "string") {
           this.emit(event);
         }
       } catch {}
@@ -184,24 +167,37 @@ class RealtimeConnection {
   }
 
   private emit(event: RealtimeEvent): void {
-    if (event.type === "direct-message:new") {
-      const message = event.message as { id?: unknown } | undefined;
-      const messageId = typeof message?.id === "string" ? message.id : null;
-      if (messageId) {
-        if (this.recentDirectMessageIds.has(messageId)) return;
-        this.recentDirectMessageIds.add(messageId);
-        if (this.recentDirectMessageIds.size > 100) {
-          const oldestId = this.recentDirectMessageIds.values().next().value;
-          if (oldestId) this.recentDirectMessageIds.delete(oldestId);
-        }
+    if (event.type === "notification:new") {
+      const notificationId =
+        typeof event.notificationId === "string" ? event.notificationId : null;
+      if (notificationId && !this.rememberEvent(`notification:${notificationId}`)) {
+        return;
       }
     }
-
+    if (event.type === "message:new") {
+      const message = event.message as { id?: unknown } | undefined;
+      if (
+        typeof message?.id === "string" &&
+        !this.rememberEvent(`message:${message.id}`)
+      ) {
+        return;
+      }
+    }
     for (const listener of this.listeners) {
       try {
         listener(event);
       } catch {}
     }
+  }
+
+  private rememberEvent(key: string): boolean {
+    if (this.recentEventKeys.has(key)) return false;
+    this.recentEventKeys.add(key);
+    if (this.recentEventKeys.size > 200) {
+      const oldestKey = this.recentEventKeys.values().next().value;
+      if (oldestKey) this.recentEventKeys.delete(oldestKey);
+    }
+    return true;
   }
 
   private nextInterval(): number {
@@ -216,7 +212,7 @@ class RealtimeConnection {
       : POLL_HIDDEN_MS;
   }
 
-  private tick = async (): Promise<void> => {
+  private tick = async (force = false): Promise<void> => {
     if (this.stopped || this.inflight) return;
 
     const controller = new AbortController();
@@ -273,45 +269,10 @@ class RealtimeConnection {
           this.emit({ type: "notification:read" });
         }
 
-        if (current.directUnread !== this.previous.directUnread) {
-          this.emit({ type: "direct-unread:changed" });
-        }
-
         const currentMessageId = current.msgLast?.id ?? "";
         const previousMessageId = this.previous.msgLast?.id ?? "";
         if (currentMessageId && currentMessageId !== previousMessageId) {
           this.emit({ type: "message:new", message: current.msgLast });
-        }
-
-        for (const incoming of current.directIncomingRecent ?? []) {
-          if (this.recentDirectMessageIds.has(incoming.id)) continue;
-          this.emit({ type: "direct-message:new", message: incoming });
-        }
-
-        const currentDirectId = current.directLast?.id ?? "";
-        const previousDirectId = this.previous.directLast?.id ?? "";
-        if (
-          currentDirectId &&
-          currentDirectId !== previousDirectId &&
-          current.directLast?.recipient_uid === Number(this.uid)
-        ) {
-          this.emit({
-            type: "direct-message:new",
-            message: current.directLast,
-          });
-        }
-        if (
-          currentDirectId &&
-          currentDirectId === previousDirectId &&
-          current.directLast?.read_at &&
-          current.directLast.read_at !== this.previous.directLast?.read_at
-        ) {
-          this.emit({
-            type: "direct-message:read",
-            uid: current.directLast.recipient_uid,
-            messageId: currentDirectId,
-            read_at: current.directLast.read_at,
-          });
         }
 
         if (
@@ -322,11 +283,6 @@ class RealtimeConnection {
         }
       }
 
-      if (!this.previous) {
-        for (const incoming of current.directIncomingRecent ?? []) {
-          this.recentDirectMessageIds.add(incoming.id);
-        }
-      }
       this.previous = current;
     } catch (error) {
       if ((error as { name?: string })?.name !== "AbortError") {
@@ -338,45 +294,35 @@ class RealtimeConnection {
       }
     } finally {
       if (this.inflight === controller) this.inflight = null;
+      const forceNextPoll = this.forcePollRequested;
+      this.forcePollRequested = false;
       if (!this.stopped) {
-        const delay = this.refreshRequested ? 0 : this.nextInterval();
+        const delay = this.refreshRequested || forceNextPoll ? 0 : this.nextInterval();
         this.refreshRequested = false;
         this.timer = setTimeout(() => {
           this.timer = null;
-          void this.tick();
+          void this.tick(forceNextPoll);
         }, delay);
+      } else {
+        this.refreshRequested = false;
       }
     }
   };
 
-  private kick = (): void => {
+  private kick = (force = false): void => {
     if (this.stopped) return;
     if (this.inflight) {
       this.refreshRequested = true;
+      this.forcePollRequested ||= force;
       return;
     }
     if (this.timer) clearTimeout(this.timer);
     this.timer = setTimeout(() => {
       this.timer = null;
-      void this.tick();
+      void this.tick(force);
     }, 0);
   };
 
-  private onVisibility = (): void => {
-    if (document.visibilityState === "visible" && !this.streamConnected) this.reconnect();
-  };
-
-  private onPageShow = (event: PageTransitionEvent): void => {
-    if (event.persisted || document.visibilityState === "visible") this.reconnect();
-  };
-
-  private onPopState = (): void => {
-    this.reconnect();
-  };
-
-  private onOnline = (): void => {
-    if (!this.streamConnected) this.reconnect();
-  };
 }
 
 const connections = new Map<string, RealtimeConnection>();
@@ -400,8 +346,13 @@ function subscribe(uid: string, listener: Listener): () => void {
   };
 }
 
-export function reconnectRealtime(uid: string | number): void {
-  connections.get(String(uid))?.reconnect();
+export function reconnectRealtime(
+  uid: string | number,
+  forceReconnect = false,
+): void {
+  const connection = connections.get(String(uid));
+  if (forceReconnect) connection?.reconnect();
+  else connection?.reconcile();
 }
 
 export function useRealtime(

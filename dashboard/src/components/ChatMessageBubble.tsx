@@ -3,7 +3,7 @@
 import type { ReactNode, PointerEventHandler } from "react";
 import type { MouseEventHandler } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, Pin } from "lucide-react";
+import { Check, Pin, X } from "lucide-react";
 import { TelegramAvatar } from "@/components/TelegramAvatar";
 import { LinkPreview } from "@/components/LinkPreview";
 import { extractFirstUrl } from "@/lib/link-preview";
@@ -44,6 +44,12 @@ type ChatMessageBubbleProps = {
   onPointerCancel?: PointerEventHandler<HTMLDivElement>;
   onContextMenu?: MouseEventHandler<HTMLDivElement>;
   onDoubleClick?: MouseEventHandler<HTMLDivElement>;
+  editing?: boolean;
+  editValue?: string;
+  editSaving?: boolean;
+  onEditChange?: (value: string) => void;
+  onEditSave?: () => void;
+  onEditCancel?: () => void;
 };
 
 export function ChatMessageBubble({
@@ -72,6 +78,12 @@ export function ChatMessageBubble({
   onPointerCancel,
   onContextMenu,
   onDoubleClick,
+  editing = false,
+  editValue = "",
+  editSaving = false,
+  onEditChange,
+  onEditSave,
+  onEditCancel,
 }: ChatMessageBubbleProps) {
   const messageContentRef = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(false);
@@ -139,7 +151,7 @@ export function ChatMessageBubble({
       >
         {richText ? (
           <div
-            className={`chat-rich-text block min-w-0 break-words text-[14px] leading-[1.45] ${
+            className={`chat-rich-text block min-w-0 break-words text-[12.5px] leading-[1.35] md:text-[14px] md:leading-[1.45] ${
               outgoing ? "chat-rich-text-outgoing" : "chat-rich-text-incoming"
             } ${deleted ? "italic opacity-65" : ""}`}
             dangerouslySetInnerHTML={{ __html: richTextHtml }}
@@ -150,12 +162,12 @@ export function ChatMessageBubble({
               outgoing
                 ? "chat-rich-text-outgoing"
                 : "chat-rich-text-incoming"
-            } whitespace-pre-wrap break-words text-[14px] leading-[1.45] ${markdownClass}`}
+            } whitespace-pre-wrap break-words text-[12.5px] leading-[1.35] md:text-[14px] md:leading-[1.45] ${markdownClass}`}
             dangerouslySetInnerHTML={{ __html: markdownHtml }}
           />
         ) : (
           <span
-            className={`whitespace-pre-wrap break-words text-[14px] leading-[1.45] ${deleted ? "italic opacity-65" : ""}`}
+            className={`whitespace-pre-wrap break-words text-[12.5px] leading-[1.35] md:text-[14px] md:leading-[1.45] ${deleted ? "italic opacity-65" : ""}`}
           >
             {content}
           </span>
@@ -238,7 +250,7 @@ export function ChatMessageBubble({
 
   const selectIndicator = (
     <span
-      className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border-2 transition-colors ${
+      className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full border-2 transition-colors ${
         selected
           ? "border-emerald-500 bg-emerald-500"
           : "border-ink-mute/40 bg-transparent"
@@ -264,7 +276,7 @@ export function ChatMessageBubble({
       }}
     >
       {selectMode && <span className="flex-shrink-0">{selectIndicator}</span>}
-      {!selectMode && !outgoing && (
+      {!selectMode && !outgoing && avatarUrl && (
         <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-[#f0f0f0]">
           <TelegramAvatar src={avatarUrl} fallbackSrc={avatarFallbackUrl} />
         </span>
@@ -272,31 +284,68 @@ export function ChatMessageBubble({
       {selectMode && outgoing && <span aria-hidden className="flex-1" />}
       <div
         className={`w-fit min-w-0 ${
-          outgoing ? "max-w-[92%]" : "max-w-[calc(100%-40px)]"
+          outgoing || !avatarUrl ? "max-w-[94%] md:max-w-[92%]" : "max-w-[calc(100%-40px)]"
         }`}
       >
         <div
           role="group"
           aria-label={label}
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onPointerCancel={onPointerCancel}
-          onContextMenu={onContextMenu}
-          onDoubleClick={onDoubleClick}
+          onPointerDown={editing ? undefined : onPointerDown}
+          onPointerMove={editing ? undefined : onPointerMove}
+          onPointerUp={editing ? undefined : onPointerUp}
+          onPointerCancel={editing ? undefined : onPointerCancel}
+          onContextMenu={editing ? undefined : onContextMenu}
+          onDoubleClick={editing ? undefined : onDoubleClick}
           className={`${stacksMessageMeta ? "flex" : "inline-flex"} w-fit min-w-[68px] max-w-full touch-pan-y break-words transition-[transform,box-shadow] duration-200 ease-out [overflow-wrap:anywhere] ${
             selectMode ? "cursor-pointer" : "active:scale-[.985]"
           } ${
             outgoing
-              ? `${stacksMessageMeta ? "flex-col" : "items-end gap-2"} rounded-[18px] rounded-br-[6px] border border-white/[.07] bg-ink px-3.5 py-1.5 text-white shadow-[0_2px_6px_rgba(0,0,0,.09)]`
-              : `${stacksMessageMeta ? "flex-col" : "items-end gap-2"} rounded-[18px] rounded-bl-[6px] border border-black/[.025] bg-[#f1f2f4] px-3.5 py-1.5 text-ink shadow-[0_2px_6px_rgba(0,0,0,.04)]`
+                ? `${stacksMessageMeta ? "flex-col" : "items-end gap-2"} rounded-[16px] rounded-br-[5px] border border-white/[.07] bg-ink px-2.5 py-1 md:rounded-[18px] md:rounded-br-[6px] md:px-3.5 md:py-1.5 text-white shadow-[0_2px_6px_rgba(0,0,0,.09)]`
+                : `${stacksMessageMeta ? "flex-col" : "items-end gap-2"} rounded-[16px] rounded-bl-[5px] border border-black/[.025] bg-[#f1f2f4] px-2.5 py-1 md:rounded-[18px] md:rounded-bl-[6px] md:px-3.5 md:py-1.5 text-ink shadow-[0_2px_6px_rgba(0,0,0,.04)]`
           } ${pending ? "opacity-70" : ""} ${
             highlight
-              ? "ring-[3px] ring-amber-400 shadow-[0_0_18px_rgba(251,191,36,.55)] scale-[1.01]"
+              ? "ring-2 ring-ink/20 shadow-[0_2px_10px_rgba(15,23,42,.12)]"
               : ""
           }`}
         >
-          {stacksMessageMeta ? (
+          {editing ? (
+            <div className="w-full min-w-[220px] space-y-2">
+              <textarea
+                autoFocus
+                aria-label="Edit message"
+                value={editValue}
+                onChange={(event) => onEditChange?.(event.target.value)}
+                onPointerDown={(event) => event.stopPropagation()}
+                rows={Math.min(6, Math.max(2, editValue.split("\n").length))}
+                className="w-full resize-y rounded-xl border border-slate-300 bg-white p-2.5 text-[13px] leading-relaxed text-ink outline-none focus:border-slate-500"
+                maxLength={4000}
+              />
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onEditCancel?.();
+                  }}
+                  disabled={editSaving}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-full border border-white/40 px-3 text-[11px] font-semibold text-white disabled:opacity-50"
+                >
+                  <X size={13} /> Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onEditSave?.();
+                  }}
+                  disabled={editSaving || !editValue.trim()}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-full bg-white px-3 text-[11px] font-semibold text-ink disabled:opacity-50"
+                >
+                  {editSaving ? "Saving…" : "Save"}
+                </button>
+              </div>
+            </div>
+          ) : stacksMessageMeta ? (
             <div className="flex min-w-0 flex-1 flex-col">
               {messageBody}
               <div className="flex justify-end">{messageMeta}</div>

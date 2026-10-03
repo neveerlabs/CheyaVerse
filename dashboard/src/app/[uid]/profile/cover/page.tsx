@@ -16,13 +16,13 @@ export default async function CoverPage({
   const cover = await getCover(uid).catch(() => null);
 
   return (
-    <>
+    <div className="mx-auto w-full max-w-[900px]">
       <SubPageHeader
         title="Profile Cover"
         subtitle="Atur cover profilmu se menarik mungkin"
         backHref={`/${params.uid}/profile`}
       />
       <CoverClient uid={params.uid} initialCover={cover} />
-    </>
+    </div>
   );
 }

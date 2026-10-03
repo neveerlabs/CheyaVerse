@@ -53,6 +53,80 @@ async function markAllRead(uid) {
   } catch {}
 }
 
+function isBrowserNotificationMuted(uid) {
+  if (!uid || !self.indexedDB) return Promise.resolve(false);
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open("cheyaverse-notification-settings", 1);
+    request.onupgradeneeded = () => {
+      request.result.createObjectStore("preferences");
+    };
+    request.onerror = () => reject(request.error || new Error("Could not read notification settings."));
+    request.onsuccess = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains("preferences")) {
+        db.close();
+        resolve(false);
+        return;
+      }
+      const transaction = db.transaction("preferences", "readonly");
+      const getRequest = transaction
+        .objectStore("preferences")
+        .get(`browser-muted-${uid}`);
+      getRequest.onsuccess = () => {
+        db.close();
+        resolve(getRequest.result === true);
+      };
+      getRequest.onerror = () => {
+        db.close();
+        reject(getRequest.error || new Error("Could not read notification preference."));
+      };
+    };
+  });
+}
+
+self.addEventListener("message", (event) => {
+  const data = event.data || {};
+  if (
+    data.type !== "cheya:browser-notifications-preference" ||
+    !/^\d+$/.test(String(data.uid)) ||
+    typeof data.muted !== "boolean"
+  ) {
+    event.ports[0]?.postMessage({ ok: false });
+    return;
+  }
+  event.waitUntil(
+    new Promise((resolve, reject) => {
+      const request = indexedDB.open("cheyaverse-notification-settings", 1);
+      request.onupgradeneeded = () => {
+        request.result.createObjectStore("preferences");
+      };
+      request.onerror = () =>
+        reject(request.error || new Error("Could not save notification settings."));
+      request.onsuccess = () => {
+        const db = request.result;
+        const transaction = db.transaction("preferences", "readwrite");
+        transaction.objectStore("preferences").put(
+          data.muted,
+          `browser-muted-${data.uid}`,
+        );
+        transaction.oncomplete = () => {
+          db.close();
+          resolve();
+        };
+        transaction.onerror = () => {
+          db.close();
+          reject(transaction.error || new Error("Could not save notification preference."));
+        };
+      };
+    }).then(() => {
+      event.ports[0]?.postMessage({ ok: true });
+    }).catch((error) => {
+      console.error("[service-worker] failed to save notification preference:", error);
+      event.ports[0]?.postMessage({ ok: false });
+    }),
+  );
+});
+
 self.addEventListener("push", (event) => {
   let payload = {};
   try {
@@ -79,6 +153,12 @@ self.addEventListener("push", (event) => {
     : ICON_PATH;
 
   event.waitUntil((async () => {
+    try {
+      if (await isBrowserNotificationMuted(data.uid)) return;
+    } catch (error) {
+      console.error("[service-worker] failed to read notification preference:", error);
+      return;
+    }
     const options = {
       body,
       icon: absoluteUrl(iconRaw),

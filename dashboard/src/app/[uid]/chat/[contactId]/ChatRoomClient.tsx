@@ -2,39 +2,32 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   ArrowDown,
-  ArrowLeft,
-  MoreVertical,
-  Search,
+  Bug,
   X,
   Check,
   CheckCheck,
   Clock,
   Copy,
-  Forward,
-  Pin,
-  Pencil,
-  Reply,
-  Trash2,
-  UserRound,
-  ListChecks,
   Bell,
   BellOff,
-  Send,
+  Pin,
+  Reply,
+  Trash2,
+  Pencil,
 } from "lucide-react";
 import { useRealtime } from "@/lib/use-realtime";
 import { ChatComposer } from "@/components/ChatComposer";
 import { ChatMessageBubble, chatMessageTime } from "@/components/ChatMessageBubble";
-import { ClearChatsDialog } from "@/components/ClearChatsDialog";
 import { TelegramAvatar } from "@/components/TelegramAvatar";
 import { VerifiedName } from "@/components/VerifiedName";
 import { playReceiveSound, playSendSound } from "@/lib/chat-sounds";
 import { chatPreviewText } from "@/lib/chat-preview";
+import { acquirePageModalLock } from "@/lib/page-modal-lock";
 
-type Notification = {
+export type Notification = {
   id: string;
   uid: number;
   title: string;
@@ -47,7 +40,7 @@ type Notification = {
   is_pinned: boolean;
 };
 
-type ChatMessage = {
+export type ChatMessage = {
   id: string;
   uid: number;
   sender: "user" | "bot";
@@ -63,7 +56,7 @@ type ChatMessage = {
   is_pinned: boolean;
 };
 
-type TelegramUser = {
+export type TelegramUser = {
   uid: number;
   username: string | null;
   first_name: string | null;
@@ -92,22 +85,12 @@ type ChatItem = {
   _pending: boolean;
 };
 
-type ForwardContact = {
-  uid: number;
-  username: string | null;
-  first_name: string | null;
-  last_name: string | null;
-  photo_url: string | null;
-};
-
 const MARK_READ_THROTTLE_MS = 400;
 const SWIPE_TRIGGER = 55;
 const SWIPE_MAX = 88;
 const SELECT_GRACE_MS = 500;
 const LONG_PRESS_MS = 400;
 const MOVE_THRESHOLD = 15;
-const MUTE_KEY_PREFIX = "cheya-system-muted:";
-
 type ViewportState = {
   top: number;
   height: number;
@@ -148,31 +131,30 @@ function computeUserDisplayName(user: TelegramUser | null): string {
   return "Anda";
 }
 
-function contactLabel(user: ForwardContact): string {
-  if (user.username) return user.username;
-  const fullName = [user.first_name, user.last_name].filter(Boolean).join(" ").trim();
-  return fullName || `Telegram ${user.uid}`;
-}
-
 function StatusIcon({
   pending,
   deliveredAt,
   readAt,
+  online,
 }: {
   pending: boolean;
   deliveredAt: string | null;
   readAt: string | null;
+  online: boolean;
 }) {
-  if (pending) {
-    return <Clock size={11} strokeWidth={2.2} className="text-white/70" />;
-  }
-  if (readAt) {
+  if (readAt || deliveredAt) {
     return <CheckCheck size={13} strokeWidth={2.2} className="text-sky-400" />;
   }
-  if (deliveredAt) {
-    return <CheckCheck size={13} strokeWidth={2.2} className="text-white/75" />;
+  if (pending || !online) {
+    return (
+      <Clock
+        size={11}
+        strokeWidth={2.2}
+        className={online ? "text-white/70" : "animate-spin text-white/70"}
+      />
+    );
   }
-  return <Check size={13} strokeWidth={2.2} className="text-white/75" />;
+  return <Check size={13} strokeWidth={2.2} className="text-white/65" />;
 }
 
 const clampStyle: React.CSSProperties = {
@@ -188,15 +170,21 @@ export function ChatRoomClient({
   notifications,
   initialMessages,
   user,
+  isModal = false,
+  keyboardCompact = false,
+  onClose,
 }: {
   uid: string;
   notifications: Notification[];
   initialMessages: ChatMessage[];
   user: TelegramUser | null;
+  isModal?: boolean;
+  keyboardCompact?: boolean;
+  onClose?: () => void;
 }) {
   const messageBoxRef = useRef<HTMLDivElement | null>(null);
+  const modalSurfaceRef = useRef<HTMLDivElement | null>(null);
   const taRef = useRef<HTMLTextAreaElement | null>(null);
-  const menuRootRef = useRef<HTMLElement | null>(null);
   const longPressTimerRef = useRef<number | null>(null);
   const longPressTriggeredAtRef = useRef(0);
   const pressOriginRef = useRef({ x: 0, y: 0 });
@@ -213,6 +201,7 @@ export function ChatRoomClient({
   const hasScrolledRef = useRef(false);
   const router = useRouter();
   const DRAFT_KEY = `cheya-draft:${uid}:system`;
+  const BROWSER_NOTIFICATIONS_MUTED_KEY = `cheya-browser-notifications-muted:${uid}`;
   const draftReadyRef = useRef(false);
   const selectModeRef = useRef(false);
   const swipeRef = useRef<{
@@ -237,30 +226,25 @@ export function ChatRoomClient({
   const [pending, setPending] = useState<Set<string>>(() => new Set());
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [searchText, setSearchText] = useState("");
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState("");
+  const [reportCategoryOpen, setReportCategoryOpen] = useState(false);
+  const [reportCategory, setReportCategory] = useState("");
+  const [reportOtherDescription, setReportOtherDescription] = useState("");
+  const [reportSending, setReportSending] = useState(false);
+  const [isOnline, setIsOnline] = useState(true);
+  const reportCategoryOpenRef = useRef(false);
+  const closingReportWithBackRef = useRef(false);
+  const feedbackModalOpenRef = useRef(false);
+  const closingFeedbackModalRef = useRef(false);
+  const [browserNotificationsMuted, setBrowserNotificationsMuted] = useState(false);
   const [replyingTo, setReplyingTo] = useState<ChatItem | null>(null);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [forwardOpen, setForwardOpen] = useState(false);
-  const [forwardQuery, setForwardQuery] = useState("");
-  const [forwardUsers, setForwardUsers] = useState<ForwardContact[]>([]);
-  const [forwardLoading, setForwardLoading] = useState(false);
-  const [forwardTargets, setForwardTargets] = useState<string[]>([]);
-  const [forwardSelectedUids, setForwardSelectedUids] = useState<number[]>([]);
-  const [forwarding, setForwarding] = useState(false);
-  const [contacts, setContacts] = useState<ForwardContact[]>([]);
-  const [contactsLoading, setContactsLoading] = useState(false);
-  const [contactsLoaded, setContactsLoaded] = useState(false);
   const [toast, setToast] = useState("");
-  const [clearDialogMode, setClearDialogMode] = useState<"all" | "selected" | null>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [swipe, setSwipe] = useState<{ id: string; offset: number } | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
-  const [muted, setMuted] = useState(false);
-  const [clearing, setClearing] = useState(false);
   const [viewport, setViewport] = useState<ViewportState>({
     top: 0,
     height: 0,
@@ -269,10 +253,8 @@ export function ChatRoomClient({
   });
   const [vvOffset, setVvOffset] = useState(0);
 
-  const mutedRef = useRef(false);
-
   function showToast(message: string) {
-    setToast(message);
+    setToast(message.replace(/[.!?…]+$/, ""));
     if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
     toastTimerRef.current = window.setTimeout(() => setToast(""), 2600);
   }
@@ -286,12 +268,169 @@ export function ChatRoomClient({
   }, [selectMode]);
 
   useEffect(() => {
+    const updateOnline = () => {
+      setIsOnline(navigator.onLine);
+      if (navigator.onLine) {
+        setPending((current) => {
+          const next = new Set(current);
+          for (const id of next) {
+            if (id.startsWith("temp-")) next.delete(id);
+          }
+          return next;
+        });
+      }
+    };
+    updateOnline();
+    window.addEventListener("online", updateOnline);
+    window.addEventListener("offline", updateOnline);
+    return () => {
+      window.removeEventListener("online", updateOnline);
+      window.removeEventListener("offline", updateOnline);
+    };
+  }, []);
+
+  useEffect(() => {
+    reportCategoryOpenRef.current = reportCategoryOpen;
+  }, [reportCategoryOpen]);
+
+  useEffect(() => {
+    if (!reportCategoryOpen || isModal) return;
+    return acquirePageModalLock();
+  }, [isModal, reportCategoryOpen]);
+
+  useEffect(() => {
+    const onFeedbackModalState = (event: Event) => {
+      feedbackModalOpenRef.current =
+        (event as CustomEvent<{ open?: boolean }>).detail?.open === true;
+    };
+    const onFeedbackModalClosing = () => {
+      closingFeedbackModalRef.current = true;
+    };
+    window.addEventListener("cheya:feedback-modal-state", onFeedbackModalState);
+    window.addEventListener("cheya:feedback-modal-closing", onFeedbackModalClosing);
+    return () => {
+      window.removeEventListener("cheya:feedback-modal-state", onFeedbackModalState);
+      window.removeEventListener("cheya:feedback-modal-closing", onFeedbackModalClosing);
+    };
+  }, []);
+
+  useEffect(() => {
     try {
-      const value = window.localStorage.getItem(`${MUTE_KEY_PREFIX}${uid}`) === "1";
-      setMuted(value);
-      mutedRef.current = value;
-    } catch {}
-  }, [uid]);
+      setBrowserNotificationsMuted(
+        window.localStorage.getItem(BROWSER_NOTIFICATIONS_MUTED_KEY) === "true",
+      );
+    } catch (error) {
+      console.error("[chat] failed to read browser notification preference:", error);
+    }
+  }, [BROWSER_NOTIFICATIONS_MUTED_KEY]);
+
+  async function toggleBrowserNotifications() {
+    const persistPreference = async (muted: boolean) => {
+      try {
+        window.localStorage.setItem(BROWSER_NOTIFICATIONS_MUTED_KEY, String(muted));
+      } catch (error) {
+        console.error("[chat] failed to save browser notification preference:", error);
+        throw new Error("Preferensi notifikasi tidak dapat disimpan.");
+      }
+      if (!("serviceWorker" in navigator)) return;
+      const registration = await navigator.serviceWorker.register("/sw.js", {
+        scope: "/",
+      });
+      await navigator.serviceWorker.ready;
+      const worker =
+        registration.active ??
+        registration.waiting ??
+        registration.installing ??
+        navigator.serviceWorker.controller;
+      if (!worker) {
+        throw new Error("Pengaturan notifikasi push tidak dapat diperbarui.");
+      }
+      const channel = new MessageChannel();
+      await new Promise<void>((resolve, reject) => {
+        const timeout = window.setTimeout(() => {
+          channel.port1.close();
+          reject(new Error("Pengaturan notifikasi push tidak merespons."));
+        }, 3000);
+        channel.port1.onmessage = (event: MessageEvent<{ ok?: boolean }>) => {
+          window.clearTimeout(timeout);
+          channel.port1.close();
+          if (event.data?.ok) resolve();
+          else reject(new Error("Pengaturan notifikasi push tidak dapat disimpan."));
+        };
+        worker.postMessage(
+          {
+            type: "cheya:browser-notifications-preference",
+            uid,
+            muted,
+          },
+          [channel.port2],
+        );
+      });
+    };
+
+    if (!browserNotificationsMuted) {
+      try {
+        await persistPreference(true);
+        setBrowserNotificationsMuted(true);
+        showToast("Notifikasi browser dimatikan");
+      } catch (error) {
+        showToast(error instanceof Error ? error.message : "Notifikasi browser tidak dapat dimatikan");
+      }
+      return;
+    }
+
+    if (!("Notification" in window)) {
+      showToast("Browser ini tidak mendukung notifikasi.");
+      return;
+    }
+    if (window.Notification.permission === "denied") {
+      showToast("Izin notifikasi diblokir di pengaturan browser.");
+      return;
+    }
+    if (window.Notification.permission === "default") {
+      const permission = await window.Notification.requestPermission();
+      if (permission !== "granted") {
+        showToast("Izin notifikasi browser belum diberikan.");
+        return;
+      }
+    }
+
+    try {
+      await persistPreference(false);
+      setBrowserNotificationsMuted(false);
+      showToast("Notifikasi browser diaktifkan");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Notifikasi browser tidak dapat diaktifkan");
+    }
+  }
+
+  async function showBrowserMessageNotification(message: ChatMessage) {
+    if (
+      browserNotificationsMuted ||
+      !document.hidden ||
+      !("Notification" in window) ||
+      window.Notification.permission !== "granted"
+    ) {
+      return;
+    }
+    try {
+      if ("serviceWorker" in navigator) {
+        const registration = await navigator.serviceWorker.ready;
+        if (await registration.pushManager.getSubscription()) return;
+      }
+    } catch (error) {
+      console.error("[chat] failed to check push notification subscription:", error);
+    }
+    const notification = new window.Notification("CheyaVerse", {
+      body: chatPreviewText(message.content).slice(0, 180) || "Pesan baru",
+      icon: "/icon.png",
+      tag: `cheyaverse-message-${message.id}`,
+    });
+    notification.onclick = () => {
+      window.focus();
+      notification.close();
+    };
+  }
 
   const chatItems: ChatItem[] = useMemo(() => {
     const merged: ChatItem[] = [];
@@ -355,17 +494,9 @@ export function ChatRoomClient({
     justEnteredSelectRef.current = true;
     setSelectMode(true);
     setSelectedIds(new Set([id]));
-    setMenuOpen(false);
     window.setTimeout(() => {
       justEnteredSelectRef.current = false;
     }, SELECT_GRACE_MS);
-  }
-
-  function enterSelectModeEmpty() {
-    justEnteredSelectRef.current = false;
-    setSelectMode(true);
-    setSelectedIds(new Set());
-    setMenuOpen(false);
   }
 
   function exitSelectMode() {
@@ -384,24 +515,15 @@ export function ChatRoomClient({
     });
   }
 
-  function toggleMuted() {
-    const next = !muted;
-    try {
-      window.localStorage.setItem(
-        `${MUTE_KEY_PREFIX}${uid}`,
-        next ? "1" : "0",
-      );
-      setMuted(next);
-      mutedRef.current = next;
-      setMenuOpen(false);
-      showToast(
-        next
-          ? "Browser notifications muted for this chat."
-          : "Browser notifications enabled for this chat.",
-      );
-    } catch {
-      showToast("Could not save notification preference.");
-    }
+  function toggleSelectAll() {
+    const selectable = chatItems.filter((item) => !item._pending);
+    const allSelected =
+      selectable.length > 0 &&
+      selectable.every((item) => selectedIds.has(item.id));
+    setSelectMode(true);
+    setSelectedIds(
+      allSelected ? new Set() : new Set(selectable.map((item) => item.id)),
+    );
   }
 
   function clearLongPressTimer() {
@@ -526,22 +648,6 @@ export function ChatRoomClient({
       );
     });
   }, [initialMessages, pending]);
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    const closeOnOutsidePointer = (event: PointerEvent) => {
-      if (!menuRootRef.current?.contains(event.target as Node)) setMenuOpen(false);
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setMenuOpen(false);
-    };
-    document.addEventListener("pointerdown", closeOnOutsidePointer);
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.removeEventListener("pointerdown", closeOnOutsidePointer);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [menuOpen]);
 
   useEffect(
     () => () => {
@@ -671,7 +777,24 @@ export function ChatRoomClient({
   useEffect(() => {
     if (typeof window === "undefined") return;
     window.history.pushState({ chatRoom: true }, "", window.location.href);
-    const onPopState = () => {
+    const onPopState = (event: PopStateEvent) => {
+      if (closingFeedbackModalRef.current) {
+        closingFeedbackModalRef.current = false;
+        return;
+      }
+      if (closingReportWithBackRef.current) {
+        closingReportWithBackRef.current = false;
+        return;
+      }
+      if (feedbackModalOpenRef.current) return;
+      if (reportCategoryOpenRef.current) {
+        setReportCategoryOpen(false);
+        setReportCategory("");
+        setReportOtherDescription("");
+        reportCategoryOpenRef.current = false;
+        event?.stopImmediatePropagation?.();
+        return;
+      }
       if (selectModeRef.current) {
         setSelectMode(false);
         setSelectedIds(new Set());
@@ -680,13 +803,17 @@ export function ChatRoomClient({
         window.history.pushState({ chatRoom: true }, "", window.location.href);
         return;
       }
+      if (isModal) {
+        onClose?.();
+        return;
+      }
       router.replace(`/${uid}/chat`);
     };
     window.addEventListener("popstate", onPopState);
     return () => {
       window.removeEventListener("popstate", onPopState);
     };
-  }, [uid, router]);
+  }, [isModal, onClose, router, uid]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -724,6 +851,7 @@ export function ChatRoomClient({
       draftReadyRef.current = true;
       return;
     }
+    if (editingMessageId) return;
     try {
       if (text.trim()) {
         const payload = {
@@ -736,7 +864,7 @@ export function ChatRoomClient({
       }
       window.dispatchEvent(new Event("cheya-draft-change"));
     } catch {}
-  }, [text, replyingTo, DRAFT_KEY]);
+  }, [text, replyingTo, editingMessageId, DRAFT_KEY]);
 
   useRealtime(uid, (event) => {
     if (event.type === "message:new") {
@@ -762,6 +890,9 @@ export function ChatRoomClient({
           }
           lastSystemSoundAtRef.current = Date.now();
           playReceiveSound();
+        }
+        if (incoming.sender === "bot" || incoming.sender_role === "admin") {
+          void showBrowserMessageNotification(incoming);
         }
         setPending((prev) => {
           if (!prev.has(incoming.id)) return prev;
@@ -905,93 +1036,33 @@ export function ChatRoomClient({
         inFlight = false;
       }
     };
-    const interval = window.setInterval(refreshWhileOpen, 5_000);
+    void refreshWhileOpen();
     window.addEventListener("focus", refreshWhileOpen);
     window.addEventListener("online", refreshWhileOpen);
+    window.addEventListener("pageshow", refreshWhileOpen);
+    window.addEventListener("popstate", refreshWhileOpen);
     document.addEventListener("visibilitychange", refreshWhileOpen);
     return () => {
       active = false;
-      window.clearInterval(interval);
       window.removeEventListener("focus", refreshWhileOpen);
       window.removeEventListener("online", refreshWhileOpen);
+      window.removeEventListener("pageshow", refreshWhileOpen);
+      window.removeEventListener("popstate", refreshWhileOpen);
       document.removeEventListener("visibilitychange", refreshWhileOpen);
     };
   }, [router, uid]);
 
-  const visibleChatItems = searchText.trim()
-    ? chatItems.filter((item) =>
-        item.content.toLowerCase().includes(searchText.trim().toLowerCase()),
-      )
-    : chatItems;
-
-  useEffect(() => {
-    if (!forwardOpen) return;
-    if (contactsLoaded || contactsLoading) return;
-    let cancelled = false;
-    setContactsLoading(true);
-    fetch("/api/chats/contacts", { cache: "no-store" })
-      .then((res) => res.json())
-      .then((json) => {
-        if (cancelled) return;
-        if (json?.ok === true && Array.isArray(json.contacts)) {
-          setContacts(json.contacts);
-        }
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (!cancelled) {
-          setContactsLoading(false);
-          setContactsLoaded(true);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [forwardOpen, contactsLoaded, contactsLoading]);
-
-  useEffect(() => {
-    if (!forwardOpen) return;
-    const term = forwardQuery.trim();
-    if (!term) {
-      setForwardUsers([]);
-      setForwardLoading(false);
-      return;
-    }
-    const controller = new AbortController();
-    const timer = window.setTimeout(async () => {
-      setForwardLoading(true);
-      try {
-        const response = await fetch(
-          `/api/users/search?q=${encodeURIComponent(term)}`,
-          { signal: controller.signal },
-        );
-        if (!response.ok) {
-          throw new Error(`Pencarian kontak gagal (${response.status}).`);
-        }
-        const result = await response.json();
-        setForwardUsers(Array.isArray(result.users) ? result.users : []);
-      } catch (error) {
-        if (controller.signal.aborted) return;
-        setForwardUsers([]);
-      } finally {
-        if (!controller.signal.aborted) setForwardLoading(false);
-      }
-    }, 250);
-    return () => {
-      window.clearTimeout(timer);
-      controller.abort();
-    };
-  }, [forwardOpen, forwardQuery]);
-
   useEffect(() => {
     if (!messageBoxRef.current) return;
     const behavior: ScrollBehavior = hasScrolledRef.current ? "smooth" : "auto";
-    messageBoxRef.current.scrollTo({
-      top: messageBoxRef.current.scrollHeight,
-      behavior,
+    const frame = window.requestAnimationFrame(() => {
+      const messageBox = messageBoxRef.current;
+      if (!messageBox) return;
+      messageBox.scrollTo({ top: messageBox.scrollHeight, behavior });
+      hasScrolledRef.current = true;
     });
-    hasScrolledRef.current = true;
-  }, [chatItems.length]);
+    return () => window.cancelAnimationFrame(frame);
+  }, [chatItems.length, mounted]);
 
   function autoGrow(e: React.FormEvent<HTMLTextAreaElement>) {
     const t = e.currentTarget;
@@ -1003,35 +1074,6 @@ export function ChatRoomClient({
   async function sendMessage() {
     const trimmed = text.trim();
     if (!trimmed || sending) return;
-    if (editingId) {
-      const id = editingId;
-      setSending(true);
-      try {
-        const response = await fetch(`/api/messages/${encodeURIComponent(uid)}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messageId: id, content: trimmed }),
-        });
-        const result = await response.json();
-        if (!response.ok || !result.message) {
-          throw new Error("Pesan gagal diedit.");
-        }
-        setMessages((current) =>
-          current.map((message) =>
-            message.id === id ? { ...message, ...result.message } : message,
-          ),
-        );
-        setEditingId(null);
-        setText("");
-        showToast("Pesan diperbarui.");
-      } catch (error) {
-        showToast(error instanceof Error ? error.message : "Pesan gagal diedit.");
-      } finally {
-        setSending(false);
-      }
-      return;
-    }
-
     playSendSound();
     const replySnapshot = replyingTo;
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -1092,15 +1134,20 @@ export function ChatRoomClient({
         throw new Error("Pesan gagal dikirim. Silakan coba lagi.");
       }
     } catch (error) {
-      setMessages((prev) => prev.filter((m) => m.id !== tempId));
-      setText(trimmed);
-      setReplyingTo(replySnapshot);
-      setPending((prev) => {
-        const next = new Set(prev);
-        next.delete(tempId);
-        return next;
-      });
-      window.alert(error instanceof Error ? error.message : "Pesan gagal dikirim.");
+      if (navigator.onLine) {
+        setPending((prev) => {
+          const next = new Set(prev);
+          next.delete(tempId);
+          return next;
+        });
+        showToast(
+          error instanceof Error
+            ? `${error.message} Server belum mengonfirmasi pesan`
+            : "Server belum mengonfirmasi pesan",
+        );
+      } else {
+        showToast("Tidak ada koneksi internet. Pesan belum terkirim");
+      }
     } finally {
       setSending(false);
     }
@@ -1112,54 +1159,40 @@ export function ChatRoomClient({
     requestAnimationFrame(() => taRef.current?.focus());
   }
 
-  function beginEdit(item: ChatItem) {
-    if (!item.messageId || item.sender !== "user" || item.deleted_at) return;
-    setEditingId(item.messageId);
-    setReplyingTo(null);
-    setText(item.content);
-    exitSelectMode();
-    requestAnimationFrame(() => taRef.current?.focus());
+  function formatChatItems(items: ChatItem[]): string[] {
+    return items
+      .filter((item) => !item.deleted_at)
+      .map((item) => {
+        const content = chatPreviewText(item.content);
+        if (!content) return "";
+        const timestamp = new Date(item.created_at).toLocaleString("id-ID", {
+          dateStyle: "short",
+          timeStyle: "short",
+        });
+        const name = item.sender === "user" ? ownName : "CheyaVerse";
+        return `[${timestamp}] ${item.sender === "user" ? "You" : name}: ${content}`;
+      })
+      .filter(Boolean);
   }
 
   async function copySelected() {
-    const texts = selectedItemsList
-      .filter((it) => !it.deleted_at)
-      .map((it) => chatPreviewText(it.content))
-      .filter(Boolean);
-    if (texts.length === 0) return;
+    const selected = selectedItemsList.filter((item) => !item.deleted_at);
+    if (selected.length === 0) return;
+    const texts =
+      selected.length === 1
+        ? [chatPreviewText(selected[0].content)]
+        : formatChatItems(selected);
     try {
-      await navigator.clipboard.writeText(texts.join("\n\n"));
+      await navigator.clipboard.writeText(texts.filter(Boolean).join("\n"));
       showToast("Pesan disalin.");
     } catch {
       showToast("Pesan tidak dapat disalin. Periksa izin clipboard browser.");
     }
-    exitSelectMode();
-  }
-
-  async function deleteOneItem(item: ChatItem, scope: "me" | "everyone") {
-    if (item.source === "notification" && item.notificationId) {
-      const response = await fetch(
-        `/api/notifications/${encodeURIComponent(uid)}?id=${encodeURIComponent(item.notificationId)}`,
-        { method: "DELETE" },
-      );
-      if (!response.ok) throw new Error("Pesan gagal dihapus.");
-      setHiddenNotificationIds((current) => new Set(current).add(item.notificationId!));
-      return;
-    }
-    if (!item.messageId) return;
-    const response = await fetch(
-      `/api/messages/${encodeURIComponent(uid)}?messageId=${encodeURIComponent(item.messageId)}&scope=${scope}`,
-      { method: "DELETE" },
-    );
-    if (!response.ok) throw new Error("Pesan gagal dihapus.");
-    setMessages((current) =>
-      current.filter((message) => message.id !== item.messageId),
-    );
   }
 
   async function deleteSelected() {
     if (selectedItemsList.length === 0) return;
-    setClearDialogMode("selected");
+    await deleteSelectedWithScope("everyone");
   }
 
   async function deleteSelectedWithScope(scope: "me" | "everyone") {
@@ -1172,6 +1205,8 @@ export function ChatRoomClient({
       .filter((it) => it.source === "message" && it.messageId)
       .map((it) => it.messageId!);
 
+    const messageSnapshot = messages;
+    const hiddenSnapshot = hiddenNotificationIds;
     setMessages((current) => current.filter((m) => !msgIds.includes(m.id)));
     if (notifIds.length > 0) {
       setHiddenNotificationIds((current) => {
@@ -1203,54 +1238,9 @@ export function ChatRoomClient({
       ]);
       showToast("Pesan dihapus.");
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "Pesan gagal dihapus.");
-    }
-  }
-
-  async function clearMessages(scope: "me" | "everyone") {
-    if (clearing) return;
-    const list = chatItemsRef.current.slice();
-    if (list.length === 0) {
-      setMenuOpen(false);
-      setClearDialogMode(null);
-      return;
-    }
-    const messageSnapshot = messages.slice();
-    const hiddenSnapshot = hiddenNotificationIds;
-    setClearing(true);
-    setMenuOpen(false);
-    setClearDialogMode(null);
-    setMessages([]);
-    setHiddenNotificationIds(new Set(notifications.map((n) => n.id)));
-    try {
-      await Promise.all(
-        list.map((item) => {
-          if (item.source === "notification" && item.notificationId) {
-            return fetch(
-              `/api/notifications/${encodeURIComponent(uid)}?id=${encodeURIComponent(item.notificationId)}`,
-              { method: "DELETE" },
-            ).then((response) => {
-              if (!response.ok) throw new Error("Some messages could not be cleared.");
-            });
-          }
-          if (item.messageId) {
-            return fetch(
-              `/api/messages/${encodeURIComponent(uid)}?messageId=${encodeURIComponent(item.messageId)}&scope=${scope}`,
-              { method: "DELETE" },
-            ).then((response) => {
-              if (!response.ok) throw new Error("Some messages could not be cleared.");
-            });
-          }
-          return Promise.resolve();
-        }),
-      );
-      showToast(scope === "everyone" ? "Chat cleared for everyone." : "Chat cleared for you.");
-    } catch {
       setMessages(messageSnapshot);
       setHiddenNotificationIds(hiddenSnapshot);
-      showToast("Failed to clear chat.");
-    } finally {
-      setClearing(false);
+      showToast(error instanceof Error ? error.message : "Pesan gagal dihapus.");
     }
   }
 
@@ -1263,91 +1253,125 @@ export function ChatRoomClient({
 
   function editSelected() {
     if (selectedItemsList.length !== 1) return;
-    beginEdit(selectedItemsList[0]);
-  }
-
-  function openForwardFromSelection() {
-    const ids = selectedItemsList
-      .filter((it) => !it.deleted_at && it.replyTargetId)
-      .map((it) => it.replyTargetId!);
-    if (ids.length === 0) return;
-    setForwardTargets(ids);
-    setForwardSelectedUids([]);
-    setForwardQuery("");
-    setForwardUsers([]);
-    setForwardOpen(true);
-  }
-
-  function toggleForwardContact(targetUid: number) {
-    setForwardSelectedUids((current) =>
-      current.includes(targetUid)
-        ? current.filter((uid) => uid !== targetUid)
-        : [...current, targetUid],
-    );
-  }
-
-  async function forwardMessages() {
+    const item = selectedItemsList[0];
     if (
-      forwarding ||
-      forwardTargets.length === 0 ||
-      forwardSelectedUids.length === 0
-    ) return;
-    const ids = forwardTargets.slice();
-    const targetUids = forwardSelectedUids.filter(
-      (targetUid) => targetUid !== Number(uid),
-    );
-    if (targetUids.length === 0) {
-      showToast("Pilih kontak lain untuk meneruskan pesan.");
+      item.source !== "message" ||
+      item.sender !== "user" ||
+      !item.messageId ||
+      item.deleted_at ||
+      item._pending
+    ) {
       return;
     }
-    setForwarding(true);
+    setEditingMessageId(item.messageId);
+    setEditDraft(item.content);
+    setReplyingTo(null);
+    exitSelectMode();
+  }
+
+  function cancelInlineEdit() {
+    setEditingMessageId(null);
+    setEditDraft("");
+  }
+
+  async function saveInlineEdit() {
+    const content = editDraft.trim();
+    if (!editingMessageId || !content || sending) return;
+    setSending(true);
     try {
-      const results = await Promise.all(
-        targetUids.map(async (targetUid) => {
-          const responses = await Promise.all(
-            ids.map((id) =>
-              fetch(`/api/messages/${encodeURIComponent(uid)}/actions`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  action: "forward",
-                  messageId: id,
-                  targetUid,
-                }),
-              }),
-            ),
-          );
-          return responses.every((response) => response.ok);
-        }),
+      const response = await fetch(`/api/messages/${encodeURIComponent(uid)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messageId: editingMessageId, content }),
+      });
+      const result = (await response.json()) as {
+        ok?: boolean;
+        message?: ChatMessage;
+        error?: string;
+      };
+      if (!response.ok || !result.message) {
+        throw new Error(result.error || "Pesan gagal diperbarui.");
+      }
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === result.message!.id ? result.message! : message,
+        ),
       );
-      const sentCount = results.filter(Boolean).length;
-      const failedCount = results.length - sentCount;
-      if (sentCount > 0) {
-        showToast(
-          failedCount > 0
-            ? `Pesan diteruskan ke ${sentCount} kontak; ${failedCount} gagal.`
-            : `Pesan diteruskan ke ${sentCount} kontak.`,
-        );
-      } else {
-        showToast("Pesan gagal diteruskan. Coba lagi.");
-      }
-      if (failedCount > 0) {
-        setForwardSelectedUids(
-          targetUids.filter((_targetUid, index) => !results[index]),
-        );
-      }
-      if (failedCount === 0) {
-        setForwardOpen(false);
-        setForwardTargets([]);
-        setForwardSelectedUids([]);
-        setForwardQuery("");
-        setForwardUsers([]);
-        exitSelectMode();
-      }
+      cancelInlineEdit();
+      showToast("Pesan diperbarui");
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "Pesan gagal diteruskan.");
+      showToast(error instanceof Error ? error.message : "Pesan gagal diperbarui");
     } finally {
-      setForwarding(false);
+      setSending(false);
+    }
+  }
+
+  function closeMessageReport() {
+    const wasOpen = reportCategoryOpenRef.current;
+    setReportCategoryOpen(false);
+    setReportCategory("");
+    setReportOtherDescription("");
+    if (wasOpen) {
+      reportCategoryOpenRef.current = false;
+      closingReportWithBackRef.current = true;
+      window.history.back();
+    }
+  }
+
+  async function submitMessageReport() {
+    const selected = selectedItemsList.filter((item) => !item.deleted_at);
+    if (
+      !reportCategory ||
+      (reportCategory === "Lainnya" && !reportOtherDescription.trim()) ||
+      selected.length === 0 ||
+      reportSending
+    ) return;
+    setReportSending(true);
+    try {
+      const reportedMessages = selected.map((item) => ({
+        timestamp: new Date(item.created_at).toLocaleString("id-ID"),
+        name: item.sender === "user" ? ownName : "CheyaVerse",
+        message: item.content.slice(0, 1200),
+      }));
+      const response = await fetch("/api/feedback/report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          reportType: "chat_violation",
+          category: reportCategory,
+          otherDescription:
+            reportCategory === "Lainnya" ? reportOtherDescription.trim() : "",
+          reportedMessages,
+          logs: "",
+          page: window.location.pathname,
+          metadata: {
+            capturedAt: new Date().toISOString(),
+            userAgent: navigator.userAgent,
+            browser: navigator.userAgent,
+            device: /Mobile|Android|iPhone|iPod/i.test(navigator.userAgent)
+              ? "Ponsel"
+              : "Desktop",
+            os: /Android/i.test(navigator.userAgent) ? "Android" : navigator.platform,
+            viewport: `${window.innerWidth} × ${window.innerHeight} CSS px`,
+            pixelRatio: `${window.devicePixelRatio || 1}x`,
+            language: navigator.languages?.join(", ") || navigator.language,
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            online: navigator.onLine ? "Ya" : "Tidak",
+          },
+        }),
+        cache: "no-store",
+      });
+      const result = (await response.json()) as { ok?: boolean; error?: string };
+      if (!response.ok || !result.ok) {
+        throw new Error(result.error || "Laporan pesan tidak dapat dikirim");
+      }
+      closeMessageReport();
+      exitSelectMode();
+      showToast("Laporan pesan berhasil dikirim kepada admin");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Laporan pesan tidak dapat dikirim");
+    } finally {
+      setReportSending(false);
     }
   }
 
@@ -1356,170 +1380,150 @@ export function ChatRoomClient({
     ? Math.max(0, viewport.keyboardInset - vvOffset)
     : 0;
 
+  const allSelectableSelected =
+    chatItems.filter((item) => !item._pending).length > 0 &&
+    chatItems
+      .filter((item) => !item._pending)
+      .every((item) => selectedIds.has(item.id));
+  const hasUndeletedSelection = selectedItemsList.some((item) => !item.deleted_at);
+  const compactHeader = isModal && (keyboardCompact || viewport.keyboard);
   const canEditSelected =
     selectedItemsList.length === 1 &&
     selectedItemsList[0].source === "message" &&
     selectedItemsList[0].sender === "user" &&
-    !selectedItemsList[0].deleted_at;
-  const hasUndeletedSelection = selectedItemsList.some((item) => !item.deleted_at);
-
-  const filteredContacts = useMemo(() => {
-    const term = forwardQuery.trim().toLowerCase();
-    if (!term) return contacts;
-    return contacts.filter((c) => {
-      const fullName = [c.first_name, c.last_name]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      const username = (c.username ?? "").toLowerCase();
-      return fullName.includes(term) || username.includes(term);
-    });
-  }, [contacts, forwardQuery]);
-
-  const mergedForwardUsers = useMemo(() => {
-    const map = new Map<number, ForwardContact>();
-    for (const c of filteredContacts) {
-      if (c.uid !== Number(uid)) map.set(c.uid, c);
-    }
-    for (const u of forwardUsers) {
-      if (u.uid !== Number(uid) && !map.has(u.uid)) {
-        map.set(u.uid, u as ForwardContact);
-      }
-    }
-    return Array.from(map.values());
-  }, [filteredContacts, forwardUsers, uid]);
+    !selectedItemsList[0].deleted_at &&
+    !selectedItemsList[0]._pending;
 
   const header = (
     <header
-      ref={menuRootRef}
-      className="fixed left-0 right-0 z-40 bg-transparent pt-[calc(12px+env(safe-area-inset-top))] pb-3"
-      style={{ top: vvApplied }}
+      className={`z-40 bg-transparent ${
+        isModal
+          ? `absolute left-0 right-0 top-0 px-3 ${compactHeader ? "pt-1 pb-1" : "pt-3 pb-2"}`
+          : "fixed left-0 right-0 pt-[calc(12px+env(safe-area-inset-top))] pb-3"
+      }`}
+      style={isModal ? undefined : { top: vvApplied }}
     >
-      <div className="relative mx-auto max-w-[600px] px-5">
+      <div className="relative mx-auto max-w-[600px]">
         {selectMode ? (
-          <div className="flex items-center gap-2 -mx-3">
+          <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={exitSelectMode}
-              aria-label="Close selection"
-              className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full border border-[#dfe3e8] bg-white text-ink-soft shadow-sm transition-transform active:scale-90"
+              aria-label="Exit selection"
+              className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full border border-[#dfe3e8] bg-white text-ink-soft transition-transform active:scale-90"
             >
-              <X size={21} />
+              <X size={19} />
             </button>
-            <div className="flex h-11 min-w-0 flex-1 items-center rounded-full border border-[#dfe3e8] bg-white px-4 shadow-sm">
-              <span className="truncate text-[14px] font-semibold text-ink">
-                {selectedIds.size} selected
-              </span>
-            </div>
-            <div className="flex h-11 flex-shrink-0 items-center overflow-hidden rounded-full border border-[#dfe3e8] bg-white shadow-sm">
-              {hasUndeletedSelection && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => void copySelected()}
-                    aria-label="Copy messages"
-                    className="flex h-full w-10 items-center justify-center text-ink-soft transition-colors active:bg-[#f5f5f5]"
-                  >
-                    <Copy size={17} strokeWidth={2.2} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={openForwardFromSelection}
-                    aria-label="Forward messages"
-                    className="flex h-full w-10 items-center justify-center text-ink-soft transition-colors active:bg-[#f5f5f5]"
-                  >
-                    <Forward size={17} strokeWidth={2.2} />
-                  </button>
-                </>
-              )}
+            <div className="flex h-10 min-w-0 flex-1 items-center justify-around overflow-hidden rounded-full border border-[#dfe3e8] bg-white">
+              <button
+                type="button"
+                onClick={toggleSelectAll}
+                aria-label="Select all messages"
+                aria-pressed={allSelectableSelected}
+                className="flex h-full min-w-0 flex-1 items-center justify-center text-ink-soft transition-colors active:bg-[#f5f5f5]"
+              >
+                <CheckCheck size={16} strokeWidth={2.2} />
+              </button>
               {canEditSelected && (
                 <button
                   type="button"
                   onClick={editSelected}
-                  aria-label="Edit message"
-                  className="flex h-full w-10 items-center justify-center text-ink-soft transition-colors active:bg-[#f5f5f5]"
+                  aria-label="Edit selected message"
+                  className="flex h-full min-w-0 flex-1 items-center justify-center text-ink-soft transition-colors active:bg-[#f5f5f5]"
                 >
-                  <Pencil size={17} strokeWidth={2.2} />
+                  <Pencil size={17} strokeWidth={2.1} />
                 </button>
               )}
               <button
                 type="button"
+                onClick={() => void copySelected()}
+                aria-label="Copy selected messages"
+                disabled={selectedIds.size === 0}
+                className="flex h-full min-w-0 flex-1 items-center justify-center text-ink-soft transition-colors active:bg-[#f5f5f5] disabled:opacity-40"
+              >
+                <Copy size={17} strokeWidth={2.2} />
+              </button>
+              <button
+                type="button"
                 onClick={() => void deleteSelected()}
                 aria-label="Delete messages"
-                className="flex h-full w-10 items-center justify-center text-danger transition-colors active:bg-[#f5f5f5]"
+                disabled={selectedIds.size === 0}
+                className="flex h-full min-w-0 flex-1 items-center justify-center text-danger transition-colors active:bg-[#f5f5f5] disabled:opacity-40"
               >
                 <Trash2 size={17} strokeWidth={2.2} />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (selectedIds.size > 0) {
+                    reportCategoryOpenRef.current = true;
+                    setReportCategoryOpen(true);
+                    window.history.pushState({ chatReport: true }, "", window.location.href);
+                  }
+                }}
+                aria-label="Report selected messages"
+                disabled={selectedIds.size === 0}
+                className="flex h-full min-w-0 flex-1 items-center justify-center text-ink-soft transition-colors active:bg-[#f5f5f5] disabled:opacity-40"
+              >
+                <Bug size={17} strokeWidth={2.1} />
               </button>
             </div>
           </div>
         ) : (
-          <>
-            <div className="flex items-center gap-2 -mx-3">
-              <Link
-                href={`/${uid}/chat`}
-                aria-label="Back to chat"
-                className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full border border-[#dfe3e8] bg-white text-ink-soft transition-transform active:scale-90"
-              >
-                <ArrowLeft size={21} />
-              </Link>
-              <div className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-full border border-[#dfe3e8] bg-white pl-0.5 pr-3">
-                <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-[#f5f5f5]">
-                  <TelegramAvatar src="/icon.png" />
+          <div className="flex items-center gap-2">
+            <div className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-full border border-[#dfe3e8] bg-white px-1.5">
+              <span className="-ml-1 flex h-9 w-9 flex-shrink-0 items-center justify-center overflow-hidden rounded-full">
+                <TelegramAvatar src="/icon.png" />
+              </span>
+              <span className="flex min-w-0 flex-1 flex-col justify-center self-stretch">
+                <VerifiedName
+                  name="CheyaVerse"
+                  size="sm"
+                  compactBadge
+                  nameClassName="text-[15px] leading-tight"
+                />
+                <span className="block truncate text-[12px] leading-tight text-ink-mute">
+                  service notifications
                 </span>
-                <span className="flex min-w-0 flex-1 flex-col justify-center self-stretch">
-                  <VerifiedName
-                    name="CheyaVerse"
-                    size="sm"
-                    compactBadge
-                    nameClassName="text-[15px] leading-tight"
-                  />
-                  <span className="block truncate text-[12px] leading-tight text-ink-mute -mt-0.5">
-                    service notifications
-                  </span>
-                </span>
-              </div>
+              </span>
               <button
                 type="button"
-                aria-label="Chat options"
-                aria-expanded={menuOpen}
-                onClick={() => setMenuOpen((value) => !value)}
-                className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full border border-[#dfe3e8] bg-white text-ink-soft transition-transform active:scale-90"
+                onClick={() => void toggleBrowserNotifications()}
+                aria-label={
+                  browserNotificationsMuted
+                    ? "Unmute browser notifications"
+                    : "Mute browser notifications"
+                }
+                aria-pressed={!browserNotificationsMuted}
+                className="mr-1 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-ink-soft transition-colors hover:bg-slate-100 active:bg-slate-100"
               >
-                <MoreVertical size={19} />
+                {browserNotificationsMuted ? (
+                  <BellOff size={17} strokeWidth={2} />
+                ) : (
+                  <Bell size={17} strokeWidth={2} />
+                )}
               </button>
             </div>
-            {menuOpen && (
-              <div className="absolute right-5 top-[calc(100%-4px)] z-50 w-64 overflow-hidden rounded-2xl border border-line bg-white py-1 shadow-xl animate-fade-up">
-                <button
-                  type="button"
-                  onClick={enterSelectModeEmpty}
-                  className="flex w-full items-center gap-2 px-4 py-3 text-left text-[13px] text-ink"
-                >
-                  <ListChecks size={15} /> Select messages
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    setClearDialogMode("all");
-                  }}
-                  className="flex w-full items-center gap-2 px-4 py-3 text-left text-[13px] text-danger"
-                >
-                  <Trash2 size={15} /> Clear chats
-                </button>
-                <button
-                  type="button"
-                  onClick={toggleMuted}
-                  className="flex w-full items-center gap-2 border-t border-line px-4 py-3 text-left text-[13px] text-ink"
-                >
-                  {muted ? <Bell size={15} /> : <BellOff size={15} />}
-                  {muted
-                    ? "Unmute browser notifications"
-                    : "Mute browser notifications"}
-                </button>
-              </div>
-            )}
-          </>
+            <button
+              type="button"
+              onClick={() =>
+                window.dispatchEvent(new CustomEvent("cheya:open-feedback-report"))
+              }
+              aria-label="Report a bug"
+              title="Report a bug"
+              className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full border border-[#dfe3e8] bg-white text-ink-soft transition-transform active:scale-90"
+            >
+              <Bug size={17} />
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close bot chat"
+              className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full border border-[#dfe3e8] bg-white text-ink-soft transition-transform active:scale-90"
+            >
+              <X size={19} />
+            </button>
+          </div>
         )}
       </div>
     </header>
@@ -1527,19 +1531,16 @@ export function ChatRoomClient({
 
   const footer = selectMode ? (
     <footer
-      className="chat-footer pointer-events-none fixed left-0 right-0 z-30 bg-transparent"
-      style={{ bottom: footerBottom }}
+      className={`chat-footer pointer-events-none ${
+        isModal ? "absolute inset-x-0 bottom-0" : "fixed left-0 right-0"
+      } z-30 bg-transparent`}
+      style={isModal ? undefined : { bottom: footerBottom }}
     >
       <div
-        className="pointer-events-none absolute inset-x-0 bottom-0"
-        style={{
-          height: "120px",
-          background:
-            "linear-gradient(to top, #ffffff 0%, #ffffff 60%, rgba(255,255,255,0) 100%)",
-        }}
-      />
-      <div
-        className="pointer-events-auto relative mx-auto flex max-w-[600px] gap-2 px-3 pt-2"
+        data-chat-report-anchor="true"
+        className={`pointer-events-auto relative mx-auto flex gap-2 px-3 pt-2 ${
+          isModal ? "w-full" : "max-w-[600px]"
+        }`}
         style={{
           paddingBottom: viewport.keyboard
             ? "8px"
@@ -1555,21 +1556,14 @@ export function ChatRoomClient({
             <Reply size={18} strokeWidth={2.2} /> Reply
           </button>
         )}
-        {hasUndeletedSelection && (
-          <button
-            type="button"
-            onClick={openForwardFromSelection}
-            className="flex flex-1 items-center justify-center gap-2 rounded-[22px] border border-line bg-white py-2.5 text-[14px] font-semibold text-ink shadow-sm transition-colors active:bg-[#f5f5f5]"
-          >
-            <Forward size={18} strokeWidth={2.2} /> Forward
-          </button>
-        )}
       </div>
     </footer>
   ) : (
     <footer
-      className="chat-footer pointer-events-none fixed left-0 right-0 z-30 bg-transparent"
-      style={{ bottom: footerBottom }}
+      className={`chat-footer pointer-events-none ${
+        isModal ? "absolute inset-x-0 bottom-0" : "fixed left-0 right-0"
+      } z-30 bg-transparent`}
+      style={isModal ? undefined : { bottom: footerBottom }}
     >
       {showScrollButton && (
         <div className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-3">
@@ -1586,14 +1580,14 @@ export function ChatRoomClient({
       <ChatComposer
         value={text}
         sending={sending}
-        sendLabel={editingId ? "Save edit" : "Send message"}
+        sendLabel="Send message"
         inputRef={taRef}
         onChange={handleTextChange}
         onSend={() => void sendMessage()}
         onInput={autoGrow}
         reply={
           replyingTo ? (
-            <div className="relative flex items-stretch gap-2.5 border-b border-line bg-gradient-to-r from-[#f6f6f6] to-[#fafafa] px-3 py-2 pr-10">
+            <div className="relative flex items-stretch gap-2.5 border-b border-line px-3 py-2 pr-10">
               <span className="w-1 flex-shrink-0 rounded-full bg-ink" />
               <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                 <span className="truncate text-[11.5px] font-semibold leading-none tracking-[-.005em] text-ink">
@@ -1617,24 +1611,9 @@ export function ChatRoomClient({
             </div>
           ) : undefined
         }
-        above={
-          editingId ? (
-            <div className="flex items-center justify-between rounded-lg bg-[#f5f5f5] px-3 py-1.5 text-[11px] text-ink-soft">
-              <span>Editing message</span>
-              <button
-                type="button"
-                onClick={() => {
-                  setEditingId(null);
-                  setText("");
-                }}
-                aria-label="Cancel edit"
-              >
-                <X size={14} />
-              </button>
-            </div>
-          ) : undefined
-        }
-        className="mx-auto max-w-[600px] pointer-events-auto"
+        className={`mx-auto pointer-events-auto ${
+          isModal ? "w-full max-w-none" : "max-w-[600px]"
+        }`}
         style={{
           paddingBottom: viewport.keyboard
             ? "8px"
@@ -1646,58 +1625,43 @@ export function ChatRoomClient({
 
   let previousDayKey = "";
 
+  const portalTarget = isModal ? modalSurfaceRef.current : document.body;
+
   return (
     <>
-      {mounted && createPortal(header, document.body)}
+      {isModal && <div ref={modalSurfaceRef} className="absolute inset-0" />}
+      {mounted && portalTarget && createPortal(header, portalTarget)}
+      {mounted && portalTarget && createPortal(
       <section
         ref={messageBoxRef}
         onScroll={handleMessageScroll}
-        className="fixed left-0 right-0 z-10 mx-auto max-w-[600px] overflow-x-hidden overflow-y-auto overscroll-contain pt-[calc(80px+env(safe-area-inset-top))] pb-[calc(96px+env(safe-area-inset-bottom))]"
-        style={{
-          top: vvApplied,
-          height: viewport.keyboard ? viewport.height : "100dvh",
-        }}
+        className={`z-10 mx-auto overflow-x-hidden overflow-y-auto overscroll-contain ${
+          isModal
+            ? `absolute inset-0 max-w-none px-1 ${compactHeader ? "pt-[62px] pb-[68px]" : "pt-[62px] pb-[76px]"}`
+            : "fixed left-0 right-0 max-w-[600px] pt-[calc(80px+env(safe-area-inset-top))] pb-[calc(96px+env(safe-area-inset-bottom))]"
+        }`}
+        style={
+          isModal
+            ? undefined
+            : {
+                top: vvApplied,
+                height: viewport.keyboard ? viewport.height : "100dvh",
+              }
+        }
       >
-        {searchOpen && !selectMode && (
-          <div className="flex flex-shrink-0 items-center gap-2 bg-transparent px-4 py-2">
-            <Search size={16} className="text-ink-mute" />
-            <input
-              autoFocus
-              value={searchText}
-              onChange={(event) => setSearchText(event.target.value)}
-              placeholder="Search messages"
-              className="min-w-0 flex-1 bg-transparent py-1 text-[13px] outline-none"
-            />
-            <button
-              type="button"
-              aria-label="Close search"
-              onClick={() => {
-                setSearchOpen(false);
-                setSearchText("");
-              }}
-            >
-              <X size={17} className="text-ink-mute" />
-            </button>
-          </div>
-        )}
-
         <div
           onContextMenu={(event) => event.preventDefault()}
-          className="flex min-w-0 flex-col gap-2 px-3 py-3"
+          className={`flex min-w-0 flex-col gap-2 px-3 py-3 ${isModal ? "pb-2" : ""}`}
         >
-          {visibleChatItems.length === 0 ? (
+          {chatItems.length === 0 ? (
             <div className="flex flex-1 flex-col items-center justify-center py-16 text-center">
-              <p className="mb-1 text-[14px] font-medium text-ink">
-                {searchText ? "No messages found" : "No messages yet"}
+              <p className="mb-1 text-[14px] font-medium text-ink">No messages yet</p>
+              <p className="text-[12.5px] text-ink-mute">
+                Mulai percakapan dengan CheyaVerse.
               </p>
-              {!searchText && (
-                <p className="text-[12.5px] text-ink-mute">
-                  Mulai percakapan dengan CheyaVerse.
-                </p>
-              )}
             </div>
           ) : (
-            visibleChatItems.map((item) => {
+            chatItems.map((item) => {
               const isUser = item.sender === "user";
               const reply = item.reply_to_id
                 ? chatItems.find(
@@ -1822,7 +1786,7 @@ export function ChatRoomClient({
                     >
                       <ChatMessageBubble
                         outgoing={isUser}
-                        avatarUrl={isUser ? `/api/avatar/${uid}` : "/icon.png"}
+                        avatarUrl={isUser ? `/api/avatar/${uid}` : null}
                         content={item.deleted_at ? "Pesan dihapus" : item.content}
                         richText={item.sender === "bot" && !item.deleted_at}
                         markdown={item.sender === "user" && !item.deleted_at}
@@ -1833,6 +1797,7 @@ export function ChatRoomClient({
                             pending={item._pending}
                             deliveredAt={item.delivered_at}
                             readAt={item.read_at}
+                            online={isOnline}
                           />
                         }
                         label={`Message from ${isUser ? "you" : "CheyaVerse"}`}
@@ -1844,6 +1809,12 @@ export function ChatRoomClient({
                         prefix={prefix}
                         selectMode={selectMode}
                         selected={selectedIds.has(item.id)}
+                        editing={editingMessageId === item.messageId}
+                        editValue={editDraft}
+                        editSaving={sending}
+                        onEditChange={setEditDraft}
+                        onEditSave={() => void saveInlineEdit()}
+                        onEditCancel={cancelInlineEdit}
                         onToggleSelect={() => {
                           if (justEnteredSelectRef.current) return;
                           if (!item._pending) toggleSelect(item.id);
@@ -1881,160 +1852,8 @@ export function ChatRoomClient({
           )}
         </div>
       </section>
-      {mounted && createPortal(footer, document.body)}
-
-      {forwardOpen && forwardTargets.length > 0 && (
-        <div
-          role="presentation"
-          onClick={() => {
-            if (forwarding) return;
-            setForwardOpen(false);
-            setForwardTargets([]);
-            setForwardSelectedUids([]);
-            setForwardQuery("");
-            setForwardUsers([]);
-          }}
-          className="fixed inset-0 z-[80] flex items-end justify-center bg-black/30 px-0 pb-0 md:items-center md:px-5 md:pb-0"
-        >
-          <section
-            role="dialog"
-            aria-modal="true"
-            aria-label="Forward message"
-            onClick={(event) => event.stopPropagation()}
-            className="flex w-full max-w-[600px] flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl md:max-w-[520px] md:rounded-2xl"
-          >
-            <div className="flex items-center justify-between border-b border-line px-4 py-3">
-              <h2 className="text-[14px] font-semibold text-ink">
-                Forward {forwardTargets.length === 1 ? "message" : "messages"}
-              </h2>
-              <button
-                type="button"
-                aria-label="Close"
-                disabled={forwarding}
-                onClick={() => {
-                  setForwardOpen(false);
-                  setForwardTargets([]);
-                  setForwardSelectedUids([]);
-                  setForwardQuery("");
-                  setForwardUsers([]);
-                }}
-              >
-                <X size={18} className="text-ink-mute" />
-              </button>
-            </div>
-            <div className="px-4 pt-3">
-              <div className="flex items-center gap-2 rounded-xl border border-line px-3 py-2">
-                <Search size={15} className="text-ink-mute" />
-                <input
-                  autoFocus
-                  value={forwardQuery}
-                  onChange={(event) => setForwardQuery(event.target.value)}
-                  placeholder="Search contacts"
-                  className="min-w-0 flex-1 bg-transparent text-[13px] outline-none"
-                />
-              </div>
-            </div>
-            <div className="px-2 pt-3">
-              <div className="flex gap-3 overflow-x-auto px-2 pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                {mergedForwardUsers.map((contact) => (
-                  <button
-                    key={contact.uid}
-                    type="button"
-                    role="checkbox"
-                    aria-checked={forwardSelectedUids.includes(contact.uid)}
-                    disabled={forwarding}
-                    onClick={() => toggleForwardContact(contact.uid)}
-                    className="flex w-[72px] flex-shrink-0 flex-col items-center gap-1.5"
-                  >
-                    <span className="relative flex h-14 w-14 items-center justify-center overflow-hidden rounded-full border border-line bg-[#f5f5f5]">
-                      <TelegramAvatar
-                        src={`/api/avatar/${contact.uid}`}
-                        fallbackSrc={contact.photo_url}
-                      />
-                      {forwardSelectedUids.includes(contact.uid) && (
-                        <span className="absolute bottom-2 right-2 flex h-[19px] w-[19px] items-center justify-center rounded-full border-2 border-white bg-emerald-600 text-white">
-                          <Check size={12} strokeWidth={3} />
-                        </span>
-                      )}
-                    </span>
-                    <span className="w-full truncate text-center text-[11px] leading-tight text-ink">
-                      {contactLabel(contact)}
-                    </span>
-                  </button>
-                ))}
-                {contactsLoading && mergedForwardUsers.length === 0 && (
-                  <p className="px-2 py-3 text-[12px] text-ink-mute">
-                    Loading contacts…
-                  </p>
-                )}
-                {!contactsLoading &&
-                  forwardLoading &&
-                  mergedForwardUsers.length === 0 && (
-                    <p className="px-2 py-3 text-[12px] text-ink-mute">
-                      Searching…
-                    </p>
-                  )}
-                {!contactsLoading &&
-                  !forwardLoading &&
-                  mergedForwardUsers.length === 0 && (
-                    <p className="px-2 py-3 text-[12px] text-ink-mute">
-                      No contacts found.
-                    </p>
-                  )}
-              </div>
-            </div>
-            <footer className="border-t border-line p-3">
-              <button
-                type="button"
-                onClick={() => void forwardMessages()}
-                disabled={forwarding || forwardSelectedUids.length === 0}
-                className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-ink px-4 text-[13px] font-semibold text-white disabled:opacity-45"
-              >
-                <Send size={15} />
-                {forwarding
-                  ? "Mengirim…"
-                  : `Kirim ke ${forwardSelectedUids.length} kontak`}
-              </button>
-            </footer>
-          </section>
-        </div>
-      )}
-
-      <ClearChatsDialog
-        open={clearDialogMode !== null}
-        title={clearDialogMode === "selected" ? "Delete selected messages?" : "Clear chats?"}
-        description={
-          clearDialogMode === "selected"
-            ? `Remove ${selectedItemsList.length} selected item${selectedItemsList.length === 1 ? "" : "s"} from this chat.`
-            : "Remove all items from this chat. This action cannot be undone."
-        }
-        confirmLabel={clearDialogMode === "selected" ? "Delete messages" : "Clear chats"}
-        allowEveryone={
-          clearDialogMode === "selected"
-            ? selectedItemsList.length > 0 &&
-              selectedItemsList.every(
-                (item) =>
-                  item.source === "message" &&
-                  (item.sender === "user" || Boolean(item.deleted_at)),
-              )
-            : chatItemsRef.current.length > 0 &&
-              chatItemsRef.current.every(
-                (item) =>
-                  item.source === "message" &&
-                  (item.sender === "user" || Boolean(item.deleted_at)),
-              )
-        }
-        busy={clearing}
-        onClose={() => setClearDialogMode(null)}
-        onConfirm={(forEveryone) => {
-          if (clearDialogMode === "selected") {
-            setClearDialogMode(null);
-            void deleteSelectedWithScope(forEveryone ? "everyone" : "me");
-          } else {
-            void clearMessages(forEveryone ? "everyone" : "me");
-          }
-        }}
-      />
+      , portalTarget)}
+      {mounted && portalTarget && createPortal(footer, portalTarget)}
 
       {toast && (
         <div
@@ -2043,6 +1862,112 @@ export function ChatRoomClient({
         >
           {toast}
         </div>
+      )}
+      {reportCategoryOpen && mounted && createPortal(
+        <div
+          className="fixed inset-0 z-[450] flex items-end justify-center bg-slate-950/45 p-3 backdrop-blur-sm sm:items-center"
+          role="presentation"
+          onClick={() => {
+            if (!reportSending) {
+              closeMessageReport();
+            }
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="chat-report-title"
+            data-modal-scroll-allow="true"
+            onClick={(event) => event.stopPropagation()}
+            className="w-full max-w-[440px] rounded-[24px] border border-slate-200 bg-white p-4 shadow-2xl"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 id="chat-report-title" className="text-[16px] font-bold text-ink">
+                  Report selected messages
+                </h2>
+                <p className="mt-1 text-[12px] text-ink-mute">
+                  {selectedItemsList.filter((item) => !item.deleted_at).length} message(s) will be sent to the admins for review
+                </p>
+              </div>
+              <button
+                type="button"
+                aria-label="Close message report"
+                disabled={reportSending}
+                onClick={() => {
+                  closeMessageReport();
+                }}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-ink-mute hover:bg-slate-100"
+              >
+                <X size={17} />
+              </button>
+            </div>
+            <div className="mt-4 grid gap-2">
+              {[
+                "Pesan tidak pantas",
+                "Scam atau penipuan",
+                "Intimidasi atau perundungan",
+                "Konten asusila",
+                "Spam",
+                "Lainnya",
+              ].map((category) => (
+                <Fragment key={category}>
+                  <button
+                    type="button"
+                    aria-pressed={reportCategory === category}
+                    onClick={() => setReportCategory(category)}
+                    className={`rounded-xl border px-3 py-2.5 text-left text-[13px] transition-colors ${
+                      reportCategory === category
+                        ? "border-ink bg-slate-100 font-semibold text-ink"
+                        : "border-slate-200 text-ink-soft hover:bg-slate-50"
+                    }`}
+                  >
+                    {category}
+                  </button>
+                  {category === "Lainnya" && reportCategory === "Lainnya" && (
+                    <label className="block">
+                      <span className="sr-only">Describe the other violation</span>
+                      <textarea
+                        autoFocus
+                        value={reportOtherDescription}
+                        onChange={(event) => setReportOtherDescription(event.target.value)}
+                        maxLength={500}
+                        rows={3}
+                        placeholder="Jelaskan alasan laporan lainnya..."
+                        className="w-full resize-y rounded-xl border border-slate-300 bg-white p-3 text-[13px] text-ink outline-none placeholder:text-slate-400 focus:border-slate-500 focus:ring-2 focus:ring-slate-900/10"
+                      />
+                    </label>
+                  )}
+                </Fragment>
+              ))}
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={reportSending}
+                onClick={() => {
+                  closeMessageReport();
+                }}
+                className="min-h-10 rounded-full px-4 text-[12px] font-semibold text-ink-soft disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={
+                  !reportCategory ||
+                  (reportCategory === "Lainnya" && !reportOtherDescription.trim()) ||
+                  reportSending
+                }
+                onClick={() => void submitMessageReport()}
+                className="inline-flex min-h-10 items-center gap-2 rounded-full bg-ink px-4 text-[12px] font-semibold text-white disabled:opacity-40"
+              >
+                {reportSending ? "Sending…" : "Send report"}
+              </button>
+            </div>
+          </section>
+        </div>,
+        document.body,
       )}
     </>
   );

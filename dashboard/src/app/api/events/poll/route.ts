@@ -1,10 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTurso } from "@/lib/turso";
-import {
-  countUnreadDirectMessages,
-  getLatestDirectMessage,
-  getRecentIncomingDirectMessages,
-} from "@/lib/storage";
 import { getUserSession } from "@/lib/auth-request";
 
 export const runtime = "nodejs";
@@ -12,7 +7,6 @@ export const dynamic = "force-dynamic";
 
 type Snapshot = {
   unread: number;
-  directUnread: number;
   mediaCount: number;
   notifLastId: string | null;
   notifLastAt: string | null;
@@ -28,24 +22,6 @@ type Snapshot = {
     delivered_at: string | null;
     read_at: string | null;
   } | null;
-  directLast: {
-    id: string;
-    sender_uid: number;
-    recipient_uid: number;
-    content: string;
-    created_at: string;
-    delivered_at: string | null;
-    read_at: string | null;
-  } | null;
-  directIncomingRecent: Array<{
-    id: string;
-    sender_uid: number;
-    recipient_uid: number;
-    content: string;
-    created_at: string;
-    delivered_at: string | null;
-    read_at: string | null;
-  }>;
 };
 
 function n(v: unknown): number {
@@ -85,13 +61,7 @@ export async function GET(req: NextRequest) {
   try {
     const client = getTurso();
 
-    const [
-      countsRes,
-      lastMsgRes,
-      directLast,
-      directIncomingRecent,
-      directUnread,
-    ] = await Promise.all([
+    const [countsRes, lastMsgRes] = await Promise.all([
       client.execute({
         sql: `SELECT
                 (SELECT COUNT(*) FROM notifications WHERE uid = ? AND read = 0) AS unread,
@@ -106,23 +76,17 @@ export async function GET(req: NextRequest) {
               FROM messages WHERE uid = ? ORDER BY created_at DESC LIMIT 1`,
         args: [uid],
       }),
-      getLatestDirectMessage(uid),
-      getRecentIncomingDirectMessages(uid),
-      countUnreadDirectMessages(uid),
     ]);
 
     const row = (countsRes.rows[0] ?? {}) as Record<string, unknown>;
 
     const snapshot: Snapshot = {
       unread: n(row.unread),
-      directUnread,
       mediaCount: n(row.media_count),
       notifLastId: s(row.notif_last_id) || null,
       notifLastAt: s(row.notif_last_at) || null,
       mediaLastId: s(row.media_last_id) || null,
       msgLast: null,
-      directLast,
-      directIncomingRecent,
     };
 
     if (lastMsgRes.rows.length > 0) {

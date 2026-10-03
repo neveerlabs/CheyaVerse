@@ -1,11 +1,13 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { reportClientError } from "@/lib/client-errors";
 import { readApiJson } from "@/lib/read-api-json";
 import {
   Calendar,
   Check,
+  ChevronRight,
   Database,
   Github,
   Globe,
@@ -42,7 +44,7 @@ type Device = {
   lastSeen: string;
 };
 
-type Tab = "general" | "security" | "data" | "github" | "about";
+type Tab = "overview" | "general" | "security" | "data" | "github" | "about";
 
 type AccountSettings = {
   telegramId: number;
@@ -66,10 +68,12 @@ function formatDate(value: string): string {
 
 export function SettingsClient({
   uid,
+  initialTab,
 }: {
   uid: string;
+  initialTab: Tab;
 }) {
-  const [tab, setTab] = useState<Tab>("general");
+  const [tab, setTab] = useState<Tab>(initialTab);
   const [account, setAccount] = useState<AccountSettings | null>(null);
   const [displayName, setDisplayName] = useState("");
   const [accountLoading, setAccountLoading] = useState(true);
@@ -137,9 +141,11 @@ export function SettingsClient({
 
   useEffect(() => {
     void loadAccountSettings();
-    const requestedTab = new URLSearchParams(window.location.search).get("tab");
-    if (requestedTab === "about") setTab("about");
   }, [loadAccountSettings]);
+
+  useEffect(() => {
+    setTab(initialTab);
+  }, [initialTab]);
 
   const saveDisplayName = async () => {
     setAccountBusy(true);
@@ -470,7 +476,7 @@ export function SettingsClient({
   }
 
   const tabs: Array<{ id: Tab; label: string; icon: React.ReactNode }> = [
-    { id: "general", label: "General", icon: <Globe size={16} /> },
+    { id: "general", label: "Account", icon: <Globe size={16} /> },
     { id: "security", label: "Devices & Security", icon: <Shield size={16} /> },
     { id: "data", label: "Data", icon: <Database size={16} /> },
     { id: "github", label: "GitHub", icon: <Github size={16} /> },
@@ -479,29 +485,41 @@ export function SettingsClient({
 
   return (
     <>
-      <div className="mb-5 overflow-x-auto rounded-[22px] border border-white bg-[#f0f1f5] p-1.5 shadow-sm">
-        <nav aria-label="Settings categories" className="flex min-w-max gap-1">
-          {tabs.map((item) => (
-            <button
-              key={item.id}
-              id={`settings-tab-${item.id}`}
-              type="button"
-              aria-pressed={tab === item.id}
-              onClick={() => setTab(item.id)}
-              className={`inline-flex items-center gap-2 rounded-[17px] px-3.5 py-2.5 text-[12px] font-semibold transition-all ${
-                tab === item.id
-                  ? "bg-white text-ink shadow-[0_3px_10px_-7px_rgba(0,0,0,.4)]"
-                  : "text-ink-mute hover:text-ink-soft"
-              }`}
-            >
-              {item.icon}
-              {item.label}
-            </button>
-          ))}
+      {tab === "overview" && (
+        <nav aria-label="Settings pages" className="animate-fade-up">
+          <p className="mb-3 px-1 text-[11px] font-semibold uppercase tracking-[.12em] text-ink-mute">
+            Your settings
+          </p>
+          <div className="divide-y divide-slate-100">
+            {tabs.map((item) => (
+              <Link
+                key={item.id}
+                href={`/${uid}/profile/settings?tab=${item.id}`}
+                className="group flex min-h-[76px] items-center gap-4 py-4 transition-colors active:bg-slate-50"
+              >
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#f2f3f7] text-ink-soft transition-colors group-hover:bg-[#e9eaf1]">
+                  {item.icon}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[14px] font-semibold tracking-[-.01em] text-ink">
+                    {item.label}
+                  </span>
+                  <span className="mt-1 block text-[12px] leading-relaxed text-ink-mute">
+                    {item.id === "general" && "Account information and display name"}
+                    {item.id === "security" && "Connected devices and active sessions"}
+                    {item.id === "data" && "Manage locally stored app data"}
+                    {item.id === "github" && "Connect or manage your GitHub account"}
+                    {item.id === "about" && "App version and product information"}
+                  </span>
+                </span>
+                <ChevronRight size={18} className="shrink-0 text-ink-mute transition-transform group-hover:translate-x-0.5" />
+              </Link>
+            ))}
+          </div>
         </nav>
-      </div>
+      )}
 
-      {notice && !deleteOpen && (
+      {tab !== "overview" && notice && !deleteOpen && (
         <p
           role="status"
           className="mb-4 rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-[12px] leading-relaxed text-amber-800"
@@ -942,9 +960,22 @@ export function SettingsClient({
             </div>
           </SettingsSection>
           <SettingsSection title="What you can do">
-            <Row icon={<Smartphone size={17} />} title="Use your Telegram account" value="Sign in with your Telegram identity" />
-            <Row icon={<Globe size={17} />} title="Manage personal media" value="View and organize your uploaded media" />
-            <Row icon={<Github size={17} />} title="Explore GitHub projects" value="Connect GitHub to view your repositories" last />
+            <Row
+              icon={<Smartphone size={17} />}
+              title="Use your Telegram account"
+              subtitle="Sign in with your Telegram identity"
+            />
+            <Row
+              icon={<Globe size={17} />}
+              title="Manage personal media"
+              subtitle="View and organize your uploaded media"
+            />
+            <Row
+              icon={<Github size={17} />}
+              title="Explore GitHub projects"
+              subtitle="Connect GitHub to view your repositories"
+              last
+            />
           </SettingsSection>
         </div>
       )}

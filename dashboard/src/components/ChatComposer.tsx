@@ -105,10 +105,13 @@ export function ChatComposer({
       style={{ ...style, touchAction: "none" }}
     >
       {above}
-      <div className="flex w-full min-w-0 items-end gap-2">
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-[22px] border border-line bg-white">
+      <div className="flex w-full min-w-0 items-center gap-2">
+        <div
+          data-chat-composer-input="true"
+          className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-[22px] border border-line bg-white"
+        >
           {reply}
-          <div className="flex min-h-11 w-full items-end px-3 py-1.5">
+          <div className="flex min-h-11 w-full items-center px-3 py-1.5">
             <div className="relative min-w-0 flex-1">
               <div
                 ref={mirrorRef}
@@ -155,6 +158,7 @@ export function ChatComposer({
           type="submit"
           aria-label={sendLabel}
           disabled={sending || !hasText}
+          onPointerDown={(event) => event.preventDefault()}
           className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full border border-[#dfe3e8] bg-white text-ink hover:bg-white active:bg-white"
         >
           <Send size={18} strokeWidth={2.2} />

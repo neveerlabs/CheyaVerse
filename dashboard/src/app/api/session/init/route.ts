@@ -326,7 +326,7 @@ export async function POST(req: NextRequest) {
       ramGb,
     );
     if (welcome.created) {
-      broadcastToUid(uid, {
+      await broadcastToUid(uid, {
         type: "notification:new",
         notificationId: `welcome-${uid}`,
       });

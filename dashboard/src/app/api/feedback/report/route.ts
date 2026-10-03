@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getUserSession, hasValidSameOrigin } from "@/lib/auth-request";
 import { config } from "@/lib/config";
 import { sendTelegramDocument, sendTelegramMessage } from "@/lib/telegram";
+import { getTelegramUser } from "@/lib/storage";
 import {
   readBoundedJson,
   RequestBodyTooLargeError,
@@ -106,6 +107,14 @@ function redactReportText(value: string): string {
     .replace(/([?&](?:token|auth|key|secret|password)=)[^&#\s]+/gi, "$1[REDACTED]");
 }
 
+function escapeMarkdownV2(value: string): string {
+  return value.replace(/([_*\[\]()~`>#+\-=|{}.!\\])/g, "\\$1");
+}
+
+function escapeMarkdownCode(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/`/g, "\\`");
+}
+
 export async function POST(request: NextRequest) {
   if (!hasValidSameOrigin(request)) {
     return NextResponse.json({ error: "Invalid request origin." }, { status: 403 });
@@ -147,10 +156,13 @@ export async function POST(request: NextRequest) {
   }
 
   const report = body as Record<string, unknown>;
+  const isChatViolation = report.reportType === "chat_violation";
   const description =
     typeof report.description === "string"
       ? redactReportText(report.description.trim())
-      : "";
+      : isChatViolation
+        ? "Chat message violation report"
+        : "";
   const logs =
     typeof report.logs === "string" ? redactReportText(report.logs) : "";
   const screenshotInputs = Array.isArray(report.screenshots)
@@ -160,6 +172,106 @@ export async function POST(request: NextRequest) {
       : [];
   if (!description || description.length > 2000 || logs.length > MAX_LOG_LENGTH) {
     return NextResponse.json({ error: "Invalid report content." }, { status: 400 });
+  }
+  let text: string;
+  if (isChatViolation) {
+    const allowedCategories = new Set([
+      "Pesan tidak pantas",
+      "Scam atau penipuan",
+      "Intimidasi atau perundungan",
+      "Konten asusila",
+      "Spam",
+      "Lainnya",
+    ]);
+    const category =
+      typeof report.category === "string" ? report.category.trim() : "";
+    const otherDescription =
+      typeof report.otherDescription === "string"
+        ? redactReportText(report.otherDescription.trim()).slice(0, 500)
+        : "";
+    const inputs = Array.isArray(report.reportedMessages)
+      ? report.reportedMessages
+      : [];
+    if (
+      !allowedCategories.has(category) ||
+      (category === "Lainnya" && !otherDescription) ||
+      inputs.length === 0 ||
+      inputs.length > 50
+    ) {
+      return NextResponse.json({ error: "Invalid chat report." }, { status: 400 });
+    }
+    const reportedMessages: Array<{ timestamp: string; name: string; message: string }> = [];
+    let messageBudget = 1000;
+    for (const input of inputs) {
+      if (!input || typeof input !== "object" || messageBudget <= 0) continue;
+      const item = input as Record<string, unknown>;
+      const timestamp =
+        typeof item.timestamp === "string"
+          ? item.timestamp.replace(/[\r\n]/g, " ").slice(0, 80)
+          : "";
+      const name =
+        typeof item.name === "string"
+          ? redactReportText(item.name.trim()).replace(/[\r\n]/g, " ").slice(0, 100)
+          : "";
+      const rawMessage =
+        typeof item.message === "string"
+          ? redactReportText(item.message.trim())
+              .replace(/\r\n?/g, "\n")
+              .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "")
+          : "";
+      if (!timestamp || !name || !rawMessage) continue;
+      const message = rawMessage.slice(0, messageBudget);
+      messageBudget -= message.length;
+      reportedMessages.push({ timestamp, name, message });
+    }
+    if (reportedMessages.length === 0) {
+      return NextResponse.json({ error: "Invalid chat report messages." }, { status: 400 });
+    }
+
+    const reporter = await getTelegramUser(session.uid);
+    const fullName =
+      [reporter?.first_name, reporter?.last_name].filter(Boolean).join(" ").trim() ||
+      reporter?.username ||
+      `User ${session.uid}`;
+    const username = reporter?.username ? `@${reporter.username}` : "Tidak tersedia";
+    const firstTimestamp = reportedMessages[0].timestamp;
+    const categoryDetail =
+      category === "Lainnya"
+        ? `\n  _Detail:_ ${escapeMarkdownV2(otherDescription)}`
+        : "";
+    const messageBlock = reportedMessages
+      .map(
+        (item) =>
+          `[${item.timestamp}] ${item.name}: ${item.message}`,
+      )
+      .join("\n");
+    text = [
+      "*Subjek:* Laporan Pelanggaran Pengguna",
+      "",
+      "Yth\\. Admin/Customer Service CheyaVerse,",
+      "Seseorang telah melaporkan salah satu pengguna yang telah mengirimkan pesan *tidak pantas* dan *melanggar panduan* komunitas aplikasi\\. Berikut adalah detail laporannya:",
+      "",
+      `\\- *Pengirim:* ${escapeMarkdownV2(fullName)}`,
+      `\\- *Username:* ${escapeMarkdownV2(username)}`,
+      `\\- *Waktu kejadian:* ${escapeMarkdownV2(firstTimestamp)}`,
+      `\\- *Jenis pelanggaran:* ${escapeMarkdownV2(category)}${categoryDetail}`,
+      "",
+      "_*Pesan terkait dibawah ini*_",
+      "```txt",
+      escapeMarkdownCode(messageBlock),
+      "```",
+      "",
+      "Mohon pihak admin dapat segera menindaklanjuti akun tersebut sesuai dengan ketentuan yang berlaku demi menjaga kenyamanan pengguna lain\\.",
+      "",
+      "Terima kasih atas perhatian dan kerja samanya\\.",
+      "Hormat saya,",
+      escapeMarkdownV2(fullName),
+    ].join("\n");
+    if (text.length > 4000) {
+      return NextResponse.json({ error: "Chat report is too long." }, { status: 413 });
+    }
+  } else {
+    text = "";
   }
   if (screenshotInputs.length > MAX_REPORT_SCREENSHOTS) {
     return NextResponse.json({ error: "Invalid screenshot." }, { status: 400 });
@@ -217,19 +329,23 @@ export async function POST(request: NextRequest) {
 
   const page = reportPageLabel(report.page);
   const platform = reportUserAgent(report.metadata, report.platform);
-  const text = [
-    "CheyaVerse bug report",
-    `User: ${session.uid}`,
-    `Page: ${page}`,
-    `Browser/UA: ${platform}`,
-    ...reportMetadataLines(report.metadata),
-    `Attachments: ${screenshots.length}`,
-    "",
-    description,
-    "",
-    logs ? `Captured errors:\n${logs}` : "No captured client errors.",
-  ].join("\n");
-  const textParts = text.match(/[\s\S]{1,3500}/g) ?? [text];
+  if (!isChatViolation) {
+    text = [
+      "CheyaVerse bug report",
+      `User: ${session.uid}`,
+      `Page: ${page}`,
+      `Browser/UA: ${platform}`,
+      ...reportMetadataLines(report.metadata),
+      `Attachments: ${screenshots.length}`,
+      "",
+      description,
+      "",
+      logs ? `Captured errors:\n${logs}` : "No captured client errors.",
+    ].join("\n");
+  }
+  const textParts = isChatViolation
+    ? [text]
+    : text.match(/[\s\S]{1,3500}/g) ?? [text];
 
   if (reportInFlight.has(session.uid)) {
     return NextResponse.json(
@@ -251,6 +367,7 @@ export async function POST(request: NextRequest) {
         for (const chunk of textParts) {
           const messageSent = await sendTelegramMessage(adminId, chunk, {
             retry: REPORT_DELIVERY_RETRY,
+            ...(isChatViolation ? { parseMode: "MarkdownV2" as const } : {}),
           });
           if (!messageSent) return false;
         }

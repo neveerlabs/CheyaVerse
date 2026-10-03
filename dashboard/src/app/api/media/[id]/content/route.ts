@@ -1,53 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchMedia } from "@/lib/storage";
 import { fetchTelegramFile } from "@/lib/telegram";
-import { getCachedMedia, setCachedMedia } from "@/lib/media-cache";
+import { getCachedMedia } from "@/lib/media-cache";
 import type { MediaMeta } from "@/lib/storage";
 
 export const runtime = "nodejs";
 
 const MEDIA_ID_RE = /^\d{7}$/;
 const MAX_CHUNK = 4 * 1024 * 1024;
-const pendingMediaLoads = new Map<
-  string,
-  Promise<NonNullable<ReturnType<typeof getCachedMedia>> | null>
->();
-
-async function ensureCached(
-  id: string,
-  storagePath: string,
-  fallbackType: string,
-): Promise<NonNullable<ReturnType<typeof getCachedMedia>> | null> {
-  const hit = getCachedMedia(id);
-  if (hit) return hit;
-  const existingLoad = pendingMediaLoads.get(id);
-  if (existingLoad) return existingLoad;
-
-  const load = (async () => {
-    const upstream = await fetchTelegramFile(storagePath);
-    if (!upstream || !upstream.body) return null;
-
-    const buffer = Buffer.from(await upstream.arrayBuffer());
-    const contentType =
-      upstream.headers.get("Content-Type") ||
-      fallbackType ||
-      "application/octet-stream";
-
-    setCachedMedia(id, {
-      buffer,
-      contentType,
-      contentLength: buffer.length,
-    });
-
-    return getCachedMedia(id);
-  })();
-  pendingMediaLoads.set(id, load);
-  try {
-    return await load;
-  } finally {
-    if (pendingMediaLoads.get(id) === load) pendingMediaLoads.delete(id);
-  }
-}
 
 export async function GET(
   req: NextRequest,
@@ -71,70 +31,123 @@ export async function GET(
     return new NextResponse("Media not found.", { status: 404 });
   }
 
-  let cached: NonNullable<ReturnType<typeof getCachedMedia>> | null;
-  try {
-    cached = await ensureCached(
-      params.id,
-      meta.storage_path,
-      meta.content_type || "",
-    );
-  } catch (error) {
-    console.error(`[media/content] failed to load Telegram media ${params.id}:`, error);
-    return new NextResponse("Media is temporarily unavailable.", {
-      status: 503,
-      headers: { "Cache-Control": "no-store", "Retry-After": "5" },
-    });
-  }
-  if (!cached) {
-    return new NextResponse("Media is temporarily unavailable.", {
-      status: 503,
-      headers: { "Cache-Control": "no-store", "Retry-After": "5" },
-    });
-  }
-
-  const totalLength = cached.contentLength;
   const rangeHeader = req.headers.get("range");
-
   const baseHeaders: Record<string, string> = {
-    "Content-Type": cached.contentType,
+    "Content-Type": meta.content_type || "application/octet-stream",
     "Accept-Ranges": "bytes",
     "Cache-Control": "public, max-age=86400, immutable",
+    "X-Content-Type-Options": "nosniff",
   };
 
-  if (rangeHeader) {
-    const match = /bytes=(\d*)-(\d*)/.exec(rangeHeader);
-    if (match) {
-      let start = match[1] ? parseInt(match[1], 10) : 0;
-      let end = match[2] ? parseInt(match[2], 10) : totalLength - 1;
-      if (!isFinite(start) || start < 0) start = 0;
-      if (!isFinite(end) || end >= totalLength) end = totalLength - 1;
-      if (start > end) {
-        return new NextResponse("Range Not Satisfiable.", {
-          status: 416,
-          headers: { "Content-Range": `bytes */${totalLength}` },
+  const cached = getCachedMedia(params.id);
+  if (cached) {
+    const totalLength = cached.contentLength;
+    if (rangeHeader) {
+      const match = /bytes=(\d*)-(\d*)/.exec(rangeHeader);
+      if (match) {
+        let start = match[1] ? parseInt(match[1], 10) : 0;
+        let end = match[2] ? parseInt(match[2], 10) : totalLength - 1;
+        if (!isFinite(start) || start < 0) start = 0;
+        if (!isFinite(end) || end >= totalLength) end = totalLength - 1;
+        if (start > end) {
+          return new NextResponse("Range Not Satisfiable.", {
+            status: 416,
+            headers: { "Content-Range": `bytes */${totalLength}` },
+          });
+        }
+        if (end - start + 1 > MAX_CHUNK) {
+          end = start + MAX_CHUNK - 1;
+        }
+        const chunk = new Uint8Array(cached.buffer.subarray(start, end + 1));
+        return new NextResponse(chunk, {
+          status: 206,
+          headers: {
+            ...baseHeaders,
+            "Content-Range": `bytes ${start}-${end}/${totalLength}`,
+            "Content-Length": String(chunk.byteLength),
+          },
         });
       }
-      if (end - start + 1 > MAX_CHUNK) {
-        end = start + MAX_CHUNK - 1;
-      }
-      const chunk = new Uint8Array(cached.buffer.subarray(start, end + 1));
-      return new NextResponse(chunk, {
-        status: 206,
-        headers: {
-          ...baseHeaders,
-          "Content-Range": `bytes ${start}-${end}/${totalLength}`,
-          "Content-Length": String(chunk.byteLength),
-        },
-      });
     }
+
+    const full = new Uint8Array(cached.buffer);
+    return new NextResponse(full, {
+      status: 200,
+      headers: {
+        ...baseHeaders,
+        "Content-Length": String(totalLength),
+      },
+    });
   }
 
-  const full = new Uint8Array(cached.buffer);
-  return new NextResponse(full, {
-    status: 200,
-    headers: {
-      ...baseHeaders,
-      "Content-Length": String(totalLength),
-    },
+  let upstream: Response | null;
+  try {
+    upstream = await fetchTelegramFile(
+      meta.storage_path,
+      rangeHeader ? { headers: { Range: rangeHeader } } : undefined,
+    );
+  } catch (error) {
+    console.error(`[media/content] failed to open Telegram media ${params.id}:`, error);
+    return new NextResponse("Media is temporarily unavailable.", {
+      status: 503,
+      headers: { "Cache-Control": "no-store", "Retry-After": "5" },
+    });
+  }
+  if (!upstream?.body) {
+    return new NextResponse("Media is temporarily unavailable.", {
+      status: 503,
+      headers: { "Cache-Control": "no-store", "Retry-After": "5" },
+    });
+  }
+
+  const contentType =
+    upstream.headers.get("Content-Type") ||
+    meta.content_type ||
+    "application/octet-stream";
+  const contentLength = upstream.headers.get("Content-Length");
+  const headers = new Headers(baseHeaders);
+  headers.set("Content-Type", contentType);
+  if (contentLength) headers.set("Content-Length", contentLength);
+  const contentRange = upstream.headers.get("Content-Range");
+  if (contentRange) headers.set("Content-Range", contentRange);
+
+  if (rangeHeader && upstream.status === 200 && contentLength) {
+    const bytes = Buffer.from(await upstream.arrayBuffer());
+    const match = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader);
+    if (!match || (!match[1] && !match[2])) {
+      return new NextResponse("Range Not Satisfiable.", {
+        status: 416,
+        headers: { "Content-Range": `bytes */${bytes.length}` },
+      });
+    }
+    const requestedStart = match[1] ? Number(match[1]) : 0;
+    const requestedEnd = match[2] ? Number(match[2]) : bytes.length - 1;
+    if (
+      !Number.isSafeInteger(requestedStart) ||
+      !Number.isSafeInteger(requestedEnd) ||
+      requestedStart < 0 ||
+      requestedStart > requestedEnd ||
+      requestedStart >= bytes.length
+    ) {
+      return new NextResponse("Range Not Satisfiable.", {
+        status: 416,
+        headers: { "Content-Range": `bytes */${bytes.length}` },
+      });
+    }
+    const end = Math.min(requestedEnd, requestedStart + MAX_CHUNK - 1, bytes.length - 1);
+    const chunk = new Uint8Array(bytes.subarray(requestedStart, end + 1));
+    return new NextResponse(chunk, {
+      status: 206,
+      headers: {
+        ...Object.fromEntries(headers.entries()),
+        "Content-Range": `bytes ${requestedStart}-${end}/${bytes.length}`,
+        "Content-Length": String(chunk.byteLength),
+      },
+    });
+  }
+
+  return new NextResponse(upstream.body, {
+    status: upstream.status,
+    headers,
   });
 }

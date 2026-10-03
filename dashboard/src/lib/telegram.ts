@@ -10,6 +10,9 @@ export type TelegramUserInfo = {
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 800;
 const FETCH_TIMEOUT_MS = 20000;
+const FILE_URL_TTL_MS = 45 * 60 * 1000;
+const fileUrlCache = new Map<string, { url: string; expiresAt: number }>();
+const pendingFileUrlLookups = new Map<string, Promise<string | null>>();
 
 type FetchRetryOptions = {
   maxAttempts?: number;
@@ -53,7 +56,13 @@ export async function getTelegramFileUrl(fileId: string): Promise<string | null>
     console.error("TELEGRAM_BOT_TOKEN not configured");
     return null;
   }
-  try {
+  const cached = fileUrlCache.get(fileId);
+  if (cached && cached.expiresAt > Date.now()) return cached.url;
+  const pending = pendingFileUrlLookups.get(fileId);
+  if (pending) return pending;
+
+  const lookup = (async (): Promise<string | null> => {
+    try {
     const res = await fetchWithRetry(
       `https://api.telegram.org/bot${config.telegram.botToken}/getFile?file_id=${encodeURIComponent(fileId)}`,
       { cache: "no-store" },
@@ -62,20 +71,38 @@ export async function getTelegramFileUrl(fileId: string): Promise<string | null>
     if (!res || !res.ok) return null;
     const data = await res.json();
     if (!data?.ok || !data?.result?.file_path) return null;
-    return `https://api.telegram.org/file/bot${config.telegram.botToken}/${data.result.file_path}`;
-  } catch (err) {
-    console.error("Telegram getFile error:", err);
-    return null;
+      const url = `https://api.telegram.org/file/bot${config.telegram.botToken}/${data.result.file_path}`;
+      fileUrlCache.set(fileId, { url, expiresAt: Date.now() + FILE_URL_TTL_MS });
+      if (fileUrlCache.size > 500) {
+        const oldestKey = fileUrlCache.keys().next().value;
+        if (oldestKey) fileUrlCache.delete(oldestKey);
+      }
+      return url;
+    } catch (err) {
+      console.error("Telegram getFile error:", err);
+      return null;
+    }
+  })();
+  pendingFileUrlLookups.set(fileId, lookup);
+  try {
+    return await lookup;
+  } finally {
+    if (pendingFileUrlLookups.get(fileId) === lookup) {
+      pendingFileUrlLookups.delete(fileId);
+    }
   }
 }
 
-export async function fetchTelegramFile(fileId: string): Promise<Response | null> {
+export async function fetchTelegramFile(
+  fileId: string,
+  init?: RequestInit,
+): Promise<Response | null> {
   const url = await getTelegramFileUrl(fileId);
   if (!url) return null;
   try {
     const upstream = await fetchWithRetry(
       url,
-      { cache: "no-store" },
+      { ...init, cache: "no-store" },
       FAST_LOOKUP_OPTIONS,
     );
     if (!upstream || !upstream.ok || !upstream.body) return null;

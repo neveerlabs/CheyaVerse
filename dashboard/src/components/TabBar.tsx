@@ -2,152 +2,21 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Home, Image as ImageIcon, User, Send, Github,
 } from "lucide-react";
-import { useRealtime } from "@/lib/use-realtime";
-import { readApiJson } from "@/lib/read-api-json";
+import { BotChatLauncher } from "@/components/BotChatLauncher";
 
 export function TabBar({ uid }: { uid: string }) {
   const pathname = usePathname();
   const router = useRouter();
-  const [unread, setUnread] = useState(0);
-  const inflightRef = useRef(false);
-  const refreshRequestedRef = useRef(false);
-  const refreshTimerRef = useRef<number | null>(null);
-  const loadRef = useRef<() => Promise<void>>(async () => {});
-
-  const load = useCallback(async () => {
-    if (!uid || uid === "undefined") return;
-    if (inflightRef.current) {
-      refreshRequestedRef.current = true;
-      return;
-    }
-    inflightRef.current = true;
-    try {
-      const [notificationResponse, chatResponse] = await Promise.all([
-        fetch(`/api/notifications/${encodeURIComponent(uid)}`, {
-          cache: "no-store",
-        }),
-        fetch("/api/chats/unread", { cache: "no-store" }),
-      ]);
-      if (!notificationResponse.ok || !chatResponse.ok) {
-        throw new Error(
-          `Unread count request failed (notifications: ${notificationResponse.status}, chats: ${chatResponse.status}).`,
-        );
-      }
-      const [notifications, chats] = await Promise.all([
-        readApiJson<{ ok?: boolean; unread?: unknown }>(notificationResponse),
-        readApiJson<{ ok?: boolean; unread?: unknown }>(chatResponse),
-      ]);
-      if (notifications?.ok !== true || chats?.ok !== true) {
-        throw new Error("Unread count response was unsuccessful.");
-      }
-      const notificationUnread = Number(notifications.unread);
-      const chatUnread = Number(chats.unread);
-      if (
-        !Number.isSafeInteger(notificationUnread) ||
-        notificationUnread < 0 ||
-        !Number.isSafeInteger(chatUnread) ||
-        chatUnread < 0
-      ) {
-        throw new Error("Unread count response was invalid.");
-      }
-      setUnread(notificationUnread + chatUnread);
-    } catch (error) {
-      console.error("[tab-bar] failed to refresh unread count:", error);
-      return;
-    } finally {
-      inflightRef.current = false;
-      if (refreshRequestedRef.current) {
-        refreshRequestedRef.current = false;
-        if (refreshTimerRef.current !== null) {
-          window.clearTimeout(refreshTimerRef.current);
-        }
-        refreshTimerRef.current = window.setTimeout(() => {
-          refreshTimerRef.current = null;
-          void loadRef.current();
-        }, 0);
-      }
-    }
-  }, [uid]);
-  loadRef.current = load;
-
-  const scheduleLoad = useCallback(() => {
-    if (refreshTimerRef.current !== null) {
-      window.clearTimeout(refreshTimerRef.current);
-    }
-    refreshTimerRef.current = window.setTimeout(() => {
-      refreshTimerRef.current = null;
-      void loadRef.current();
-    }, 200);
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load, pathname]);
-
-  useEffect(
-    () => () => {
-      if (refreshTimerRef.current !== null) {
-        window.clearTimeout(refreshTimerRef.current);
-      }
-    },
-    [],
-  );
-
-  useEffect(() => {
-    const refreshWhenConnected = () => {
-      if (document.visibilityState === "visible") scheduleLoad();
-    };
-    const refreshOnHistoryRestore = () => scheduleLoad();
-    const refreshInterval = window.setInterval(() => {
-      if (document.visibilityState === "visible") scheduleLoad();
-    }, 5_000);
-    window.addEventListener("focus", refreshWhenConnected);
-    window.addEventListener("online", refreshWhenConnected);
-    window.addEventListener("pageshow", refreshOnHistoryRestore);
-    window.addEventListener("popstate", refreshOnHistoryRestore);
-    document.addEventListener("visibilitychange", refreshWhenConnected);
-    return () => {
-      window.clearInterval(refreshInterval);
-      window.removeEventListener("focus", refreshWhenConnected);
-      window.removeEventListener("online", refreshWhenConnected);
-      window.removeEventListener("pageshow", refreshOnHistoryRestore);
-      window.removeEventListener("popstate", refreshOnHistoryRestore);
-      document.removeEventListener("visibilitychange", refreshWhenConnected);
-    };
-  }, [scheduleLoad]);
-
-  useRealtime(uid, (event) => {
-    if (event.type === "notification:new") {
-      scheduleLoad();
-    }
-    if (event.type === "notification:read") {
-      scheduleLoad();
-    }
-    if (
-      event.type === "direct-message:new" ||
-      event.type === "direct-message:read" ||
-      event.type === "direct-message:deleted" ||
-      event.type === "direct-message:cleared" ||
-      event.type === "direct-message:hidden" ||
-      event.type === "direct-message:cleared-for-me" ||
-      event.type === "direct-unread:changed"
-    ) {
-      scheduleLoad();
-    }
-  });
-
-  const chatRoomMatch = pathname.match(/^\/[^/]+\/chat\/[^/]+$/);
-  if (chatRoomMatch) return null;
 
   const base = `/${uid}`;
   const mediaHref = `${base}/media`;
   const profileHref = `${base}/profile`;
   const chatHref = `${base}/chat`;
   const projectsHref = `${base}/project`;
+  const mediaViewerActive = pathname.startsWith(`${base}/m/`);
 
   const homeActive = pathname === base;
   const mediaActive = pathname.startsWith(mediaHref);
@@ -160,7 +29,9 @@ export function TabBar({ uid }: { uid: string }) {
   };
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 rounded-t-[20px] border-t border-slate-200/70 bg-white/85 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_30px_-24px_rgba(15,23,42,.45)] backdrop-blur-2xl">
+    <>
+    {!mediaViewerActive && <BotChatLauncher uid={uid} />}
+    <nav data-app-tabbar="true" className="fixed bottom-0 left-0 right-0 z-50 rounded-t-[20px] border-t border-slate-200/70 bg-white/85 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_30px_-24px_rgba(15,23,42,.45)] backdrop-blur-2xl">
       <div className="relative flex h-[56px] max-w-[600px] mx-auto">
         <Link
           prefetch={false}
@@ -194,11 +65,6 @@ export function TabBar({ uid }: { uid: string }) {
               strokeWidth={chatActive ? 2.3 : 1.7}
               className={chatActive ? "text-black" : "text-ink-mute group-hover:text-black"}
             />
-            {unread > 0 && (
-              <span className="absolute -top-1.5 -right-2.5 min-w-[16px] h-[16px] px-1 rounded-full bg-danger text-white text-[9.5px] font-bold flex items-center justify-center tabular-nums shadow-[0_0_0_2px_#fff]">
-                {unread > 99 ? "99+" : unread}
-              </span>
-            )}
           </div>
           <span
             className={`text-[10px] tracking-[-.005em] leading-none ${
@@ -276,5 +142,6 @@ export function TabBar({ uid }: { uid: string }) {
         </Link>
       </div>
     </nav>
+    </>
   );
 }

@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
 
   const plain = message.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
 
-  broadcastToUid(uid, {
+  await broadcastToUid(uid, {
     type: "notification:new",
     notificationId: notif.id,
     title,

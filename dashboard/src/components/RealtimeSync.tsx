@@ -13,6 +13,7 @@ export function RealtimeSync({ uid }: { uid: string }) {
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const playedSoundIdsRef = useRef(new Set<string>());
   const lastSystemSoundAtRef = useRef(0);
+  const botChatOpenRef = useRef(false);
 
   const playOutsideOnce = (id: string) => {
     if (playedSoundIdsRef.current.has(id)) return;
@@ -47,91 +48,60 @@ export function RealtimeSync({ uid }: { uid: string }) {
   }, [pathname, scheduleRefresh, uid]);
 
   useEffect(() => {
+    const onBotChatOpen = (event: Event) => {
+      botChatOpenRef.current =
+        (event as CustomEvent<{ open?: boolean }>).detail?.open === true;
+    };
+    window.addEventListener("cheya:bot-chat-open", onBotChatOpen);
+    return () => window.removeEventListener("cheya:bot-chat-open", onBotChatOpen);
+  }, []);
+
+  useEffect(() => {
     const onPageShow = (event: PageTransitionEvent) => {
-      if (event.persisted) {
-        scheduleRefresh();
-      }
+      if (document.visibilityState !== "visible") return;
+      reconnectRealtime(uid, event.persisted);
+      scheduleRefresh(event.persisted ? 0 : 80);
     };
     const onPopState = () => {
-      scheduleRefresh();
+      reconnectRealtime(uid);
+      scheduleRefresh(0);
     };
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") {
+        reconnectRealtime(uid);
         scheduleRefresh(140);
       }
+    };
+    const onFocus = () => {
+      reconnectRealtime(uid);
+      scheduleRefresh(80);
     };
 
     window.addEventListener("pageshow", onPageShow);
     window.addEventListener("popstate", onPopState);
+    window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       window.removeEventListener("pageshow", onPageShow);
       window.removeEventListener("popstate", onPopState);
+      window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisibilityChange);
       if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
     };
-  }, [scheduleRefresh]);
-
-  useEffect(() => {
-    if (!/^\/[^/]+\/chat\/?$/.test(pathname)) return;
-    const refreshChatList = () => {
-      if (document.visibilityState === "visible") scheduleRefresh(0);
-    };
-    const interval = window.setInterval(refreshChatList, 5_000);
-    window.addEventListener("focus", refreshChatList);
-    window.addEventListener("online", refreshChatList);
-    return () => {
-      window.clearInterval(interval);
-      window.removeEventListener("focus", refreshChatList);
-      window.removeEventListener("online", refreshChatList);
-    };
-  }, [pathname, scheduleRefresh]);
+  }, [scheduleRefresh, uid]);
 
   useRealtime(uid, (event) => {
     const pathname = pathnameRef.current;
-    const inSystemChat = /^\/[^/]+\/chat\/system\/?$/.test(pathname);
-    const inDirectChat = /^\/[^/]+\/chat\/\d+\/?$/.test(pathname);
-    const inChatRoom = inSystemChat || inDirectChat;
-    const handledByChatRoom =
-      (inSystemChat &&
-        event.type.startsWith("message:")) ||
-      (inDirectChat &&
-        event.type.startsWith("direct-message:")) ||
-      (inChatRoom &&
-        (event.type.startsWith("notification:") ||
-          event.type === "direct-unread:changed"));
+    const handledByBotChat =
+      botChatOpenRef.current &&
+      (event.type.startsWith("message:") ||
+        event.type.startsWith("notification:"));
 
-    if (!handledByChatRoom && event.type !== "direct-chat:typing") {
+    if (!handledByBotChat) {
       scheduleRefresh(40);
     }
 
-    if (event.type === "direct-message:new") {
-      const message = event.message as
-        | { sender_uid?: number; recipient_uid?: number; content?: string }
-        | undefined;
-      if (message?.recipient_uid === Number(uid)) {
-        const senderUid = message.sender_uid;
-        const match = pathnameRef.current.match(/^\/([^/]+)\/chat\/([^/]+)$/);
-        const activeContactId = match ? match[2] : null;
-        const activeContactUid =
-          activeContactId && activeContactId !== "system"
-            ? Number(activeContactId)
-            : null;
-        if (
-          typeof senderUid === "number" &&
-          senderUid !== Number(uid) &&
-          senderUid !== activeContactUid
-        ) {
-          const messageId =
-            message && "id" in message && typeof message.id === "string"
-              ? message.id
-              : `${senderUid}:${String(message?.content ?? "")}`;
-          playOutsideOnce(`direct:${messageId}`);
-        }
-      }
-    }
-
-    if (event.type === "message:new" && !inSystemChat) {
+    if (event.type === "message:new" && !botChatOpenRef.current) {
       const message = event.message as
         | { uid?: number; sender?: string; sender_role?: string }
         | undefined;
@@ -148,7 +118,7 @@ export function RealtimeSync({ uid }: { uid: string }) {
       }
     }
 
-    if (event.type === "notification:new" && !inSystemChat) {
+    if (event.type === "notification:new" && !botChatOpenRef.current) {
       if (Date.now() - lastSystemSoundAtRef.current > 1_000) {
         const notificationId =
           typeof event.notificationId === "string"

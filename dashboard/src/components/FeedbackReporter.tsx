@@ -16,6 +16,7 @@ import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { readApiJson } from "@/lib/read-api-json";
+import { acquirePageModalLock } from "@/lib/page-modal-lock";
 
 type CapturedIssue = {
   message: string;
@@ -35,10 +36,6 @@ type ClientIssueEvent = CustomEvent<{
   stack?: string;
   urgent?: boolean;
 }>;
-
-type ScreenWakeLockSentinel = {
-  release: () => Promise<void>;
-};
 
 const MAX_ISSUES = 12;
 const ISSUE_DEDUPE_MS = 60_000;
@@ -107,7 +104,7 @@ async function captureViewportCanvas(): Promise<HTMLCanvasElement> {
   const viewportHeight = window.innerHeight;
   const deviceScale = Math.max(1, window.devicePixelRatio || 1);
   const scale = Math.min(
-    2,
+    1.5,
     deviceScale,
     16_000 / viewportWidth,
     16_000 / viewportHeight,
@@ -270,16 +267,7 @@ async function screenshotAttachment(
     context.imageSmoothingQuality = "high";
     context.drawImage(source, 0, 0, width, height);
 
-    const png = await canvasToBlob(canvas, "image/png");
-    if (png && png.size <= maxBytes) {
-      return {
-        id: crypto.randomUUID(),
-        name: imageName(name, "png"),
-        dataUrl: await readBlobAsDataUrl(png),
-      };
-    }
-
-    for (const quality of JPEG_QUALITIES) {
+    for (const quality of [0.82, 0.68]) {
       const blob = await canvasToBlob(canvas, "image/jpeg", quality);
       if (blob && blob.size <= maxBytes) {
         return {
@@ -290,7 +278,7 @@ async function screenshotAttachment(
       }
     }
 
-    width = Math.floor(width * 0.94);
+    width = Math.floor(width * 0.82);
     height = Math.max(1, Math.round((source.height / source.width) * width));
   }
   throw new Error("Screenshot terlalu besar untuk diproses dengan aman.");
@@ -366,11 +354,15 @@ export function FeedbackReporter() {
   const [notice, setNotice] = useState("");
   const [copied, setCopied] = useState(false);
   const [reportButtonBottom, setReportButtonBottom] = useState<number | null>(null);
+  const [reportButtonLeft, setReportButtonLeft] = useState<number | null>(null);
+  const [botChatOpen, setBotChatOpen] = useState(false);
   const pathnameRef = useRef(pathname);
   pathnameRef.current = pathname;
   const panelRef = useRef<HTMLElement | null>(null);
   const modalRef = useRef(modal);
   modalRef.current = modal;
+  const modalHistoryOpenRef = useRef(false);
+  const closingModalHistoryRef = useRef(false);
   const lastShakeAtRef = useRef(0);
   const recentIssueRef = useRef(new Map<string, number>());
   const motionBaselineRef = useRef<{ x: number; y: number; z: number } | null>(null);
@@ -389,8 +381,17 @@ export function FeedbackReporter() {
   const apiNoticeAtRef = useRef(0);
   const inChatRoom = /^\/[^/]+\/chat\/[^/]+\/?$/.test(pathname);
 
+  useEffect(() => {
+    const onBotChatOpen = (event: Event) => {
+      const detail = (event as CustomEvent<{ open?: boolean }>).detail;
+      setBotChatOpen(Boolean(detail?.open));
+    };
+    window.addEventListener("cheya:bot-chat-open", onBotChatOpen);
+    return () => window.removeEventListener("cheya:bot-chat-open", onBotChatOpen);
+  }, []);
+
   const showNotice = useCallback((message: string) => {
-    setNotice(message);
+    setNotice(message.replace(/[.!?…]+$/, ""));
     if (noticeTimerRef.current !== null) {
       window.clearTimeout(noticeTimerRef.current);
     }
@@ -455,16 +456,109 @@ export function FeedbackReporter() {
   }, [attachments.length, description]);
 
   useEffect(() => {
-    if (!inChatRoom) {
+    const onOpenReport = () => openReport();
+    window.addEventListener("cheya:open-feedback-report", onOpenReport);
+    return () => window.removeEventListener("cheya:open-feedback-report", onOpenReport);
+  }, [openReport]);
+
+  useEffect(() => {
+    if (modal) {
+      if (!modalHistoryOpenRef.current) {
+        window.history.pushState({ cheyaFeedbackModal: true }, "", window.location.href);
+        modalHistoryOpenRef.current = true;
+      }
+      window.dispatchEvent(
+        new CustomEvent("cheya:feedback-modal-state", { detail: { open: true } }),
+      );
+    } else {
+      window.dispatchEvent(
+        new CustomEvent("cheya:feedback-modal-state", { detail: { open: false } }),
+      );
+    }
+  }, [modal]);
+
+  useEffect(() => {
+    if (!modal || minimized) return;
+    return acquirePageModalLock();
+  }, [modal, minimized]);
+
+  useEffect(() => {
+    const onPopState = (event: PopStateEvent) => {
+      if (closingModalHistoryRef.current) {
+        closingModalHistoryRef.current = false;
+        return;
+      }
+      if (!modalRef.current) return;
+      modalHistoryOpenRef.current = false;
+      modalRef.current = null;
+      setModal(null);
+      setExpanded(false);
+      setMinimized(false);
+      window.dispatchEvent(
+        new CustomEvent("cheya:feedback-modal-state", { detail: { open: false } }),
+      );
+      event.stopImmediatePropagation();
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  function closeReport() {
+    const shouldReturnHistory = modalHistoryOpenRef.current;
+    modalHistoryOpenRef.current = false;
+    modalRef.current = null;
+    setModal(null);
+    setExpanded(false);
+    setMinimized(false);
+    window.dispatchEvent(
+      new CustomEvent("cheya:feedback-modal-state", { detail: { open: false } }),
+    );
+    if (shouldReturnHistory) {
+      closingModalHistoryRef.current = true;
+      window.dispatchEvent(new Event("cheya:feedback-modal-closing"));
+      window.history.back();
+    }
+  }
+
+  useEffect(() => {
+    if (!inChatRoom && !botChatOpen) {
       setReportButtonBottom(null);
+      setReportButtonLeft(null);
       return;
     }
 
     let footer: HTMLElement | null = null;
+    let composer: HTMLElement | null = null;
     let resizeObserver: ResizeObserver | null = null;
     let footerMutationObserver: MutationObserver | null = null;
 
     const updatePosition = () => {
+      const currentComposer = botChatOpen
+        ? document.querySelector<HTMLElement>(
+            '[data-bot-chat-dialog] [data-chat-composer-input="true"]',
+          ) ??
+          document.querySelector<HTMLElement>(
+            '[data-bot-chat-dialog] [data-chat-report-anchor="true"]',
+          )
+        : null;
+      if (currentComposer !== composer) {
+        if (composer) resizeObserver?.unobserve(composer);
+        composer = currentComposer;
+        if (composer) resizeObserver?.observe(composer);
+      }
+      if (composer) {
+        const inputRect = composer.getBoundingClientRect();
+        const isFooterAnchor = composer.hasAttribute("data-chat-report-anchor");
+        const anchorStyle = isFooterAnchor ? window.getComputedStyle(composer) : null;
+        const inputTop =
+          inputRect.top + (anchorStyle ? Number.parseFloat(anchorStyle.paddingTop) || 0 : 0);
+        const inputLeft =
+          inputRect.left + (anchorStyle ? Number.parseFloat(anchorStyle.paddingLeft) || 0 : 0);
+        setReportButtonBottom(Math.max(0, window.innerHeight - inputTop + 14));
+        setReportButtonLeft(Math.max(0, inputLeft));
+        return;
+      }
+      setReportButtonLeft(null);
       const currentFooter = document.querySelector<HTMLElement>(".chat-footer");
       if (currentFooter !== footer) {
         if (footer) resizeObserver?.unobserve(footer);
@@ -480,6 +574,10 @@ export function FeedbackReporter() {
         }
       }
       if (!footer) {
+        if (botChatOpen) {
+          setReportButtonBottom(null);
+          return;
+        }
         setReportButtonBottom(null);
         return;
       }
@@ -505,7 +603,7 @@ export function FeedbackReporter() {
       visualViewport?.removeEventListener("resize", updatePosition);
       visualViewport?.removeEventListener("scroll", updatePosition);
     };
-  }, [inChatRoom, pathname]);
+  }, [botChatOpen, inChatRoom, pathname]);
 
   const captureScreenshot = useCallback(
     async (fromShake = false) => {
@@ -528,27 +626,7 @@ export function FeedbackReporter() {
       setAttachmentBusy(true);
       if (modalRef.current) setMinimized(true);
       setCaptureActive(true);
-      let wakeLock: ScreenWakeLockSentinel | null = null;
-      let wakeLockUnavailable = false;
       try {
-        const wakeLockManager = (
-          navigator as Navigator & {
-            wakeLock?: {
-              request: (type: "screen") => Promise<ScreenWakeLockSentinel>;
-            };
-          }
-        ).wakeLock;
-        if (wakeLockManager) {
-          try {
-            wakeLock = await wakeLockManager.request("screen");
-          } catch (error) {
-            wakeLockUnavailable = true;
-            console.warn("[feedback] screen wake lock request failed:", error);
-          }
-        } else {
-          wakeLockUnavailable = true;
-          console.warn("[feedback] screen wake lock is not supported by this browser.");
-        }
         await new Promise<void>((resolve) =>
           window.requestAnimationFrame(() =>
             window.requestAnimationFrame(() => resolve()),
@@ -570,17 +648,15 @@ export function FeedbackReporter() {
         if (fromShake) {
           setShakeNotice(
             issues.length > 0
-              ? `Shake terdeteksi. Screenshot dan error yang tercatat sudah ditambahkan.${wakeLockUnavailable ? " Browser tidak dapat menahan layar tetap aktif selama capture." : ""}`
-              : `Shake terdeteksi. Screenshot ditambahkan, tetapi tidak ada error otomatis yang tercatat.${wakeLockUnavailable ? " Browser tidak dapat menahan layar tetap aktif selama capture." : ""}`,
+              ? "Shake terdeteksi. Screenshot dan error yang tercatat sudah ditambahkan."
+              : "Shake terdeteksi. Screenshot ditambahkan, tetapi tidak ada error otomatis yang tercatat.",
           );
           setModal((current) => current ?? "bug");
         } else {
           setShakeNotice("");
           setModal((current) => current ?? "bug");
           showNotice(
-            wakeLockUnavailable
-              ? "Screenshot ditambahkan; browser tidak mendukung kunci layar aktif."
-              : "Screenshot layar ditambahkan dengan resolusi perangkat.",
+            "Screenshot layar ditambahkan dengan resolusi perangkat.",
           );
         }
         setMinimized(false);
@@ -600,13 +676,6 @@ export function FeedbackReporter() {
           setExpanded(false);
         }
       } finally {
-        if (wakeLock) {
-          try {
-            await wakeLock.release();
-          } catch (error) {
-            console.warn("[feedback] screen wake lock release failed:", error);
-          }
-        }
         setCaptureActive(false);
         setAttachmentBusy(false);
       }
@@ -935,8 +1004,7 @@ export function FeedbackReporter() {
     const distance = event.clientY - drag.startY;
     clearPanelDragStyles();
     if (distance > 70) {
-      setModal(null);
-      setExpanded(false);
+      closeReport();
     } else if (distance < -55) {
       setExpanded(true);
     }
@@ -950,22 +1018,8 @@ export function FeedbackReporter() {
 
   useEffect(() => {
     if (!modal || minimized) return;
-
-    const closeOnOutsideClick = (event: MouseEvent) => {
-      const target = event.target;
-      if (target instanceof Node && panelRef.current?.contains(target)) return;
-      event.preventDefault();
-      event.stopPropagation();
-      event.stopImmediatePropagation();
-      if (!sending) {
-        setModal(null);
-        setExpanded(false);
-      }
-    };
-    document.addEventListener("click", closeOnOutsideClick, true);
     panelRef.current?.focus({ preventScroll: true });
-    return () => document.removeEventListener("click", closeOnOutsideClick, true);
-  }, [modal, minimized, sending]);
+  }, [modal, minimized]);
 
   useEffect(() => {
     if (!shakeEnabled) return;
@@ -1135,7 +1189,7 @@ export function FeedbackReporter() {
           ? "Laporan terkirim, tetapi screenshot gagal dikirim."
           : "Laporan bug berhasil dikirim kepada admin.",
       );
-      setModal(null);
+      closeReport();
       setDescription("");
       setAttachments([]);
       setShakeNotice("");
@@ -1174,7 +1228,7 @@ export function FeedbackReporter() {
         >
         </div>
       )}
-      {uid && (
+      {uid && !inChatRoom && !botChatOpen && !modal && (
         <button
           type="button"
           data-screenshot-ignore="true"
@@ -1182,12 +1236,21 @@ export function FeedbackReporter() {
           onClick={() => void openReport()}
           className="fixed bottom-[calc(70px+env(safe-area-inset-bottom))] left-3 z-[390] flex h-10 w-10 items-center justify-center rounded-full border border-line bg-white text-ink-soft shadow-md"
           style={
-            inChatRoom
+            botChatOpen
+              ? {
+                  bottom: `${reportButtonBottom ?? 14}px`,
+                  left: reportButtonLeft === null
+                    ? "max(12px, calc((100vw - 600px) / 2 + 12px))"
+                    : `${reportButtonLeft}px`,
+                }
+              : inChatRoom
               ? {
                   bottom: `${reportButtonBottom ?? 14}px`,
                   left: "max(12px, calc((100vw - 600px) / 2 + 12px))",
                 }
-              : undefined
+              : {
+                  left: "max(12px, calc((100vw - 600px) / 2 + 12px))",
+                }
           }
         >
           <Bug size={17} />
@@ -1217,16 +1280,23 @@ export function FeedbackReporter() {
       {modal && !minimized && (
         <div
           data-screenshot-ignore="true"
-          className="pointer-events-none fixed inset-0 z-[500] flex items-end justify-center bg-slate-950/25"
+          className="pointer-events-auto fixed inset-0 z-[500] flex items-end justify-center bg-slate-950/45 backdrop-blur-sm"
           role="presentation"
+          onClick={() => {
+            if (!sending) {
+              closeReport();
+            }
+          }}
         >
           <section
             ref={panelRef}
             data-feedback-kind={modal}
+            data-modal-scroll-allow="true"
             role="dialog"
             aria-modal="true"
             aria-labelledby="feedback-title"
             tabIndex={-1}
+            onClick={(event) => event.stopPropagation()}
             className={`pointer-events-auto w-full max-w-[600px] overflow-y-auto border border-slate-200/80 bg-white px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-3 shadow-[0_-20px_70px_-28px_rgba(0,0,0,.42)] transition-[height,transform] duration-200 ease-out sm:p-5 ${
               expanded
                 ? "h-[100dvh] max-h-[100dvh] rounded-none"
@@ -1270,7 +1340,7 @@ export function FeedbackReporter() {
                   type="button"
                   aria-label="Tutup laporan"
                   disabled={sending}
-                  onClick={() => setModal(null)}
+                  onClick={closeReport}
                   className="rounded-full p-2 text-ink-mute"
                 >
                   <X size={18} />

@@ -8,11 +8,11 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const uidRaw = req.nextUrl.searchParams.get("uid");
   const uidNum = uidRaw ? Number(uidRaw) : NaN;
-  const uid =
-    Number.isInteger(uidNum) && uidNum > 0 ? uidNum : null;
+  const uid = Number.isInteger(uidNum) && uidNum > 0 ? uidNum : null;
+  if (uid === null) return new Response("Unauthorized", { status: 401 });
   let session: Awaited<ReturnType<typeof getUserSession>> = null;
   try {
-    session = uid ? await getUserSession(req, uid) : null;
+    session = await getUserSession(req, uid);
   } catch (error) {
     console.error("[events] session verification failed:", error);
     return new Response("Realtime session verification is temporarily unavailable.", {
@@ -39,7 +39,6 @@ export async function GET(req: NextRequest) {
       };
 
       send({ type: "ready", uid });
-
       const unsubscribe = subscribe({ uid, send });
 
       const heartbeat = setInterval(() => {
@@ -60,6 +59,7 @@ export async function GET(req: NextRequest) {
       };
 
       req.signal.addEventListener("abort", cleanup);
+      if (req.signal.aborted) cleanup();
     },
   });
 

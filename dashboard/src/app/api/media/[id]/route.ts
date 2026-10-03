@@ -90,7 +90,7 @@ export async function DELETE(
   if (!notif) {
     console.error(`[media/delete] Media ${params.id} was deleted but its web notice could not be stored.`);
   } else {
-    broadcastToUid(uid, {
+    await broadcastToUid(uid, {
       type: "notification:new",
       notificationId: notif.id,
       title: "CheyaVerse · Admin",
@@ -102,7 +102,7 @@ export async function DELETE(
     ).catch((error) => console.error("[media/delete] push delivery failed:", error));
   }
 
-  broadcastToUid(uid, { type: "media:changed" });
+  await broadcastToUid(uid, { type: "media:changed" });
 
   return NextResponse.json({ ok: true });
 }

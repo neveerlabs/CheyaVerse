@@ -75,6 +75,6 @@ export async function POST(
   }
 
   const cover = await getCover(uid);
-  broadcastToUid(uid, { type: "cover:changed" });
+  await broadcastToUid(uid, { type: "cover:changed" });
   return NextResponse.json({ ok: true, cover });
 }

@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
 
   await addDeviceToBlacklist(deviceId, uid);
 
-  broadcastToUid(uid, { type: "session:blocked", deviceId });
+  await broadcastToUid(uid, { type: "session:blocked", deviceId });
 
   return NextResponse.json({ ok: true });
 }

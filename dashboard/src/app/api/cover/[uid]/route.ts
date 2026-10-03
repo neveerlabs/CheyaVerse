@@ -67,7 +67,7 @@ export async function POST(
     if (!res.ok) {
       return NextResponse.json({ ok: false, error: res.reason }, { status: 500 });
     }
-    broadcastToUid(uid, { type: "cover:changed" });
+    await broadcastToUid(uid, { type: "cover:changed" });
     return NextResponse.json({ ok: true, cover: await getCover(uid) });
   }
 
@@ -96,7 +96,7 @@ export async function POST(
     if (!res.ok) {
       return NextResponse.json({ ok: false, error: res.reason }, { status: 500 });
     }
-    broadcastToUid(uid, { type: "cover:changed" });
+    await broadcastToUid(uid, { type: "cover:changed" });
     return NextResponse.json({ ok: true, cover: await getCover(uid) });
   }
 
@@ -134,7 +134,7 @@ export async function POST(
   if (!res.ok) {
     return NextResponse.json({ ok: false, error: res.reason }, { status: 500 });
   }
-  broadcastToUid(uid, { type: "cover:changed" });
+  await broadcastToUid(uid, { type: "cover:changed" });
   return NextResponse.json({ ok: true, cover: await getCover(uid) });
 }
 
@@ -151,6 +151,6 @@ export async function DELETE(
   if (!res.ok) {
     return NextResponse.json({ ok: false, error: res.reason }, { status: 500 });
   }
-  broadcastToUid(uid, { type: "cover:changed" });
+  await broadcastToUid(uid, { type: "cover:changed" });
   return NextResponse.json({ ok: true });
 }

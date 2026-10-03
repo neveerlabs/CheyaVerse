@@ -134,7 +134,7 @@ export function MediaClient({
   }
 
   function showToast(msg: string) {
-    setToast(msg);
+    setToast(msg.replace(/[.!?…]+$/, ""));
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), 1800);
   }

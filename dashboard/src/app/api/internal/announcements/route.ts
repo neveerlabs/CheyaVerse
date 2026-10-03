@@ -78,12 +78,14 @@ export async function POST(request: NextRequest) {
         batch.map(async (uid) => {
           const message = await saveBroadcastAnnouncement(uid, broadcastId, contentHtml);
           if (!message) return false;
-          broadcastToUid(uid, { type: "message:new", message });
-          broadcastToUid(uid, {
-            type: "notification:new",
-            uid,
-            notificationId: message.id,
-          });
+          await Promise.all([
+            broadcastToUid(uid, { type: "message:new", message }),
+            broadcastToUid(uid, {
+              type: "notification:new",
+              uid,
+              notificationId: message.id,
+            }),
+          ]);
           try {
             await sendPushToUid(
               uid,

@@ -16,7 +16,6 @@ const INCIDENT_ENDPOINT_GROUPS = new Set([
   "/api/account",
   "/api/auth",
   "/api/avatar",
-  "/api/chats",
   "/api/cover",
   "/api/device-links",
   "/api/download",
@@ -29,11 +28,9 @@ const INCIDENT_ENDPOINT_GROUPS = new Set([
   "/api/messages",
   "/api/notifications",
   "/api/notify",
-  "/api/presence",
   "/api/push",
   "/api/session",
   "/api/user",
-  "/api/users",
 ]);
 
 let incidentTableReady: Promise<void> | null = null;

@@ -4,6 +4,7 @@ import {
   listNotifications,
   countUnreadNotifications,
   markNotificationsRead,
+  markUnreadBotMessagesRead,
   deleteChatNotification,
 } from "@/lib/storage";
 import { broadcastToUid } from "@/lib/realtime";
@@ -56,8 +57,20 @@ export async function POST(
     return NextResponse.json({ ok: false, error: "invalid_uid" }, { status: 400 });
   }
   try {
-    await markNotificationsRead(uid);
-    broadcastToUid(uid, { type: "notification:read" });
+    const [, messages] = await Promise.all([
+      markNotificationsRead(uid),
+      markUnreadBotMessagesRead(uid),
+    ]);
+    await broadcastToUid(uid, { type: "notification:read" });
+    await Promise.all(
+      messages.messageIds.map((messageId) =>
+        broadcastToUid(uid, {
+          type: "message:read",
+          messageId,
+          read_at: messages.readAt,
+        }),
+      ),
+    );
     revalidatePath(`/${uid}/chat`);
     return NextResponse.json(
       { ok: true },
@@ -92,7 +105,7 @@ export async function DELETE(
   if (!deleted) {
     return NextResponse.json({ ok: false, error: "notification_not_found" }, { status: 404 });
   }
-  broadcastToUid(uid, { type: "notification:deleted", notificationId });
+  await broadcastToUid(uid, { type: "notification:deleted", notificationId });
   revalidatePath(`/${uid}/chat`);
   return NextResponse.json({ ok: true });
 }
