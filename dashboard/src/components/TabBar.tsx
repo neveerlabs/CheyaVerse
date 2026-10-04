@@ -28,37 +28,6 @@ export function TabBar({ uid }: { uid: string }) {
   const [keyboardOverlayActive, setKeyboardOverlayActive] = useState(false);
 
   useEffect(() => {
-    const root = document.documentElement;
-    const viewport = window.visualViewport;
-    const updateViewportInset = () => {
-      const visibleBottom = viewport
-        ? viewport.offsetTop + viewport.height
-        : window.innerHeight;
-      const bottomInset = Math.max(
-        0,
-        Math.round(window.innerHeight - visibleBottom),
-      );
-      root.style.setProperty(
-        "--app-visual-viewport-bottom-inset",
-        `${bottomInset}px`,
-      );
-    };
-
-    updateViewportInset();
-    window.addEventListener("resize", updateViewportInset);
-    window.addEventListener("scroll", updateViewportInset, { passive: true });
-    viewport?.addEventListener("resize", updateViewportInset);
-    viewport?.addEventListener("scroll", updateViewportInset);
-    return () => {
-      window.removeEventListener("resize", updateViewportInset);
-      window.removeEventListener("scroll", updateViewportInset);
-      viewport?.removeEventListener("resize", updateViewportInset);
-      viewport?.removeEventListener("scroll", updateViewportInset);
-      root.style.removeProperty("--app-visual-viewport-bottom-inset");
-    };
-  }, []);
-
-  useEffect(() => {
     const viewport = window.visualViewport;
     if (!viewport) return;
 
@@ -105,11 +74,8 @@ export function TabBar({ uid }: { uid: string }) {
     )}
     <nav
       data-app-tabbar="true"
-      style={{
-        bottom: "var(--app-visual-viewport-bottom-inset, 0px)",
-        ...(keyboardOverlayActive ? { display: "none" } : {}),
-      }}
-      className="fixed left-0 right-0 z-50 rounded-t-[20px] border-t border-slate-200/70 bg-white/85 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_30px_-24px_rgba(15,23,42,.45)] backdrop-blur-2xl"
+      style={keyboardOverlayActive ? { display: "none" } : undefined}
+      className="fixed bottom-0 left-0 right-0 z-50 rounded-t-[20px] border-t border-slate-200/70 bg-white/85 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_30px_-24px_rgba(15,23,42,.45)] backdrop-blur-2xl"
     >
       <div className="relative flex h-[56px] max-w-[600px] mx-auto">
         <Link

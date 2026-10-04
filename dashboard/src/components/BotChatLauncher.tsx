@@ -322,12 +322,8 @@ export function BotChatLauncher({
           type="button"
           aria-label={`Open CheyaVerse bot chat${unread ? `, ${unread} unread` : ""}`}
           onClick={openChat}
-          className="fixed left-3 z-[350] flex h-10 w-10 items-center justify-center overflow-visible rounded-full border border-line bg-white p-0 text-ink shadow-lg transition-transform active:scale-95"
-          style={{
-            left: "max(12px, calc((100vw - 600px) / 2 + 12px))",
-            bottom:
-              "calc(var(--app-visual-viewport-bottom-inset, 0px) + 122px + env(safe-area-inset-bottom))",
-          }}
+          className="fixed bottom-[calc(122px+env(safe-area-inset-bottom))] left-3 z-[350] flex h-10 w-10 items-center justify-center overflow-visible rounded-full border border-line bg-white p-0 text-ink shadow-lg transition-transform active:scale-95"
+          style={{ left: "max(12px, calc((100vw - 600px) / 2 + 12px))" }}
         >
           <TelegramAvatar src="/icon.png" className="h-full w-full rounded-full object-cover" />
           {unread > 0 && (

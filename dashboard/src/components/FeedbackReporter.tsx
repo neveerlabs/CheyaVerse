@@ -548,6 +548,12 @@ export function FeedbackReporter() {
       );
       if (reportAnchor) {
         const rect = reportAnchor.getBoundingClientRect();
+        if (reportAnchor.dataset.reportAnchor === "avatar-preview") {
+          setReportButtonBottom(18);
+          setReportButtonLeft(12);
+          setReportButtonRight(null);
+          return;
+        }
         if (reportAnchor.dataset.reportAnchor === "sheet") {
           const gap = 16;
           const controlBottom = window.innerHeight - rect.top + gap;
@@ -1299,7 +1305,6 @@ export function FeedbackReporter() {
         (!modal || minimized) && (
         <button
           type="button"
-          data-screenshot-ignore="true"
           aria-label="Laporkan bug"
           onClick={() => void openReport()}
           className="pointer-events-auto fixed bottom-[calc(70px+env(safe-area-inset-bottom))] left-3 z-[999] flex h-10 w-10 items-center justify-center rounded-full border border-line bg-white text-ink-soft shadow-md"

@@ -1135,12 +1135,24 @@ export function ProfileClient({
           ref={modalRef}
           onClick={() => setAvatarOpen(false)}
           style={{ touchAction: "none" }}
-          className="fixed inset-0 z-[300] bg-black/20 backdrop-blur-md flex items-center justify-center p-4 cursor-pointer animate-fade-up"
+          data-hide-bot-launcher="true"
+          data-report-anchor="avatar-preview"
+          className="fixed inset-0 z-[300] flex cursor-pointer items-center justify-center overflow-hidden bg-slate-950/20 p-4 animate-fade-up"
         >
+          {!avatarFailed && avatarSrc && (
+            <img
+              src={avatarSrc}
+              alt=""
+              aria-hidden="true"
+              draggable={false}
+              className="pointer-events-none absolute inset-0 h-full w-full scale-110 object-cover opacity-65 blur-3xl"
+            />
+          )}
+          <div className="pointer-events-none absolute inset-0 bg-white/45 backdrop-blur-md" />
           <div
             onClick={(e) => e.stopPropagation()}
             style={{ touchAction: "none" }}
-            className="relative w-[90vw] h-[90vw] max-w-[500px] max-h-[500px] rounded-full overflow-hidden bg-[#1a1a1a] flex items-center justify-center cursor-default"
+            className="relative z-10 flex h-[min(90vw,70dvh)] w-[min(90vw,70dvh)] max-h-[500px] max-w-[500px] cursor-default items-center justify-center overflow-hidden rounded-full bg-[#1a1a1a] shadow-[0_24px_80px_-18px_rgba(0,0,0,.55)]"
           >
             <div
               ref={innerRef}
