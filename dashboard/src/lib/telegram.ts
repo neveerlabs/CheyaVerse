@@ -364,6 +364,7 @@ export async function sendTelegramPhoto(
   photo: Blob,
   caption: string,
   retry?: FetchRetryOptions,
+  parseMode?: "HTML",
 ): Promise<boolean> {
   if (!config.telegram.botToken) {
     console.error("TELEGRAM_BOT_TOKEN not configured");
@@ -372,7 +373,8 @@ export async function sendTelegramPhoto(
   try {
     const form = new FormData();
     form.set("chat_id", String(chatId));
-    form.set("caption", caption.slice(0, 1024));
+    form.set("caption", caption);
+    if (parseMode) form.set("parse_mode", parseMode);
     form.set("photo", photo, photo.type === "image/png" ? "bug-report.png" : "bug-report.jpg");
     const response = await fetchWithRetry(
       `https://api.telegram.org/bot${config.telegram.botToken}/sendPhoto`,
@@ -384,6 +386,61 @@ export async function sendTelegramPhoto(
     return result?.ok === true;
   } catch (error) {
     console.error("Telegram sendPhoto error:", error);
+    return false;
+  }
+}
+
+export async function sendTelegramMediaGroup(
+  chatId: number | string,
+  media: Array<{ blob: Blob; filename: string }>,
+  caption: string,
+  retry?: FetchRetryOptions,
+): Promise<boolean> {
+  if (!config.telegram.botToken) {
+    console.error("TELEGRAM_BOT_TOKEN not configured");
+    return false;
+  }
+  if (media.length < 2 || media.length > 10) {
+    console.error(`Telegram media group size is invalid: ${media.length}.`);
+    return false;
+  }
+
+  try {
+    const form = new FormData();
+    form.set("chat_id", String(chatId));
+    form.set(
+      "media",
+      JSON.stringify(
+        media.map((item, index) => ({
+          type: "photo",
+          media: `attach://photo${index}`,
+          ...(index === 0 ? { caption, parse_mode: "HTML" } : {}),
+        })),
+      ),
+    );
+    media.forEach((item, index) => {
+      form.set(`photo${index}`, item.blob, item.filename);
+    });
+
+    const response = await fetchWithRetry(
+      `https://api.telegram.org/bot${config.telegram.botToken}/sendMediaGroup`,
+      { method: "POST", body: form, cache: "no-store" },
+      retry,
+    );
+    if (!response?.ok) {
+      console.error(
+        `Telegram media group upload failed (${response?.status ?? "network error"}).`,
+      );
+      return false;
+    }
+    const result = await response.json();
+    if (!Array.isArray(result?.result) || result.result.length !== media.length) {
+      console.error("Telegram media group response did not contain all messages.");
+      return false;
+    }
+    return result?.ok === true;
+  } catch (error) {
+    console.error("Telegram media group upload error:", error);
     return false;
   }
 }

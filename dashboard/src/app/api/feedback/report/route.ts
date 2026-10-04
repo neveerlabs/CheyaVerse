@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserSession, hasValidSameOrigin } from "@/lib/auth-request";
 import { config } from "@/lib/config";
-import { sendTelegramDocument, sendTelegramMessage } from "@/lib/telegram";
+import {
+  sendTelegramDocument,
+  sendTelegramMediaGroup,
+  sendTelegramMessage,
+  sendTelegramPhoto,
+} from "@/lib/telegram";
 import { getTelegramUser } from "@/lib/storage";
 import {
   readBoundedJson,
@@ -15,6 +20,7 @@ const reportAttempts = new Map<number, number[]>();
 const reportInFlight = new Set<number>();
 const MAX_REPORTS_PER_WINDOW = 3;
 const REPORT_WINDOW_MS = 10 * 60 * 1000;
+const MAX_DESCRIPTION_LENGTH = 600;
 const MAX_LOG_LENGTH = 8_000;
 const MAX_SCREENSHOT_LENGTH = 10_667_000;
 const MAX_REPORT_SCREENSHOTS = 4;
@@ -54,34 +60,11 @@ function recordSuccessfulReport(uid: number): void {
   reportAttempts.set(uid, recent);
 }
 
-function metadataLine(
-  metadata: Record<string, unknown>,
-  key: string,
-  label: string,
-): string {
+function metadataValue(metadata: Record<string, unknown>, key: string, max = 180): string {
   const value = metadata[key];
-  if (typeof value !== "string" || !value.trim()) {
-    return `${label}: Tidak diketahui`;
-  }
-  return `${label}: ${value.replace(/[\r\n]/g, " ").slice(0, 350)}`;
-}
-
-function reportMetadataLines(value: unknown): string[] {
-  const metadata =
-    value && typeof value === "object"
-      ? (value as Record<string, unknown>)
-      : {};
-  return [
-    metadataLine(metadata, "capturedAt", "Waktu lokal"),
-    metadataLine(metadata, "browser", "Browser"),
-    metadataLine(metadata, "device", "Perangkat"),
-    metadataLine(metadata, "os", "Sistem operasi"),
-    metadataLine(metadata, "viewport", "Viewport"),
-    metadataLine(metadata, "pixelRatio", "Skala layar"),
-    metadataLine(metadata, "language", "Bahasa"),
-    metadataLine(metadata, "timezone", "Zona waktu"),
-    metadataLine(metadata, "online", "Koneksi saat laporan"),
-  ];
+  return typeof value === "string" && value.trim()
+    ? value.replace(/[\r\n]/g, " ").slice(0, max)
+    : "Unknown";
 }
 
 function reportUserAgent(metadataValue: unknown, fallback: unknown): string {
@@ -95,7 +78,82 @@ function reportUserAgent(metadataValue: unknown, fallback: unknown): string {
       : typeof fallback === "string"
         ? fallback
         : "unknown";
-  return userAgent.replace(/[\r\n]/g, " ").slice(0, 350);
+  return userAgent.replace(/[\r\n]/g, " ").slice(0, 220);
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function reportDevice(value: string): string {
+  const device = value.toLowerCase();
+  if (device.includes("tablet")) return "tablet";
+  if (device.includes("desktop")) return "desktop";
+  return "mobile";
+}
+
+function bugReportMessage(
+  uid: number,
+  username: string,
+  page: string,
+  metadataValueInput: unknown,
+  fallbackUserAgent: unknown,
+  description: string,
+  logs: string,
+  maxLength: number,
+): string | null {
+  const metadata =
+    metadataValueInput && typeof metadataValueInput === "object"
+      ? (metadataValueInput as Record<string, unknown>)
+      : {};
+  const metadataText = [
+    `User ID: ${uid}`,
+    `Username: ${username}`,
+    `Page: ${page}`,
+    `Time: ${metadataValue(metadata, "capturedAt")}`,
+    `Browser/UA: ${reportUserAgent(metadata, fallbackUserAgent)}`,
+    `Browser: ${metadataValue(metadata, "browser")}`,
+    `Device: ${reportDevice(metadataValue(metadata, "device"))}`,
+    `Operating system: ${metadataValue(metadata, "os")}`,
+    `Viewport: ${metadataValue(metadata, "viewport")}`,
+    `Language: ${metadataValue(metadata, "language")}`,
+    `Time zone: ${metadataValue(metadata, "timezone")}`,
+  ].join("\n");
+  const prefix = `<b>CheyaVerse bug report</b>\n<pre>${escapeHtml(metadataText)}</pre>\n\n`;
+  const escapedDescription = escapeHtml(description);
+  const body = `${prefix}${escapedDescription}`;
+  if (body.length > maxLength) return null;
+
+  const diagnosticsLabel = "\n\n<b>System diagnostics</b>\n";
+  const diagnostics = logs || "No captured client errors.";
+  const available = maxLength - body.length - diagnosticsLabel.length;
+  if (available < 0) return null;
+  const escapedDiagnostics = escapeHtml(diagnostics);
+  if (escapedDiagnostics.length <= available) {
+    return `${body}${diagnosticsLabel}${escapedDiagnostics}`;
+  }
+
+  const marker = "\n[Diagnostics shortened to fit Telegram's message limit.]";
+  const escapedMarker = escapeHtml(marker);
+  if (escapedMarker.length > available) return null;
+  let low = 0;
+  let high = diagnostics.length;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (
+      escapeHtml(diagnostics.slice(0, middle)).length + escapedMarker.length <=
+      available
+    ) {
+      low = middle;
+    } else {
+      high = middle - 1;
+    }
+  }
+  return `${body}${diagnosticsLabel}${escapeHtml(diagnostics.slice(0, low))}${escapedMarker}`;
 }
 
 function redactReportText(value: string): string {
@@ -170,7 +228,11 @@ export async function POST(request: NextRequest) {
     : typeof report.screenshot === "string" && report.screenshot
       ? [{ name: "screenshot.jpg", dataUrl: report.screenshot }]
       : [];
-  if (!description || description.length > 2000 || logs.length > MAX_LOG_LENGTH) {
+  if (
+    !description ||
+    description.length > MAX_DESCRIPTION_LENGTH ||
+    logs.length > MAX_LOG_LENGTH
+  ) {
     return NextResponse.json({ error: "Invalid report content." }, { status: 400 });
   }
   let text: string;
@@ -328,24 +390,41 @@ export async function POST(request: NextRequest) {
   }
 
   const page = reportPageLabel(report.page);
-  const platform = reportUserAgent(report.metadata, report.platform);
+  const textParts: string[] = [];
+  let bugCaption = "";
   if (!isChatViolation) {
-    text = [
-      "CheyaVerse bug report",
-      `User: ${session.uid}`,
-      `Page: ${page}`,
-      `Browser/UA: ${platform}`,
-      ...reportMetadataLines(report.metadata),
-      `Attachments: ${screenshots.length}`,
-      "",
+    const reporter = await getTelegramUser(session.uid);
+    const username = reporter?.username ? `@${reporter.username}` : "Unavailable";
+    const maxMessageLength = screenshots.length > 0 ? 1024 : 4096;
+    const formattedReport = bugReportMessage(
+      session.uid,
+      username,
+      page,
+      report.metadata,
+      report.platform,
       description,
-      "",
-      logs ? `Captured errors:\n${logs}` : "No captured client errors.",
-    ].join("\n");
+      logs,
+      maxMessageLength,
+    );
+    if (!formattedReport) {
+      return NextResponse.json(
+        {
+          error:
+            screenshots.length > 0
+              ? "The report text is too long to send with attachments in one Telegram message. Shorten the description and try again."
+              : "The report is too long to send in one Telegram message.",
+        },
+        { status: 413 },
+      );
+    }
+    bugCaption = formattedReport;
+    text = formattedReport;
+  } else {
+    text = "";
   }
-  const textParts = isChatViolation
-    ? [text]
-    : text.match(/[\s\S]{1,3500}/g) ?? [text];
+  if (isChatViolation) {
+    textParts.push(text);
+  }
 
   if (reportInFlight.has(session.uid)) {
     return NextResponse.json(
@@ -364,10 +443,37 @@ export async function POST(request: NextRequest) {
   try {
     const deliveries = await Promise.all(
       Array.from(config.adminTelegramIds, async (adminId) => {
+        if (!isChatViolation) {
+          if (screenshots.length === 1) {
+            return sendTelegramPhoto(
+              adminId,
+              screenshots[0].blob,
+              bugCaption,
+              REPORT_DELIVERY_RETRY,
+              "HTML",
+            );
+          }
+          if (screenshots.length > 1) {
+            return sendTelegramMediaGroup(
+              adminId,
+              screenshots.map((screenshot) => ({
+                blob: screenshot.blob,
+                filename: screenshot.name,
+              })),
+              bugCaption,
+              REPORT_DELIVERY_RETRY,
+            );
+          }
+          return sendTelegramMessage(adminId, bugCaption, {
+            parseMode: "HTML",
+            retry: REPORT_DELIVERY_RETRY,
+          });
+        }
+
         for (const chunk of textParts) {
           const messageSent = await sendTelegramMessage(adminId, chunk, {
             retry: REPORT_DELIVERY_RETRY,
-            ...(isChatViolation ? { parseMode: "MarkdownV2" as const } : {}),
+            parseMode: "MarkdownV2",
           });
           if (!messageSent) return false;
         }
@@ -412,7 +518,8 @@ export async function POST(request: NextRequest) {
           screenshots.length === 0 ||
           deliveries.some(
             (delivery) => typeof delivery !== "boolean" && delivery.attachmentsSent,
-          ),
+          ) ||
+          (!isChatViolation && deliveredCount > 0),
       },
       { headers: { "Cache-Control": "no-store" } },
     );

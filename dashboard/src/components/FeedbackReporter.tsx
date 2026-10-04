@@ -3,8 +3,6 @@
 import {
   Bug,
   Camera,
-  Check,
-  Copy,
   ImagePlus,
   Maximize2,
   Minimize2,
@@ -39,6 +37,7 @@ type ClientIssueEvent = CustomEvent<{
 
 const MAX_ISSUES = 12;
 const ISSUE_DEDUPE_MS = 60_000;
+const MAX_DESCRIPTION_LENGTH = 600;
 const MAX_ATTACHMENTS = 4;
 const MAX_ATTACHMENT_BYTES = 8_000_000;
 const MAX_TOTAL_ATTACHMENT_BYTES = 12_000_000;
@@ -58,12 +57,20 @@ function redact(value: string): string {
 
 function formatIssues(issues: CapturedIssue[]): string {
   return issues
-    .map(
-      (issue) =>
-        `[${issue.time}] ${issue.page}\nMasalah: ${issue.message}${
-          issue.stack ? `\nDetail teknis:\n${issue.stack.split("\n").slice(0, 5).join("\n")}` : ""
-        }`,
-    )
+    .map((issue, index) => {
+      const stack = issue.stack
+        ?.split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .slice(0, 8)
+        .join("\n");
+      return [
+        `Issue ${index + 1} · ${issue.time}`,
+        `Page: ${issue.page}`,
+        `Error: ${issue.message}`,
+        ...(stack ? [`Stack trace:\n${stack}`] : []),
+      ].join("\n");
+    })
     .join("\n\n")
     .slice(0, 8000);
 }
@@ -352,7 +359,6 @@ export function FeedbackReporter() {
   const [attachmentBusy, setAttachmentBusy] = useState(false);
   const [sending, setSending] = useState(false);
   const [notice, setNotice] = useState("");
-  const [copied, setCopied] = useState(false);
   const [reportButtonBottom, setReportButtonBottom] = useState<number | null>(null);
   const [reportButtonLeft, setReportButtonLeft] = useState<number | null>(null);
   const [reportButtonRight, setReportButtonRight] = useState<number | null>(null);
@@ -1206,27 +1212,6 @@ export function FeedbackReporter() {
 
   const logs = formatIssues(issues);
 
-  async function copyLogs() {
-    try {
-      const metadata = reportMetadata();
-      const environment = [
-        `Waktu: ${metadata.capturedAt}`,
-        `Browser: ${metadata.browser}`,
-        `Perangkat: ${metadata.device} · ${metadata.os} (${metadata.platform})`,
-        `Layar: ${metadata.screen}; viewport ${metadata.viewport}; DPR ${metadata.pixelRatio}`,
-        `Bahasa: ${metadata.language} · Zona waktu: ${metadata.timezone}`,
-        `Koneksi: ${metadata.online}`,
-      ].join("\n");
-      await navigator.clipboard.writeText(
-        `Informasi perangkat:\n${environment}\n\nError tercatat:\n${logs || "Tidak ada error client yang tercatat."}`,
-      );
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1800);
-    } catch {
-      showNotice("Log tidak dapat disalin. Periksa izin clipboard browser.");
-    }
-  }
-
   async function sendReport() {
     if (!uid || !description.trim() || sending) return;
     setSending(true);
@@ -1416,28 +1401,33 @@ export function FeedbackReporter() {
 
             <label className="mt-3 block text-[12px] font-semibold text-ink-soft">
               Deskripsi
-              <textarea
-                value={description}
-                onChange={(event) => setDescription(event.target.value)}
-                maxLength={2000}
-                rows={3}
-                placeholder="Ceritakan masalah yang terjadi..."
-                className="mt-1.5 w-full resize-y rounded-2xl border border-slate-300 bg-white p-3 text-[13px] font-normal text-ink outline-none transition placeholder:text-slate-400 focus:border-slate-700 focus:ring-2 focus:ring-slate-900/10"
-              />
+              <div className="relative mt-1.5">
+                <textarea
+                  value={description}
+                  onChange={(event) =>
+                    setDescription(event.target.value.slice(0, MAX_DESCRIPTION_LENGTH))
+                  }
+                  maxLength={MAX_DESCRIPTION_LENGTH}
+                  rows={3}
+                  placeholder="Ceritakan masalah yang terjadi..."
+                  className="w-full resize-y rounded-2xl border border-slate-300 bg-white p-3 pr-16 text-[13px] font-normal text-ink outline-none transition placeholder:text-slate-400 focus:border-slate-700 focus:ring-2 focus:ring-slate-900/10"
+                />
+                <span
+                  aria-live="polite"
+                  className={`pointer-events-none absolute right-3 top-3 rounded-md bg-white/90 px-1 text-[10px] font-medium ${
+                    description.length >= MAX_DESCRIPTION_LENGTH
+                      ? "text-rose-600"
+                      : "text-ink-mute"
+                  }`}
+                >
+                  {description.length}/{MAX_DESCRIPTION_LENGTH}
+                </span>
+              </div>
             </label>
 
             <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
               <div className="mb-1 flex items-center justify-between gap-2">
                 <p className="text-[11px] font-semibold text-ink">Log sistem</p>
-                <button
-                  type="button"
-                  onClick={() => void copyLogs()}
-                  aria-label={copied ? "Log tersalin" : "Salin log"}
-                  className="inline-flex h-7 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 text-[10px] font-semibold text-ink-soft"
-                >
-                  {copied ? <Check size={12} /> : <Copy size={12} />}
-                  {copied ? "Tersalin" : "Salin"}
-                </button>
               </div>
               <div className="max-h-24 overflow-y-auto text-[10px] leading-relaxed text-ink-soft">
                 {issues.length > 0 ? (
