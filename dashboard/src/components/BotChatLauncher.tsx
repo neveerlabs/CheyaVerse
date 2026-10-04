@@ -195,7 +195,7 @@ export function BotChatLauncher({
       void refreshBadge();
     } catch (cause) {
       console.error("[bot-chat] failed to load chat:", cause);
-      setError("Tidak dapat memuat room chat. Periksa koneksi internet stabil!.");
+      setError("Tidak dapat memuat room chat. Pastikan koneksi internet anda stabil!");
     } finally {
       setLoading(false);
       dataRequestRef.current = false;

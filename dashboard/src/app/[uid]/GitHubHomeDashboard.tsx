@@ -570,44 +570,38 @@ export function GitHubHomeDashboard({ uid }: { uid: string }) {
           </div>
         ) : overview ? (
           <>
-            <header className="mb-5 flex items-start justify-between gap-3">
-              <div>
-                <h1 className="mt-1 text-[23px] font-semibold tracking-[-.045em] text-slate-950 sm:text-[28px]">
+            <header className="mb-3 flex items-center justify-between gap-3 rounded-[20px] border border-slate-200/80 bg-white/85 px-3.5 py-3 shadow-[0_8px_24px_-24px_rgba(15,23,42,.45)] sm:px-4">
+              <div className="min-w-0">
+                <p className="text-[8px] font-bold uppercase tracking-[.14em] text-indigo-600">
+                  GitHub projects
+                </p>
+                <h1 className="mt-0.5 text-[17px] font-semibold tracking-tight text-slate-950 sm:text-[19px]">
                   Repository activity
                 </h1>
-                <p className="mt-1 text-[11px] text-slate-500">
-                  Personal projects, release history, and repository momentum.
+                <p className="mt-0.5 text-[10px] text-slate-500">
+                  Your standout project and recent repository history.
                 </p>
               </div>
-              <button
-                type="button"
-                aria-label="Refresh project activity"
-                disabled={loading}
-                onClick={() => void loadOverview()}
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 shadow-sm disabled:opacity-50"
-              >
-                <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
-              </button>
+              <div className="flex shrink-0 items-center gap-2">
+                <Link
+                  href={`/${uid}/project`}
+                  className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-2 text-[9px] font-semibold text-slate-600 transition-colors hover:border-indigo-200 hover:text-indigo-700 sm:px-3"
+                >
+                  Browse all <ArrowRight size={11} />
+                </Link>
+                <button
+                  type="button"
+                  aria-label="Refresh project activity"
+                  disabled={loading}
+                  onClick={() => void loadOverview()}
+                  className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 transition-colors hover:border-indigo-200 hover:text-indigo-700 disabled:opacity-50"
+                >
+                  <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
+                </button>
+              </div>
             </header>
-
-            <div className="mb-3 mt-5 flex items-end justify-between gap-3">
-              <div>
-                <p className="text-[8px] font-bold uppercase tracking-[.14em] text-indigo-600">
-                  Project showcase
-                </p>
-                <h2 className="mt-1 text-[17px] font-semibold tracking-tight text-slate-950">
-                  Five standout projects
-                </h2>
-              </div>
-              <Link
-                href={`/${uid}/project`}
-                className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-2 text-[9px] font-semibold text-slate-600"
-              >
-                Browse all <ArrowRight size={12} />
-              </Link>
-            </div>
             {featuredProject && (
-              <div className="mb-3">
+              <div className="mb-3 pt-1">
                 <FeaturedProjectCard uid={uid} project={featuredProject} />
               </div>
             )}

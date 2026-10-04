@@ -279,6 +279,7 @@ a {
 .chat-code-block pre {
   scrollbar-width: thin;
   scrollbar-color: rgb(127 127 127 / 42%) transparent;
+  touch-action: pan-y;
 }
 
 .chat-code-block pre::-webkit-scrollbar {
@@ -316,63 +317,30 @@ a {
   white-space: nowrap;
 }
 
-.chat-code-copy {
+.chat-code-dots {
   display: flex;
-  width: 1.25rem;
-  height: 1.25rem;
-  flex: 0 0 auto;
   align-items: center;
-  justify-content: center;
-  border-radius: 0.5rem;
-  opacity: 0.72;
-  transition:
-    background-color 120ms ease,
-    opacity 120ms ease;
+  gap: 0.28rem;
+  flex: 0 0 auto;
 }
 
-.chat-code-copy:focus-visible {
-  background: rgb(127 127 127 / 16%);
-  opacity: 1;
-  outline: none;
+.chat-code-dots i {
+  width: 0.48rem;
+  height: 0.48rem;
+  border: 1px solid rgb(0 0 0 / 12%);
+  border-radius: 50%;
 }
 
-@media (hover: hover) and (pointer: fine) {
-  .chat-code-copy:hover {
-    background: rgb(127 127 127 / 16%);
-    opacity: 1;
-  }
+.chat-code-dots i:nth-child(1) {
+  background: #ff5f57;
 }
 
-.chat-code-copy svg {
-  width: 0.78rem;
-  height: 0.78rem;
-  stroke: currentColor;
-  stroke-width: 1.8;
+.chat-code-dots i:nth-child(2) {
+  background: #febc2e;
 }
 
-.chat-code-copy .chat-code-check {
-  display: none;
-}
-
-.chat-code-copy .chat-code-error {
-  display: none;
-}
-
-.chat-code-copy[data-copied="true"] svg:first-child {
-  display: none;
-}
-
-.chat-code-copy[data-copied="true"] .chat-code-check {
-  display: block;
-}
-
-.chat-code-copy[data-copy-error="true"] svg:first-child,
-.chat-code-copy[data-copy-error="true"] .chat-code-check {
-  display: none;
-}
-
-.chat-code-copy[data-copy-error="true"] .chat-code-error {
-  display: block;
+.chat-code-dots i:nth-child(3) {
+  background: #28c840;
 }
 
 .chat-rich-text-outgoing pre {
@@ -407,6 +375,91 @@ a {
 
 .chat-rich-text code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.chat-code-block .hljs-keyword,
+.chat-code-block .hljs-literal,
+.chat-code-block .hljs-meta,
+.chat-code-block .hljs-selector-tag {
+  color: #8250df;
+}
+
+.chat-code-block .hljs-string,
+.chat-code-block .hljs-regexp,
+.chat-code-block .hljs-addition {
+  color: #116329;
+}
+
+.chat-code-block .hljs-number {
+  color: #0550ae;
+}
+
+.chat-code-block .hljs-comment,
+.chat-code-block .hljs-quote {
+  color: #6e7781;
+  font-style: italic;
+}
+
+.chat-code-block .hljs-title,
+.chat-code-block .hljs-title.function_,
+.chat-code-block .hljs-title.class_,
+.chat-code-block .hljs-section {
+  color: #8250df;
+}
+
+.chat-code-block .hljs-type,
+.chat-code-block .hljs-built_in,
+.chat-code-block .hljs-attribute,
+.chat-code-block .hljs-attr {
+  color: #953800;
+}
+
+.chat-code-block .hljs-property,
+.chat-code-block .hljs-variable,
+.chat-code-block .hljs-params {
+  color: #24292f;
+}
+
+.chat-code-block .hljs-deletion {
+  color: #cf222e;
+}
+
+.chat-rich-text-outgoing .chat-code-block .hljs-keyword,
+.chat-rich-text-outgoing .chat-code-block .hljs-literal,
+.chat-rich-text-outgoing .chat-code-block .hljs-meta,
+.chat-rich-text-outgoing .chat-code-block .hljs-selector-tag,
+.chat-rich-text-outgoing .chat-code-block .hljs-title,
+.chat-rich-text-outgoing .chat-code-block .hljs-section {
+  color: #d8b4fe;
+}
+
+.chat-rich-text-outgoing .chat-code-block .hljs-string,
+.chat-rich-text-outgoing .chat-code-block .hljs-regexp,
+.chat-rich-text-outgoing .chat-code-block .hljs-addition {
+  color: #86efac;
+}
+
+.chat-rich-text-outgoing .chat-code-block .hljs-number,
+.chat-rich-text-outgoing .chat-code-block .hljs-type,
+.chat-rich-text-outgoing .chat-code-block .hljs-built_in,
+.chat-rich-text-outgoing .chat-code-block .hljs-attribute,
+.chat-rich-text-outgoing .chat-code-block .hljs-attr {
+  color: #fcd34d;
+}
+
+.chat-rich-text-outgoing .chat-code-block .hljs-comment,
+.chat-rich-text-outgoing .chat-code-block .hljs-quote {
+  color: #aab4c2;
+}
+
+.chat-rich-text-outgoing .chat-code-block .hljs-property,
+.chat-rich-text-outgoing .chat-code-block .hljs-variable,
+.chat-rich-text-outgoing .chat-code-block .hljs-params {
+  color: #e2e8f0;
+}
+
+.chat-rich-text-outgoing .chat-code-block .hljs-deletion {
+  color: #fca5a5;
 }
 
 .chat-rich-text pre code {

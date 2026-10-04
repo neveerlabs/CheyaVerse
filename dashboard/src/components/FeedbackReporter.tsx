@@ -916,7 +916,7 @@ export function FeedbackReporter() {
       ) {
         apiNoticeAtRef.current = now;
         showNotice(
-          "Beberapa permintaan server gagal. Koneksi sedang dicoba kembali; detailnya tersimpan untuk laporan.",
+          "Beberapa permintaan server gagal. Koneksi sedang dicoba kembali; kirim laporan jika masalah berlanjut.",
         );
       }
       if (status !== undefined) {
@@ -1291,6 +1291,7 @@ export function FeedbackReporter() {
         <button
           type="button"
           aria-label="Laporkan bug"
+          data-media-menu-action
           onClick={() => void openReport()}
           className="pointer-events-auto fixed bottom-[calc(70px+env(safe-area-inset-bottom))] left-3 z-[999] flex h-10 w-10 items-center justify-center rounded-full border border-line bg-white text-ink-soft shadow-md"
           style={{
@@ -1308,6 +1309,7 @@ export function FeedbackReporter() {
         <button
           type="button"
           data-screenshot-ignore="true"
+          data-media-menu-action
           onClick={() => setMinimized(false)}
           className="pointer-events-auto fixed bottom-[calc(70px+env(safe-area-inset-bottom))] right-3 z-[999] inline-flex min-h-11 max-w-[calc(100vw-6rem)] items-center gap-2 rounded-full border border-line bg-white px-4 text-xs font-semibold text-ink shadow-lg"
           style={{
@@ -1410,11 +1412,11 @@ export function FeedbackReporter() {
                   maxLength={MAX_DESCRIPTION_LENGTH}
                   rows={3}
                   placeholder="Ceritakan masalah yang terjadi..."
-                  className="w-full resize-y rounded-2xl border border-slate-300 bg-white p-3 pr-16 text-[13px] font-normal text-ink outline-none transition placeholder:text-slate-400 focus:border-slate-700 focus:ring-2 focus:ring-slate-900/10"
+                  className="w-full resize-y rounded-2xl border border-slate-300 bg-white p-3 text-[13px] font-normal text-ink outline-none transition placeholder:text-slate-400 focus:border-slate-700 focus:ring-2 focus:ring-slate-900/10"
                 />
                 <span
                   aria-live="polite"
-                  className={`pointer-events-none absolute right-3 top-3 rounded-md bg-white/90 px-1 text-[10px] font-medium ${
+                  className={`pointer-events-none absolute right-3 top-0 z-10 -translate-y-1/2 rounded bg-white px-1.5 text-[10px] font-medium ${
                     description.length >= MAX_DESCRIPTION_LENGTH
                       ? "text-rose-600"
                       : "text-ink-mute"

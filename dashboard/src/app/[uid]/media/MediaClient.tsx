@@ -108,6 +108,8 @@ export function MediaClient({
       const t = e.target as HTMLElement | null;
       if (!t) return;
       if (t.closest("[data-media-menu]") || t.closest("[data-media-menu-trigger]")) return;
+      if (t.closest("[data-media-menu-action]")) return;
+      if (document.querySelector("[data-feedback-kind]")) return;
       setMenuItem(null);
       setMenuAnchor(null);
     }

@@ -1,13 +1,13 @@
 "use client";
 
-import type { ReactNode, PointerEventHandler } from "react";
+import type { PointerEventHandler, ReactNode } from "react";
 import type { MouseEventHandler } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, Pin, X } from "lucide-react";
 import { TelegramAvatar } from "@/components/TelegramAvatar";
 import { LinkPreview } from "@/components/LinkPreview";
 import { extractFirstUrl } from "@/lib/link-preview";
-import { renderMarkdown } from "@/lib/markdown";
+import { highlightCode, renderMarkdown } from "@/lib/markdown";
 
 export function chatMessageTime(iso: string): string {
   const date = new Date(iso);
@@ -42,6 +42,7 @@ type ChatMessageBubbleProps = {
   onPointerMove?: PointerEventHandler<HTMLDivElement>;
   onPointerUp?: PointerEventHandler<HTMLDivElement>;
   onPointerCancel?: PointerEventHandler<HTMLDivElement>;
+  onLostPointerCapture?: PointerEventHandler<HTMLDivElement>;
   onContextMenu?: MouseEventHandler<HTMLDivElement>;
   onDoubleClick?: MouseEventHandler<HTMLDivElement>;
   editing?: boolean;
@@ -76,6 +77,7 @@ export function ChatMessageBubble({
   onPointerMove,
   onPointerUp,
   onPointerCancel,
+  onLostPointerCapture,
   onContextMenu,
   onDoubleClick,
   editing = false,
@@ -86,7 +88,12 @@ export function ChatMessageBubble({
   onEditCancel,
 }: ChatMessageBubbleProps) {
   const messageContentRef = useRef<HTMLDivElement>(null);
+  const messageTextRef = useRef<HTMLElement | null>(null);
+  const setMessageTextElement = (element: HTMLElement | null) => {
+    messageTextRef.current = element;
+  };
   const [expanded, setExpanded] = useState(false);
+  const [messageHasMultipleLines, setMessageHasMultipleLines] = useState(false);
   const canExpand = !deleted && content.length > 1000;
 
   useEffect(() => {
@@ -113,17 +120,12 @@ export function ChatMessageBubble({
     return content.replace(
       /<pre><code(?:\s+class=["']language-([A-Za-z0-9_+-]+)["'])?>([\s\S]*?)<\/code><\/pre>/gi,
       (_match, language: string | undefined, code: string) => {
-        const label = language
-          ? `<span class="chat-code-language">${language}</span>`
-          : "<span></span>";
-        return `<div class="chat-code-block"><div class="chat-code-header">${label}<button type="button" class="chat-code-copy" aria-label="Salin kode" title="Salin kode" data-code-copy><svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg><svg class="chat-code-check" aria-hidden="true" viewBox="0 0 24 24" fill="none"><path d="m5 12 4 4L19 6"/></svg><svg class="chat-code-error" aria-hidden="true" viewBox="0 0 24 24" fill="none"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div><pre class="my-0 block overflow-x-auto font-mono text-[12.5px] leading-[1.5]"><code>${code}</code></pre></div>`;
+        const safeLanguage = language ?? "";
+        const header = `<div class="chat-code-header"><span class="chat-code-dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="chat-code-language">${safeLanguage}</span></div>`;
+        return `<div class="chat-code-block">${header}<pre class="my-0 block overflow-x-auto font-mono text-[12.5px] leading-[1.5]"><code>${highlightCode(code, safeLanguage)}</code></pre></div>`;
       },
     );
   }, [richText, deleted, content]);
-
-  const hasCodeBlock =
-    !deleted && (content.includes("```") || /<pre\b/i.test(content));
-  const stacksMessageMeta = hasCodeBlock || Boolean(prefix);
 
   const previewUrl = useMemo(() => {
     if (!linkPreview || deleted || richText) return null;
@@ -133,9 +135,52 @@ export function ChatMessageBubble({
   const markdownClass = outgoing
     ? "[&_a]:underline [&_a]:text-white [&_code]:rounded [&_code]:bg-white/15 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[12.5px] [&_code]:font-mono [&_strong]:font-semibold [&_em]:italic [&_u]:underline [&_s]:line-through"
     : "[&_a]:underline [&_a]:text-ink [&_code]:rounded [&_code]:bg-black/10 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[12.5px] [&_code]:font-mono [&_strong]:font-semibold [&_em]:italic [&_u]:underline [&_s]:line-through";
+  const richTextHasCodeBlock = richTextHtml?.includes('class="chat-code-block"') ?? false;
+
+  useEffect(() => {
+    const textElement = messageTextRef.current;
+    const container = messageContentRef.current;
+    if (!textElement || !container || richTextHasCodeBlock) {
+      setMessageHasMultipleLines(richTextHasCodeBlock);
+      return;
+    }
+
+    const measureLines = () => {
+      const range = document.createRange();
+      range.selectNodeContents(textElement);
+      const lineTops = new Set(
+        Array.from(range.getClientRects())
+          .filter((rect) => rect.width > 0 && rect.height > 0)
+          .map((rect) => Math.round(rect.top)),
+      );
+      setMessageHasMultipleLines(lineTops.size > 1);
+    };
+
+    measureLines();
+    const observer = new ResizeObserver(measureLines);
+    observer.observe(container);
+    window.addEventListener("resize", measureLines);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", measureLines);
+    };
+  }, [content, markdownHtml, richTextHtml, richTextHasCodeBlock]);
+
+  const hasReplyPrefix = Boolean(prefix);
+  const messageMeta = (
+    <span
+      className={`${hasReplyPrefix ? "" : "ml-1"} inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-[10px] leading-none ${
+        outgoing ? "text-white/70" : "text-ink-mute"
+      }`}
+    >
+      {meta}
+    </span>
+  );
+  const inlineReplyMeta =
+    hasReplyPrefix && !messageHasMultipleLines && !richTextHasCodeBlock;
 
   const messageBody = (
-    <div className="min-w-0 flex-1">
+    <div className="min-w-0">
       {prefix}
       {previewUrl && (
         <LinkPreview
@@ -145,20 +190,38 @@ export function ChatMessageBubble({
       )}
       <div
         ref={messageContentRef}
-        className={`relative block min-w-0 ${
+        className={`relative min-w-0 ${
+          inlineReplyMeta ? "flex items-end justify-between gap-2" : ""
+        } ${
           canExpand && !expanded ? "max-h-[20.3em] overflow-hidden" : ""
         }`}
       >
         {richText ? (
-          <div
-            className={`chat-rich-text block min-w-0 break-words text-[12.5px] leading-[1.35] md:text-[14px] md:leading-[1.45] ${
-              outgoing ? "chat-rich-text-outgoing" : "chat-rich-text-incoming"
-            } ${deleted ? "italic opacity-65" : ""}`}
-            dangerouslySetInnerHTML={{ __html: richTextHtml }}
-          />
+          richTextHasCodeBlock ? (
+            <div
+              ref={setMessageTextElement}
+              className={`chat-rich-text block min-w-0 break-words text-[12.5px] leading-[1.35] md:text-[14px] md:leading-[1.45] ${
+                outgoing ? "chat-rich-text-outgoing" : "chat-rich-text-incoming"
+              } ${deleted ? "italic opacity-65" : ""}`}
+              dangerouslySetInnerHTML={{ __html: richTextHtml }}
+            />
+          ) : (
+            <span
+              ref={setMessageTextElement}
+              className={`chat-rich-text align-baseline text-[12.5px] leading-[1.35] md:text-[14px] md:leading-[1.45] ${
+                inlineReplyMeta ? "min-w-0 flex-1" : ""
+              } ${
+                outgoing ? "chat-rich-text-outgoing" : "chat-rich-text-incoming"
+              } ${deleted ? "italic opacity-65" : ""}`}
+              dangerouslySetInnerHTML={{ __html: richTextHtml }}
+            />
+          )
         ) : markdownHtml !== null ? (
-          <div
-            className={`chat-rich-text ${
+          <span
+            ref={setMessageTextElement}
+            className={`chat-rich-text align-baseline ${
+              inlineReplyMeta ? "min-w-0 flex-1" : ""
+            } ${
               outgoing
                 ? "chat-rich-text-outgoing"
                 : "chat-rich-text-incoming"
@@ -167,11 +230,19 @@ export function ChatMessageBubble({
           />
         ) : (
           <span
-            className={`whitespace-pre-wrap break-words text-[12.5px] leading-[1.35] md:text-[14px] md:leading-[1.45] ${deleted ? "italic opacity-65" : ""}`}
+            ref={setMessageTextElement}
+            className={`whitespace-pre-wrap break-words text-[12.5px] leading-[1.35] md:text-[14px] md:leading-[1.45] ${
+              inlineReplyMeta ? "min-w-0 flex-1" : ""
+            } ${deleted ? "italic opacity-65" : ""}`}
           >
             {content}
           </span>
         )}
+        {((!hasReplyPrefix &&
+          !messageHasMultipleLines &&
+          !richTextHasCodeBlock) ||
+          inlineReplyMeta) &&
+          messageMeta}
       </div>
       {canExpand && !expanded && (
         <button
@@ -187,98 +258,13 @@ export function ChatMessageBubble({
           See more...
         </button>
       )}
+      {((hasReplyPrefix && !inlineReplyMeta) ||
+        messageHasMultipleLines ||
+        richTextHasCodeBlock) && (
+        <div className="text-right">{messageMeta}</div>
+      )}
     </div>
   );
-
-  const messageMeta = (
-    <div
-      className={`flex shrink-0 items-center gap-1 whitespace-nowrap text-[10px] leading-none ${
-        outgoing ? "text-white/70" : "text-ink-mute"
-      }`}
-    >
-      {meta}
-    </div>
-  );
-
-  useEffect(() => {
-    const container = messageContentRef.current;
-    if (!container || (!markdown && !richText) || deleted) return;
-
-    const timers = new Set<number>();
-    const handleCopy = async (event: Event) => {
-      const target = event.target;
-      if (!(target instanceof Element)) return;
-      const button = target.closest<HTMLButtonElement>("[data-code-copy]");
-      if (!button || !container.contains(button)) return;
-      event.preventDefault();
-      event.stopPropagation();
-      const code =
-        button.parentElement?.parentElement?.querySelector("pre code") ??
-        button.parentElement?.querySelector("pre code");
-      if (!code) return;
-
-      try {
-        const codeText = code.textContent ?? "";
-        try {
-          if (!navigator.clipboard?.writeText) {
-            throw new Error("Clipboard API is unavailable.");
-          }
-          await navigator.clipboard.writeText(codeText);
-        } catch {
-          const temporaryInput = document.createElement("textarea");
-          temporaryInput.value = codeText;
-          temporaryInput.setAttribute("readonly", "");
-          temporaryInput.style.position = "fixed";
-          temporaryInput.style.top = "0";
-          temporaryInput.style.left = "0";
-          temporaryInput.style.width = "1px";
-          temporaryInput.style.height = "1px";
-          temporaryInput.style.opacity = "0.01";
-          document.body.appendChild(temporaryInput);
-          let copied = false;
-          try {
-            temporaryInput.focus({ preventScroll: true });
-            temporaryInput.select();
-            temporaryInput.setSelectionRange(0, temporaryInput.value.length);
-            copied = document.execCommand("copy");
-          } finally {
-            temporaryInput.remove();
-          }
-          if (!copied) throw new Error("Could not copy code.");
-        }
-        button.dataset.copied = "true";
-        button.dataset.copyError = "false";
-        button.setAttribute("aria-label", "Kode disalin");
-        button.title = "Kode disalin";
-        const timer = window.setTimeout(() => {
-          button.dataset.copied = "false";
-          button.dataset.copyError = "false";
-          button.setAttribute("aria-label", "Salin kode");
-          button.title = "Salin kode";
-          timers.delete(timer);
-        }, 1500);
-        timers.add(timer);
-      } catch {
-        button.dataset.copied = "false";
-        button.dataset.copyError = "true";
-        button.setAttribute("aria-label", "Tidak dapat menyalin kode");
-        button.title = "Tidak dapat menyalin kode";
-        const timer = window.setTimeout(() => {
-          button.dataset.copyError = "false";
-          button.setAttribute("aria-label", "Salin kode");
-          button.title = "Salin kode";
-          timers.delete(timer);
-        }, 1800);
-        timers.add(timer);
-      }
-    };
-
-    container.addEventListener("click", handleCopy, true);
-    return () => {
-      container.removeEventListener("click", handleCopy, true);
-      timers.forEach((timer) => window.clearTimeout(timer));
-    };
-  }, [markdown, richText, deleted, markdownHtml, richTextHtml]);
 
   const selectIndicator = (
     <span
@@ -326,14 +312,17 @@ export function ChatMessageBubble({
           onPointerMove={editing ? undefined : onPointerMove}
           onPointerUp={editing ? undefined : onPointerUp}
           onPointerCancel={editing ? undefined : onPointerCancel}
+          onLostPointerCapture={editing ? undefined : onLostPointerCapture}
           onContextMenu={editing ? undefined : onContextMenu}
           onDoubleClick={editing ? undefined : onDoubleClick}
-          className={`${stacksMessageMeta ? "flex" : "inline-flex"} w-fit min-w-[68px] max-w-full touch-pan-y break-words transition-[transform,box-shadow] duration-200 ease-out [overflow-wrap:anywhere] ${
+          className={`flex w-fit min-w-[68px] max-w-full touch-pan-y flex-col break-words transition-[transform,box-shadow] duration-200 ease-out [overflow-wrap:anywhere] ${
             selectMode ? "cursor-pointer" : "active:scale-[.985]"
           } ${
-            outgoing
-                ? `${stacksMessageMeta ? "flex-col" : "items-end gap-2"} rounded-[16px] rounded-br-[5px] border border-white/[.07] bg-ink px-2.5 py-1 md:rounded-[18px] md:rounded-br-[6px] md:px-3.5 md:py-1.5 text-white shadow-[0_2px_6px_rgba(0,0,0,.09)]`
-                : `${stacksMessageMeta ? "flex-col" : "items-end gap-2"} rounded-[16px] rounded-bl-[5px] border border-black/[.025] bg-[#f1f2f4] px-2.5 py-1 md:rounded-[18px] md:rounded-bl-[6px] md:px-3.5 md:py-1.5 text-ink shadow-[0_2px_6px_rgba(0,0,0,.04)]`
+            editing
+              ? "rounded-[16px] border border-slate-200 bg-[#f1f2f4] px-2.5 py-2 text-ink shadow-[0_2px_6px_rgba(0,0,0,.06)]"
+              : outgoing
+                ? "rounded-[16px] rounded-br-[5px] border border-white/[.07] bg-ink px-2.5 py-1 md:rounded-[18px] md:rounded-br-[6px] md:px-3.5 md:py-1.5 text-white shadow-[0_2px_6px_rgba(0,0,0,.09)]"
+                : "rounded-[16px] rounded-bl-[5px] border border-black/[.025] bg-[#f1f2f4] px-2.5 py-1 md:rounded-[18px] md:rounded-bl-[6px] md:px-3.5 md:py-1.5 text-ink shadow-[0_2px_6px_rgba(0,0,0,.04)]"
           } ${pending ? "opacity-70" : ""} ${
             highlight
               ? "ring-2 ring-ink/20 shadow-[0_2px_10px_rgba(15,23,42,.12)]"
@@ -360,7 +349,7 @@ export function ChatMessageBubble({
                     onEditCancel?.();
                   }}
                   disabled={editSaving}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-full border border-white/40 px-3 text-[11px] font-semibold text-white disabled:opacity-50"
+                  className="inline-flex h-8 items-center gap-1.5 rounded-full border border-slate-300 bg-white px-3 text-[11px] font-semibold text-ink-soft disabled:opacity-50"
                 >
                   <X size={13} /> Cancel
                 </button>
@@ -371,22 +360,14 @@ export function ChatMessageBubble({
                     onEditSave?.();
                   }}
                   disabled={editSaving || !editValue.trim()}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-full bg-white px-3 text-[11px] font-semibold text-ink disabled:opacity-50"
+                  className="inline-flex h-8 items-center gap-1.5 rounded-full bg-ink px-3 text-[11px] font-semibold text-white disabled:opacity-50"
                 >
                   {editSaving ? "Saving…" : "Save"}
                 </button>
               </div>
             </div>
-          ) : stacksMessageMeta ? (
-            <div className="flex min-w-0 flex-1 flex-col">
-              {messageBody}
-              <div className="flex justify-end">{messageMeta}</div>
-            </div>
           ) : (
-            <>
-              {messageBody}
-              {messageMeta}
-            </>
+            messageBody
           )}
         </div>
       </div>

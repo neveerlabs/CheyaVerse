@@ -350,9 +350,27 @@ export async function sendTelegramMessage(
       },
       options?.retry,
     );
-    if (!res || !res.ok) return false;
-    const data = await res.json();
-    return data?.ok === true;
+    if (!res) {
+      console.error("Telegram sendMessage failed: no response after retries.");
+      return false;
+    }
+    let data: { ok?: boolean; description?: string };
+    try {
+      data = await res.json();
+    } catch (err) {
+      console.error(
+        `Telegram sendMessage returned an invalid response (${res.status}).`,
+        err,
+      );
+      return false;
+    }
+    if (!res.ok || data?.ok !== true) {
+      console.error(
+        `Telegram sendMessage failed (${res.status}): ${data?.description ?? "Telegram API rejected the request."}`,
+      );
+      return false;
+    }
+    return true;
   } catch (err) {
     console.error("Telegram sendMessage error:", err);
     return false;

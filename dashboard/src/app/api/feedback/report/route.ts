@@ -165,14 +165,6 @@ function redactReportText(value: string): string {
     .replace(/([?&](?:token|auth|key|secret|password)=)[^&#\s]+/gi, "$1[REDACTED]");
 }
 
-function escapeMarkdownV2(value: string): string {
-  return value.replace(/([_*\[\]()~`>#+\-=|{}.!\\])/g, "\\$1");
-}
-
-function escapeMarkdownCode(value: string): string {
-  return value.replace(/\\/g, "\\\\").replace(/`/g, "\\`");
-}
-
 export async function POST(request: NextRequest) {
   if (!hasValidSameOrigin(request)) {
     return NextResponse.json({ error: "Invalid request origin." }, { status: 403 });
@@ -297,41 +289,59 @@ export async function POST(request: NextRequest) {
       `User ${session.uid}`;
     const username = reporter?.username ? `@${reporter.username}` : "Tidak tersedia";
     const firstTimestamp = reportedMessages[0].timestamp;
-    const categoryDetail =
-      category === "Lainnya"
-        ? `\n  _Detail:_ ${escapeMarkdownV2(otherDescription)}`
+    const formatChatViolationReport = (
+      messages: typeof reportedMessages,
+      hasOmittedMessages: boolean,
+    ) => {
+      const messageBlock = messages
+        .map((item) => `[${item.timestamp}] ${item.name}: ${item.message}`)
+        .join("\n");
+      const omissionNote = hasOmittedMessages
+        ? "\n[Pesan lainnya tidak disertakan karena batas panjang Telegram.]"
         : "";
-    const messageBlock = reportedMessages
-      .map(
-        (item) =>
-          `[${item.timestamp}] ${item.name}: ${item.message}`,
-      )
-      .join("\n");
-    text = [
-      "*Subjek:* Laporan Pelanggaran Pengguna",
-      "",
-      "Yth\\. Admin/Customer Service CheyaVerse,",
-      "Seseorang telah melaporkan salah satu pengguna yang telah mengirimkan pesan *tidak pantas* dan *melanggar panduan* komunitas aplikasi\\. Berikut adalah detail laporannya:",
-      "",
-      `\\- *Pengirim:* ${escapeMarkdownV2(fullName)}`,
-      `\\- *Username:* ${escapeMarkdownV2(username)}`,
-      `\\- *Waktu kejadian:* ${escapeMarkdownV2(firstTimestamp)}`,
-      `\\- *Jenis pelanggaran:* ${escapeMarkdownV2(category)}${categoryDetail}`,
-      "",
-      "_*Pesan terkait dibawah ini*_",
-      "```txt",
-      escapeMarkdownCode(messageBlock),
-      "```",
-      "",
-      "Mohon pihak admin dapat segera menindaklanjuti akun tersebut sesuai dengan ketentuan yang berlaku demi menjaga kenyamanan pengguna lain\\.",
-      "",
-      "Terima kasih atas perhatian dan kerja samanya\\.",
-      "Hormat saya,",
-      escapeMarkdownV2(fullName),
-    ].join("\n");
-    if (text.length > 4000) {
+      const categoryDetail =
+        category === "Lainnya"
+          ? `<br><b>Detail:</b> ${escapeHtml(otherDescription)}`
+          : "";
+      return [
+        "<b>Subjek:</b> Laporan Pelanggaran Pengguna",
+        "",
+        "Yth. Admin/Customer Service CheyaVerse,",
+        "Seseorang telah melaporkan salah satu pengguna yang mengirimkan pesan tidak pantas dan melanggar panduan komunitas aplikasi. Berikut adalah detail laporannya:",
+        "",
+        `- <b>Pengirim:</b> ${escapeHtml(fullName)}`,
+        `- <b>Username:</b> ${escapeHtml(username)}`,
+        `- <b>Waktu kejadian:</b> ${escapeHtml(firstTimestamp)}`,
+        `- <b>Jenis pelanggaran:</b> ${escapeHtml(category)}${categoryDetail}`,
+        "",
+        "<b>Pesan terkait di bawah ini</b>",
+        `<pre>${escapeHtml(messageBlock + omissionNote)}</pre>`,
+        "",
+        "Mohon pihak admin dapat segera menindaklanjuti akun tersebut sesuai dengan ketentuan yang berlaku demi menjaga kenyamanan pengguna lain.",
+        "",
+        "Terima kasih atas perhatian dan kerja samanya.",
+        "Hormat saya,",
+        escapeHtml(fullName),
+      ].join("\n");
+    };
+    const telegramTextLength = (html: string) =>
+      html.replace(/<[^>]*>/g, "").replace(/&(?:amp|lt|gt|quot);/g, "x").length;
+    const includedMessages: typeof reportedMessages = [];
+    for (const [index, item] of reportedMessages.entries()) {
+      const candidate = [...includedMessages, item];
+      const hasMore = index < reportedMessages.length - 1;
+      if (telegramTextLength(formatChatViolationReport(candidate, hasMore)) > 4000) {
+        break;
+      }
+      includedMessages.push(item);
+    }
+    if (includedMessages.length === 0) {
       return NextResponse.json({ error: "Chat report is too long." }, { status: 413 });
     }
+    text = formatChatViolationReport(
+      includedMessages,
+      includedMessages.length < reportedMessages.length,
+    );
   } else {
     text = "";
   }
@@ -473,7 +483,7 @@ export async function POST(request: NextRequest) {
         for (const chunk of textParts) {
           const messageSent = await sendTelegramMessage(adminId, chunk, {
             retry: REPORT_DELIVERY_RETRY,
-            parseMode: "MarkdownV2",
+            parseMode: "HTML",
           });
           if (!messageSent) return false;
         }

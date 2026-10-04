@@ -1,3 +1,38 @@
+import hljs from "highlight.js/lib/core";
+import bash from "highlight.js/lib/languages/bash";
+import c from "highlight.js/lib/languages/c";
+import cpp from "highlight.js/lib/languages/cpp";
+import csharp from "highlight.js/lib/languages/csharp";
+import css from "highlight.js/lib/languages/css";
+import go from "highlight.js/lib/languages/go";
+import java from "highlight.js/lib/languages/java";
+import javascript from "highlight.js/lib/languages/javascript";
+import json from "highlight.js/lib/languages/json";
+import markdown from "highlight.js/lib/languages/markdown";
+import python from "highlight.js/lib/languages/python";
+import rust from "highlight.js/lib/languages/rust";
+import sql from "highlight.js/lib/languages/sql";
+import typescript from "highlight.js/lib/languages/typescript";
+import xml from "highlight.js/lib/languages/xml";
+import yaml from "highlight.js/lib/languages/yaml";
+
+hljs.registerLanguage("bash", bash);
+hljs.registerLanguage("c", c);
+hljs.registerLanguage("cpp", cpp);
+hljs.registerLanguage("csharp", csharp);
+hljs.registerLanguage("css", css);
+hljs.registerLanguage("go", go);
+hljs.registerLanguage("java", java);
+hljs.registerLanguage("javascript", javascript);
+hljs.registerLanguage("json", json);
+hljs.registerLanguage("markdown", markdown);
+hljs.registerLanguage("python", python);
+hljs.registerLanguage("rust", rust);
+hljs.registerLanguage("sql", sql);
+hljs.registerLanguage("typescript", typescript);
+hljs.registerLanguage("xml", xml);
+hljs.registerLanguage("yaml", yaml);
+
 function escapeHtml(text: string): string {
   return text
     .replace(/&/g, "&amp;")
@@ -30,6 +65,64 @@ export function renderMarkdown(input: string): string {
 
 export function renderMarkdownInline(input: string): string {
   return renderInternal(input, "composer");
+}
+
+const KEYWORDS: Record<string, Set<string>> = {
+  javascript: new Set("async await break case catch class const continue debugger default delete do else export extends finally for function if import in instanceof let new of return static super switch this throw try typeof var void while yield".split(" ")),
+  typescript: new Set("abstract any as asserts async await bigint boolean break case catch class const constructor continue declare default delete do else enum export extends finally for from function if implements import infer instanceof interface is keyof let namespace never new null number object of package private protected public readonly require return static string super switch symbol this throw try type typeof undefined unique unknown var void while yield".split(" ")),
+  python: new Set("and as assert async await break class continue def del elif else except finally for from global if import in is lambda nonlocal not or pass raise return try while with yield".split(" ")),
+  json: new Set(["true", "false", "null"]),
+  bash: new Set("case coproc do done elif else esac fi for function if in select then time until while".split(" ")),
+  c: new Set("auto break case char const continue default do double else enum extern float for goto if inline int long register restrict return short signed sizeof static struct switch typedef union unsigned void volatile while".split(" ")),
+  cpp: new Set("alignas auto bool break case catch char class const constexpr continue decltype default delete do double else enum explicit export extern false float for friend goto if inline int long namespace new nullptr private protected public register return short signed sizeof static struct switch template this throw true try typedef typename union unsigned using virtual void volatile while".split(" ")),
+  csharp: new Set("abstract as async await base bool break byte case catch char checked class const continue decimal default delegate do double else enum event explicit extern false finally fixed float for foreach goto if implicit in int interface internal is lock long namespace new null object operator out override params private protected public readonly ref return sbyte sealed short sizeof stackalloc static string struct switch this throw true try typeof uint ulong unchecked unsafe ushort using var virtual void volatile while".split(" ")),
+  go: new Set("break case chan const continue default defer else fallthrough for func go goto if import interface map package range return select struct switch type var".split(" ")),
+  rust: new Set("as async await bool break const continue crate dyn else enum extern false fn for if impl in let loop match mod move mut pub ref return self Self static struct super trait true type unsafe use where while".split(" ")),
+  sql: new Set("add all alter as asc begin between by case commit create cross current_date current_time database default delete desc distinct drop else end exists false from full group having in index inner insert into is join key left like limit not null offset on or order outer primary references right rollback select set table then true union unique update values view when where".split(" ")),
+};
+
+function normalizedLanguage(language: string): string {
+  const normalized = language.toLowerCase();
+  if (["js", "jsx", "mjs", "cjs"].includes(normalized)) return "javascript";
+  if (["ts", "tsx"].includes(normalized)) return "typescript";
+  if (["py", "pyw"].includes(normalized)) return "python";
+  if (["sh", "shell", "zsh", "console"].includes(normalized)) return "bash";
+  if (["html", "svg"].includes(normalized)) return "xml";
+  if (normalized === "cs") return "csharp";
+  if (normalized === "golang") return "go";
+  if (normalized === "yml") return "yaml";
+  return normalized;
+}
+
+export function highlightCode(code: string, language: string): string {
+  const lang = normalizedLanguage(language);
+  const source = code.replace(
+    /&(?:amp|lt|gt|quot|#39|#x27);/gi,
+    (entity) => {
+      switch (entity.toLowerCase()) {
+        case "&amp;":
+          return "&";
+        case "&lt;":
+          return "<";
+        case "&gt;":
+          return ">";
+        case "&quot;":
+          return '"';
+        default:
+          return "'";
+      }
+    },
+  );
+  if (hljs.getLanguage(lang)) {
+    return hljs.highlight(source, { language: lang, ignoreIllegals: true }).value;
+  }
+  const fallbackKeywords = KEYWORDS[lang];
+  if (!fallbackKeywords) return escapeHtml(source);
+  return source.replace(/[A-Za-z_$][\w$]*/g, (word) =>
+    fallbackKeywords.has(word)
+      ? `<span class="chat-token-keyword">${escapeHtml(word)}</span>`
+      : escapeHtml(word),
+  );
 }
 
 function renderBlocks(text: string): string {
@@ -105,9 +198,9 @@ function renderInternal(input: string, mode: RenderMode): string {
     text = text.replace(/```([\w+-]*)[ \t]*\n([\s\S]*?)```/g, (_m, lang, code) => {
       const clean = code.replace(/\n$/, "");
       const safeLanguage = /^[A-Za-z0-9_+-]+$/.test(lang) ? lang : "";
-      const header = `<div class="chat-code-header">${safeLanguage ? `<span class="chat-code-language">${safeLanguage}</span>` : "<span></span>"}<button type="button" class="chat-code-copy" aria-label="Salin kode" title="Salin kode" data-code-copy><svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg><svg class="chat-code-check" aria-hidden="true" viewBox="0 0 24 24" fill="none"><path d="m5 12 4 4L19 6"/></svg><svg class="chat-code-error" aria-hidden="true" viewBox="0 0 24 24" fill="none"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>`;
+      const header = `<div class="chat-code-header"><span class="chat-code-dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="chat-code-language">${safeLanguage}</span></div>`;
       return stash(
-        `<div class="chat-code-block">${header}<pre class="my-0 block overflow-x-auto font-mono"><code>${clean}</code></pre></div>`,
+        `<div class="chat-code-block">${header}<pre class="my-0 block overflow-x-auto font-mono"><code>${highlightCode(clean, safeLanguage)}</code></pre></div>`,
       );
     });
   }

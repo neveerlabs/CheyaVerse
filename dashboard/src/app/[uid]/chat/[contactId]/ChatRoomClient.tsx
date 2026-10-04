@@ -206,6 +206,7 @@ export function ChatRoomClient({
   const selectModeRef = useRef(false);
   const swipeRef = useRef<{
     id: string;
+    pointerId: number;
     mine: boolean;
     startX: number;
     startY: number;
@@ -228,6 +229,7 @@ export function ChatRoomClient({
   const [sending, setSending] = useState(false);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
   const [reportCategoryOpen, setReportCategoryOpen] = useState(false);
   const [reportCategory, setReportCategory] = useState("");
   const [reportOtherDescription, setReportOtherDescription] = useState("");
@@ -480,6 +482,19 @@ export function ChatRoomClient({
     return merged;
   }, [notifications, hiddenNotificationIds, pinnedNotificationIds, messages, pending]);
 
+  useEffect(() => {
+    if (!editingMessageId) return;
+    const editedMessage = messages.find((message) => message.id === editingMessageId);
+    if (
+      !editedMessage ||
+      editedMessage.sender !== "user" ||
+      editedMessage.deleted_at
+    ) {
+      setEditingMessageId(null);
+      setEditDraft("");
+    }
+  }, [editingMessageId, messages]);
+
   const chatItemsRef = useRef<ChatItem[]>(chatItems);
   useEffect(() => {
     chatItemsRef.current = chatItems;
@@ -536,9 +551,13 @@ export function ChatRoomClient({
   function startChatItemPress(event: React.PointerEvent, item: ChatItem) {
     if (item._pending) return;
     if (selectModeRef.current) return;
+    clearLongPressTimer();
+    setSwipe(null);
+    event.currentTarget.setPointerCapture(event.pointerId);
     pressOriginRef.current = { x: event.clientX, y: event.clientY };
     swipeRef.current = {
       id: item.id,
+      pointerId: event.pointerId,
       mine: item.sender === "user",
       startX: event.clientX,
       startY: event.clientY,
@@ -558,7 +577,7 @@ export function ChatRoomClient({
 
   function moveChatItemPress(event: React.PointerEvent) {
     const s = swipeRef.current;
-    if (!s) return;
+    if (!s || event.pointerId !== s.pointerId) return;
     const dx = event.clientX - s.startX;
     const dy = event.clientY - s.startY;
     if (!s.active) {
@@ -569,7 +588,9 @@ export function ChatRoomClient({
     const isVertical = Math.abs(dx) < Math.abs(dy);
     const wrongDirection = (s.mine && dx > 0) || (!s.mine && dx < 0);
     if (isVertical || wrongDirection || selectModeRef.current) {
-      s.offset = 0;
+      clearLongPressTimer();
+      swipeRef.current = null;
+      setSwipe(null);
       return;
     }
     let offset = s.mine ? Math.min(0, dx) : Math.max(0, dx);
@@ -583,10 +604,14 @@ export function ChatRoomClient({
     setSwipe({ id: s.id, offset });
   }
 
-  function stopChatItemPress() {
+  function stopChatItemPress(pointerId: number) {
     clearLongPressTimer();
     const s = swipeRef.current;
-    if (!s) return;
+    if (s && pointerId !== s.pointerId) return;
+    if (!s) {
+      setSwipe(null);
+      return;
+    }
     swipeRef.current = null;
     const wasGesture = s.active;
     const wasSwipe =
@@ -598,7 +623,9 @@ export function ChatRoomClient({
     }
   }
 
-  function cancelChatItemPress() {
+  function cancelChatItemPress(pointerId?: number) {
+    const s = swipeRef.current;
+    if (s && pointerId !== undefined && pointerId !== s.pointerId) return;
     clearLongPressTimer();
     swipeRef.current = null;
     setSwipe(null);
@@ -1276,8 +1303,8 @@ export function ChatRoomClient({
 
   async function saveInlineEdit() {
     const content = editDraft.trim();
-    if (!editingMessageId || !content || sending) return;
-    setSending(true);
+    if (!editingMessageId || !content || savingEdit) return;
+    setSavingEdit(true);
     try {
       const response = await fetch(`/api/messages/${encodeURIComponent(uid)}`, {
         method: "PUT",
@@ -1302,7 +1329,7 @@ export function ChatRoomClient({
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Failed to update message");
     } finally {
-      setSending(false);
+      setSavingEdit(false);
     }
   }
 
@@ -1685,7 +1712,7 @@ export function ChatRoomClient({
                       event.stopPropagation();
                       scrollToChatItem(item.reply_to_id!);
                     }}
-                    className={`mb-1.5 block w-full max-w-full overflow-hidden rounded-xl border-l-4 px-2.5 py-1.5 text-left transition-colors ${
+                    className={`mb-1 block w-full max-w-full overflow-hidden rounded-xl border-l-4 px-2.5 py-1.5 text-left transition-colors ${
                       isUser
                         ? "border-white/50 bg-white/[.12] active:bg-white/[.22]"
                         : "border-ink/40 bg-black/[.04] active:bg-black/[.09]"
@@ -1720,7 +1747,7 @@ export function ChatRoomClient({
                   </button>
                 ) : (
                   <span
-                    className={`mb-1.5 block max-w-full overflow-hidden rounded-xl border-l-4 px-2.5 py-1.5 ${
+                    className={`mb-1 block max-w-full overflow-hidden rounded-xl border-l-4 px-2.5 py-1.5 ${
                       isUser
                         ? "border-white/50 bg-white/[.12]"
                         : "border-ink/40 bg-black/[.04]"
@@ -1809,9 +1836,13 @@ export function ChatRoomClient({
                         prefix={prefix}
                         selectMode={selectMode}
                         selected={selectedIds.has(item.id)}
-                        editing={editingMessageId === item.messageId}
+                        editing={
+                          item.sender === "user" &&
+                          !item.deleted_at &&
+                          editingMessageId === item.messageId
+                        }
                         editValue={editDraft}
-                        editSaving={sending}
+                        editSaving={savingEdit}
                         onEditChange={setEditDraft}
                         onEditSave={() => void saveInlineEdit()}
                         onEditCancel={cancelInlineEdit}
@@ -1823,8 +1854,13 @@ export function ChatRoomClient({
                           if (!item._pending) startChatItemPress(event, item);
                         }}
                         onPointerMove={moveChatItemPress}
-                        onPointerUp={() => stopChatItemPress()}
-                        onPointerCancel={cancelChatItemPress}
+                        onPointerUp={(event) => stopChatItemPress(event.pointerId)}
+                        onPointerCancel={(event) =>
+                          cancelChatItemPress(event.pointerId)
+                        }
+                        onLostPointerCapture={(event) =>
+                          cancelChatItemPress(event.pointerId)
+                        }
                         onContextMenu={(event) => {
                           event.preventDefault();
                           if (item._pending) return;
@@ -1933,7 +1969,7 @@ export function ChatRoomClient({
                         onChange={(event) => setReportOtherDescription(event.target.value)}
                         maxLength={500}
                         rows={3}
-                        placeholder="Jelaskan alasan laporan lainnya..."
+                        placeholder="Jelaskan pelanggaran lainnya..."
                         className="w-full resize-y rounded-xl border border-slate-300 bg-white p-3 text-[13px] text-ink outline-none placeholder:text-slate-400 focus:border-slate-500 focus:ring-2 focus:ring-slate-900/10"
                       />
                     </label>
