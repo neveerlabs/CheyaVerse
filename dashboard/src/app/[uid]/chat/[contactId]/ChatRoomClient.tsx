@@ -26,6 +26,7 @@ import { VerifiedName } from "@/components/VerifiedName";
 import { playReceiveSound, playSendSound } from "@/lib/chat-sounds";
 import { chatPreviewText } from "@/lib/chat-preview";
 import { acquirePageModalLock } from "@/lib/page-modal-lock";
+import { readApiJson } from "@/lib/read-api-json";
 
 export type Notification = {
   id: string;
@@ -54,6 +55,9 @@ export type ChatMessage = {
   deleted_at: string | null;
   reply_to_id: string | null;
   is_pinned: boolean;
+  ai_input_tokens?: number | null;
+  ai_output_tokens?: number | null;
+  sender_device_id?: string | null;
 };
 
 export type TelegramUser = {
@@ -73,6 +77,7 @@ type ChatItem = {
   notificationId: string | null;
   replyTargetId: string | null;
   sender: "user" | "bot";
+  sender_role: string;
   content: string;
   created_at: string;
   delivered_at: string | null;
@@ -81,6 +86,9 @@ type ChatItem = {
   deleted_at: string | null;
   reply_to_id: string | null;
   is_pinned: boolean;
+  ai_input_tokens: number | null;
+  ai_output_tokens: number | null;
+  sender_device_id: string | null;
   source: "message" | "notification";
   _pending: boolean;
 };
@@ -165,6 +173,17 @@ const clampStyle: React.CSSProperties = {
   wordBreak: "break-word",
 };
 
+function pushChatHistoryMarker(marker: "chatRoom" | "chatReport") {
+  const currentState = window.history.state;
+  const preservedState =
+    currentState && typeof currentState === "object" ? currentState : {};
+  window.history.pushState(
+    { ...preservedState, [marker]: true },
+    "",
+    window.location.href,
+  );
+}
+
 export function ChatRoomClient({
   uid,
   notifications,
@@ -190,6 +209,7 @@ export function ChatRoomClient({
   const pressOriginRef = useRef({ x: 0, y: 0 });
   const justEnteredSelectRef = useRef(false);
   const toastTimerRef = useRef<number | null>(null);
+  const aiTypingTimerRef = useRef<number | null>(null);
   const highlightTimerRef = useRef<number | null>(null);
   const initialMessagesRef = useRef(initialMessages);
   const receivedSoundIdsRef = useRef(new Set<string>());
@@ -227,6 +247,11 @@ export function ChatRoomClient({
   const [pending, setPending] = useState<Set<string>>(() => new Set());
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
+  const [aiProcessing, setAiProcessing] = useState(false);
+  const [typedAiMessage, setTypedAiMessage] = useState<{
+    messageId: string;
+    content: string;
+  } | null>(null);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
@@ -238,7 +263,6 @@ export function ChatRoomClient({
   const reportCategoryOpenRef = useRef(false);
   const closingReportWithBackRef = useRef(false);
   const feedbackModalOpenRef = useRef(false);
-  const closingFeedbackModalRef = useRef(false);
   const [browserNotificationsMuted, setBrowserNotificationsMuted] = useState(false);
   const [replyingTo, setReplyingTo] = useState<ChatItem | null>(null);
   const [toast, setToast] = useState("");
@@ -305,14 +329,9 @@ export function ChatRoomClient({
       feedbackModalOpenRef.current =
         (event as CustomEvent<{ open?: boolean }>).detail?.open === true;
     };
-    const onFeedbackModalClosing = () => {
-      closingFeedbackModalRef.current = true;
-    };
     window.addEventListener("cheya:feedback-modal-state", onFeedbackModalState);
-    window.addEventListener("cheya:feedback-modal-closing", onFeedbackModalClosing);
     return () => {
       window.removeEventListener("cheya:feedback-modal-state", onFeedbackModalState);
-      window.removeEventListener("cheya:feedback-modal-closing", onFeedbackModalClosing);
     };
   }, []);
 
@@ -447,6 +466,7 @@ export function ChatRoomClient({
         notificationId: n.id,
         replyTargetId: `n-${n.id}`,
         sender: "bot",
+        sender_role: "admin",
         content: n.message,
         created_at: n.created_at,
         delivered_at: null,
@@ -455,6 +475,9 @@ export function ChatRoomClient({
         deleted_at: null,
         reply_to_id: null,
         is_pinned: pinnedNotificationIds.has(n.id),
+        ai_input_tokens: null,
+        ai_output_tokens: null,
+        sender_device_id: null,
         source: "notification",
         _pending: false,
       });
@@ -466,6 +489,7 @@ export function ChatRoomClient({
         notificationId: null,
         replyTargetId: m.id,
         sender: m.sender,
+        sender_role: m.sender_role,
         content: m.content,
         created_at: m.created_at,
         delivered_at: m.delivered_at,
@@ -474,6 +498,9 @@ export function ChatRoomClient({
         deleted_at: m.deleted_at,
         reply_to_id: m.reply_to_id,
         is_pinned: m.is_pinned,
+        ai_input_tokens: m.ai_input_tokens ?? null,
+        ai_output_tokens: m.ai_output_tokens ?? null,
+        sender_device_id: m.sender_device_id ?? null,
         source: "message",
         _pending: pending.has(m.id),
       });
@@ -637,6 +664,113 @@ export function ChatRoomClient({
     el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   };
 
+  const scrollToLatestImmediately = () => {
+    const el = messageBoxRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: "auto" });
+  };
+
+  function animateAiMessage(message: ChatMessage): Promise<void> {
+    if (aiTypingTimerRef.current !== null) {
+      window.clearTimeout(aiTypingTimerRef.current);
+      aiTypingTimerRef.current = null;
+    }
+    setTypedAiMessage({ messageId: message.id, content: "" });
+    const fullContent = message.content;
+    const chunkSize = Math.max(1, Math.ceil(fullContent.length / 90));
+    let visibleLength = 0;
+
+    return new Promise((resolve) => {
+      const revealNextChunk = () => {
+        visibleLength = Math.min(fullContent.length, visibleLength + chunkSize);
+        setTypedAiMessage({
+          messageId: message.id,
+          content: fullContent.slice(0, visibleLength),
+        });
+        window.requestAnimationFrame(scrollToLatestImmediately);
+        if (visibleLength >= fullContent.length) {
+          aiTypingTimerRef.current = null;
+          setTypedAiMessage(null);
+          resolve();
+          return;
+        }
+        aiTypingTimerRef.current = window.setTimeout(revealNextChunk, 22);
+      };
+      revealNextChunk();
+    });
+  }
+
+  function playMessageReceiveSound(messageId: string) {
+    if (receivedSoundIdsRef.current.has(messageId)) return;
+    receivedSoundIdsRef.current.add(messageId);
+    if (receivedSoundIdsRef.current.size > 100) {
+      const oldestId = receivedSoundIdsRef.current.values().next().value;
+      if (oldestId) receivedSoundIdsRef.current.delete(oldestId);
+    }
+    lastSystemSoundAtRef.current = Date.now();
+    playReceiveSound();
+  }
+
+  async function requestAiReply(sourceMessage: ChatMessage) {
+    setAiProcessing(true);
+    try {
+      const response = await fetch("/api/ai/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ replyToId: sourceMessage.id }),
+        cache: "no-store",
+      });
+      const result = (await response.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        message?: ChatMessage;
+      };
+      if (!response.ok || !result.ok || !result.message) {
+        throw new Error(
+          result.error || "AI tidak dapat memproses pesan saat ini.",
+        );
+      }
+      setMessages((previous) => {
+        const existingIndex = previous.findIndex(
+          (item) => item.id === result.message!.id,
+        );
+        if (existingIndex < 0) return [...previous, result.message!];
+        return previous.map((item) =>
+          item.id === result.message!.id ? result.message! : item,
+        );
+      });
+      setAiProcessing(false);
+      playMessageReceiveSound(result.message.id);
+      await animateAiMessage(result.message);
+    } catch (error) {
+      setAiProcessing(false);
+      const detail =
+        error instanceof Error
+          ? error.message
+          : "Layanan AI sedang tidak tersedia.";
+      const failureMessage: ChatMessage = {
+        id: `ai-error-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        uid: Number(uid),
+        sender: "bot",
+        sender_role: "ai",
+        title: "CheyaVerse",
+        content: `Maaf, Cheya tidak dapat memproses pesan ini. ${detail}`.slice(0, 2000),
+        created_at: new Date().toISOString(),
+        delivered_at: new Date().toISOString(),
+        read_at: new Date().toISOString(),
+        edited_at: null,
+        deleted_at: null,
+        reply_to_id: sourceMessage.id,
+        is_pinned: false,
+      };
+      setMessages((previous) => [...previous, failureMessage]);
+      playMessageReceiveSound(failureMessage.id);
+      await animateAiMessage(failureMessage);
+    } finally {
+      setAiProcessing(false);
+    }
+  }
+
   const handleMessageScroll = () => {
     const el = messageBoxRef.current;
     if (!el) return;
@@ -681,6 +815,7 @@ export function ChatRoomClient({
       if (longPressTimerRef.current !== null) window.clearTimeout(longPressTimerRef.current);
       if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
       if (highlightTimerRef.current !== null) window.clearTimeout(highlightTimerRef.current);
+      if (aiTypingTimerRef.current !== null) window.clearTimeout(aiTypingTimerRef.current);
     },
     [],
   );
@@ -803,12 +938,8 @@ export function ChatRoomClient({
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    window.history.pushState({ chatRoom: true }, "", window.location.href);
+    pushChatHistoryMarker("chatRoom");
     const onPopState = (event: PopStateEvent) => {
-      if (closingFeedbackModalRef.current) {
-        closingFeedbackModalRef.current = false;
-        return;
-      }
       if (closingReportWithBackRef.current) {
         closingReportWithBackRef.current = false;
         return;
@@ -827,7 +958,7 @@ export function ChatRoomClient({
         setSelectedIds(new Set());
         selectModeRef.current = false;
         justEnteredSelectRef.current = false;
-        window.history.pushState({ chatRoom: true }, "", window.location.href);
+        pushChatHistoryMarker("chatRoom");
         return;
       }
       if (isModal) {
@@ -906,17 +1037,8 @@ export function ChatRoomClient({
           }
           return [...prev, incoming];
         });
-        if (
-          (incoming.sender === "bot" || incoming.sender_role === "admin") &&
-          !receivedSoundIdsRef.current.has(incoming.id)
-        ) {
-          receivedSoundIdsRef.current.add(incoming.id);
-          if (receivedSoundIdsRef.current.size > 100) {
-            const oldestId = receivedSoundIdsRef.current.values().next().value;
-            if (oldestId) receivedSoundIdsRef.current.delete(oldestId);
-          }
-          lastSystemSoundAtRef.current = Date.now();
-          playReceiveSound();
+        if (incoming.sender === "bot" || incoming.sender_role === "admin") {
+          playMessageReceiveSound(incoming.id);
         }
         if (incoming.sender === "bot" || incoming.sender_role === "admin") {
           void showBrowserMessageNotification(incoming);
@@ -1091,6 +1213,18 @@ export function ChatRoomClient({
     return () => window.cancelAnimationFrame(frame);
   }, [chatItems.length, mounted]);
 
+  useEffect(() => {
+    if (!viewport.keyboard) return;
+    const frame = window.requestAnimationFrame(scrollToLatestImmediately);
+    return () => window.cancelAnimationFrame(frame);
+  }, [viewport.keyboard, viewport.height]);
+
+  useEffect(() => {
+    if (!aiProcessing && !typedAiMessage) return;
+    const frame = window.requestAnimationFrame(scrollToLatestImmediately);
+    return () => window.cancelAnimationFrame(frame);
+  }, [aiProcessing, typedAiMessage]);
+
   function autoGrow(e: React.FormEvent<HTMLTextAreaElement>) {
     const t = e.currentTarget;
     t.style.height = "auto";
@@ -1100,7 +1234,7 @@ export function ChatRoomClient({
 
   async function sendMessage() {
     const trimmed = text.trim();
-    if (!trimmed || sending) return;
+    if (!trimmed || sending || aiProcessing) return;
     playSendSound();
     const replySnapshot = replyingTo;
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -1146,9 +1280,11 @@ export function ChatRoomClient({
       if (res.ok) {
         const j = await res.json().catch(() => ({}));
         const saved = j?.message as ChatMessage | undefined;
+        if (!saved) {
+          throw new Error("Server tidak mengembalikan pesan yang tersimpan.");
+        }
         setMessages((prev) => {
           const withoutTemp = prev.filter((m) => m.id !== tempId);
-          if (!saved) return withoutTemp;
           if (withoutTemp.some((m) => m.id === saved.id)) return withoutTemp;
           return [...withoutTemp, saved];
         });
@@ -1157,6 +1293,7 @@ export function ChatRoomClient({
           next.delete(tempId);
           return next;
         });
+        await requestAiReply(saved);
       } else {
         throw new Error("Failed to send message. Please try again");
       }
@@ -1178,6 +1315,10 @@ export function ChatRoomClient({
     } finally {
       setSending(false);
     }
+  }
+
+  function handleComposerFocus() {
+    scrollToLatestImmediately();
   }
 
   function beginReply(item: ChatItem) {
@@ -1388,7 +1529,7 @@ export function ChatRoomClient({
         }),
         cache: "no-store",
       });
-      const result = (await response.json()) as { ok?: boolean; error?: string };
+      const result = await readApiJson<{ ok?: boolean; error?: string }>(response);
       if (!response.ok || !result.ok) {
         throw new Error(result.error || "Failed to submit message report");
       }
@@ -1425,7 +1566,7 @@ export function ChatRoomClient({
     <header
       className={`z-40 bg-transparent ${
         isModal
-          ? `absolute left-0 right-0 top-0 px-3 ${compactHeader ? "pt-1 pb-1" : "pt-3 pb-2"}`
+          ? "absolute left-0 right-0 top-0 px-3 pt-1 pb-1"
           : "fixed left-0 right-0 pt-[calc(12px+env(safe-area-inset-top))] pb-3"
       }`}
       style={isModal ? undefined : { top: vvApplied }}
@@ -1485,7 +1626,7 @@ export function ChatRoomClient({
                   if (selectedIds.size > 0) {
                     reportCategoryOpenRef.current = true;
                     setReportCategoryOpen(true);
-                    window.history.pushState({ chatReport: true }, "", window.location.href);
+                    pushChatHistoryMarker("chatReport");
                   }
                 }}
                 aria-label="Report selected messages"
@@ -1610,6 +1751,7 @@ export function ChatRoomClient({
         sendLabel="Send message"
         inputRef={taRef}
         onChange={handleTextChange}
+        onFocus={handleComposerFocus}
         onSend={() => void sendMessage()}
         onInput={autoGrow}
         reply={
@@ -1814,9 +1956,23 @@ export function ChatRoomClient({
                       <ChatMessageBubble
                         outgoing={isUser}
                         avatarUrl={isUser ? `/api/avatar/${uid}` : null}
-                        content={item.deleted_at ? "Pesan dihapus" : item.content}
-                        richText={item.sender === "bot" && !item.deleted_at}
-                        markdown={item.sender === "user" && !item.deleted_at}
+                        content={
+                          item.deleted_at
+                            ? "Pesan dihapus"
+                            : typedAiMessage?.messageId === item.messageId
+                              ? typedAiMessage.content
+                              : item.content
+                        }
+                        richText={
+                          item.sender === "bot" &&
+                          item.sender_role !== "ai" &&
+                          !item.deleted_at
+                        }
+                        markdown={
+                          (item.sender === "user" ||
+                            item.sender_role === "ai") &&
+                          !item.deleted_at
+                        }
                         linkPreview={!item.deleted_at}
                         timestamp={chatMessageTime(item.created_at)}
                         status={
@@ -1834,6 +1990,21 @@ export function ChatRoomClient({
                         pinned={item.is_pinned}
                         highlight={highlightedId === item.id}
                         prefix={prefix}
+                        tokenUsage={
+                          item.sender === "bot" &&
+                          item.sender_role === "ai" &&
+                          !item.deleted_at
+                            ? {
+                                inputTokens: item.ai_input_tokens,
+                                outputTokens: item.ai_output_tokens,
+                              }
+                            : undefined
+                        }
+                        showTokenUsage={
+                          item.sender === "bot" &&
+                          item.sender_role === "ai" &&
+                          !item.deleted_at
+                        }
                         selectMode={selectMode}
                         selected={selectedIds.has(item.id)}
                         editing={
@@ -1885,6 +2056,15 @@ export function ChatRoomClient({
                 </Fragment>
               );
             })
+          )}
+          {aiProcessing && (
+            <p
+              role="status"
+              aria-live="polite"
+              className="px-3 py-1 text-[13px] italic text-ink-mute"
+            >
+              Sedang memproses<span className="animate-pulse">...</span>
+            </p>
           )}
         </div>
       </section>

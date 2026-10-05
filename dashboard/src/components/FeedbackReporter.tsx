@@ -369,7 +369,7 @@ export function FeedbackReporter() {
   const modalRef = useRef(modal);
   modalRef.current = modal;
   const modalHistoryOpenRef = useRef(false);
-  const closingModalHistoryRef = useRef(false);
+  const previousHistoryStateRef = useRef<unknown>(null);
   const lastShakeAtRef = useRef(0);
   const recentIssueRef = useRef(new Map<string, number>());
   const motionBaselineRef = useRef<{ x: number; y: number; z: number } | null>(null);
@@ -471,7 +471,17 @@ export function FeedbackReporter() {
   useEffect(() => {
     if (modal) {
       if (!modalHistoryOpenRef.current) {
-        window.history.pushState({ cheyaFeedbackModal: true }, "", window.location.href);
+        const previousState = window.history.state;
+        const preservedState =
+          previousState && typeof previousState === "object"
+            ? previousState
+            : {};
+        previousHistoryStateRef.current = previousState;
+        window.history.pushState(
+          { ...preservedState, cheyaFeedbackModal: true },
+          "",
+          window.location.href,
+        );
         modalHistoryOpenRef.current = true;
       }
       window.dispatchEvent(
@@ -491,12 +501,9 @@ export function FeedbackReporter() {
 
   useEffect(() => {
     const onPopState = (event: PopStateEvent) => {
-      if (closingModalHistoryRef.current) {
-        closingModalHistoryRef.current = false;
-        return;
-      }
       if (!modalRef.current) return;
       modalHistoryOpenRef.current = false;
+      previousHistoryStateRef.current = null;
       modalRef.current = null;
       setModal(null);
       setExpanded(false);
@@ -513,6 +520,14 @@ export function FeedbackReporter() {
   function closeReport() {
     const shouldReturnHistory = modalHistoryOpenRef.current;
     modalHistoryOpenRef.current = false;
+    if (shouldReturnHistory) {
+      window.history.replaceState(
+        previousHistoryStateRef.current,
+        "",
+        window.location.href,
+      );
+    }
+    previousHistoryStateRef.current = null;
     modalRef.current = null;
     setModal(null);
     setExpanded(false);
@@ -520,16 +535,40 @@ export function FeedbackReporter() {
     window.dispatchEvent(
       new CustomEvent("cheya:feedback-modal-state", { detail: { open: false } }),
     );
-    if (shouldReturnHistory) {
-      closingModalHistoryRef.current = true;
-      window.dispatchEvent(new Event("cheya:feedback-modal-closing"));
-      window.history.back();
-    }
   }
 
   useEffect(() => {
     let dialogResizeObserver: ResizeObserver | null = null;
     const updatePosition = () => {
+      const activeElement = document.activeElement;
+      const visualViewport = window.visualViewport;
+      const textEntryFocused =
+        activeElement instanceof HTMLInputElement ||
+        activeElement instanceof HTMLTextAreaElement ||
+        activeElement instanceof HTMLSelectElement ||
+        (activeElement instanceof HTMLElement && activeElement.isContentEditable);
+      const layoutViewportHeight = Math.max(
+        window.innerHeight,
+        document.documentElement.clientHeight,
+      );
+      const keyboardOpen = Boolean(
+        textEntryFocused &&
+          visualViewport &&
+          window.matchMedia("(max-width: 767px)").matches &&
+          (layoutViewportHeight - visualViewport.height > 120 ||
+            visualViewport.height < layoutViewportHeight * 0.75),
+      );
+
+      if (keyboardOpen && visualViewport && !inChatRoom && !botChatOpen) {
+        const keyboardTop = visualViewport.offsetTop + visualViewport.height;
+        setReportButtonBottom(
+          Math.max(8, window.innerHeight - keyboardTop + 8),
+        );
+        setReportButtonLeft(12);
+        setReportButtonRight(null);
+        return;
+      }
+
       if (botChatOpen) {
         const dialog = document.querySelector<HTMLElement>(
           "[data-bot-chat-dialog]",
@@ -554,6 +593,19 @@ export function FeedbackReporter() {
       );
       if (reportAnchor) {
         const rect = reportAnchor.getBoundingClientRect();
+        if (reportAnchor.dataset.reportAnchor === "above-dialog") {
+          const buttonTop = Math.max(8, rect.top - 48);
+          setReportButtonBottom(
+            Math.max(8, window.innerHeight - buttonTop - 40),
+          );
+          setReportButtonLeft(Math.max(8, rect.left - 1));
+          setReportButtonRight(
+            reportAnchor.dataset.reportResumeAlign === "true"
+              ? Math.max(8, window.innerWidth - rect.right)
+              : null,
+          );
+          return;
+        }
         if (reportAnchor.dataset.reportAnchor === "avatar-preview") {
           setReportButtonBottom(18);
           setReportButtonLeft(12);
@@ -606,31 +658,6 @@ export function FeedbackReporter() {
         }
       }
 
-      const activeElement = document.activeElement;
-      const visualViewport = window.visualViewport;
-      const settingsNameFocused =
-        pathname.startsWith(`/${uid}/profile/settings`) &&
-        activeElement instanceof HTMLInputElement &&
-        activeElement.id === "account-display-name";
-      const projectSearchFocused =
-        (pathname.startsWith(`/${uid}/project`) ||
-          pathname.startsWith(`/${uid}/keranjang`)) &&
-        activeElement instanceof HTMLInputElement &&
-        activeElement.type === "search";
-      if (
-        (projectSearchFocused || settingsNameFocused) &&
-        visualViewport &&
-        window.matchMedia("(max-width: 767px)").matches &&
-        window.innerHeight - visualViewport.height > 120
-      ) {
-        const keyboardTop = visualViewport.offsetTop + visualViewport.height;
-        setReportButtonBottom(
-          Math.max(8, window.innerHeight - keyboardTop + 10),
-        );
-        setReportButtonLeft(12);
-        return;
-      }
-
       if (pathname.endsWith("/profile/link-device")) {
         setReportButtonBottom(18);
         setReportButtonLeft(12);
@@ -669,6 +696,7 @@ export function FeedbackReporter() {
     document.addEventListener("focusout", onFocusChange);
     visualViewport?.addEventListener("resize", updatePosition);
     visualViewport?.addEventListener("scroll", updatePosition);
+    window.addEventListener("scroll", updatePosition, { passive: true });
     updatePosition();
 
     return () => {
@@ -679,6 +707,7 @@ export function FeedbackReporter() {
       document.removeEventListener("focusout", onFocusChange);
       visualViewport?.removeEventListener("resize", updatePosition);
       visualViewport?.removeEventListener("scroll", updatePosition);
+      window.removeEventListener("scroll", updatePosition);
     };
   }, [botChatOpen, inChatRoom, pathname, uid]);
 
@@ -1292,6 +1321,7 @@ export function FeedbackReporter() {
           type="button"
           aria-label="Laporkan bug"
           data-media-menu-action
+          onMouseDown={(event) => event.stopPropagation()}
           onClick={() => void openReport()}
           className="pointer-events-auto fixed bottom-[calc(70px+env(safe-area-inset-bottom))] left-3 z-[999] flex h-10 w-10 items-center justify-center rounded-full border border-line bg-white text-ink-soft shadow-md"
           style={{
@@ -1310,6 +1340,7 @@ export function FeedbackReporter() {
           type="button"
           data-screenshot-ignore="true"
           data-media-menu-action
+          onMouseDown={(event) => event.stopPropagation()}
           onClick={() => setMinimized(false)}
           className="pointer-events-auto fixed bottom-[calc(70px+env(safe-area-inset-bottom))] right-3 z-[999] inline-flex min-h-11 max-w-[calc(100vw-6rem)] items-center gap-2 rounded-full border border-line bg-white px-4 text-xs font-semibold text-ink shadow-lg"
           style={{
@@ -1333,6 +1364,7 @@ export function FeedbackReporter() {
       {modal && !minimized && (
         <div
           data-screenshot-ignore="true"
+          data-media-menu-action
           className="pointer-events-auto fixed inset-0 z-[500] flex items-end justify-center bg-slate-950/45 backdrop-blur-sm"
           role="presentation"
           onClick={() => {

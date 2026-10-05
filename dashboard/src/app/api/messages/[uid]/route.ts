@@ -89,6 +89,7 @@ export async function POST(
     delivered_at: deliveredAt,
     read_at: null,
     reply_to_id: replyToId,
+    sender_device_id: session.deviceId,
   });
   if (!msg) {
     return NextResponse.json({ ok: false, error: "db_error" }, { status: 500 });

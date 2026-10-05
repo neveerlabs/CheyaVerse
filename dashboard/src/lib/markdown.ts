@@ -153,7 +153,7 @@ function renderBlocks(text: string): string {
 
   text = text.replace(
     /^(?:---|\*\*\*|___)\s*$/gm,
-    '<hr class="my-2 border-t border-line" />',
+    '<hr class="chat-markdown-rule m-0 border-t border-line" />',
   );
 
   text = text.replace(
@@ -163,21 +163,21 @@ function renderBlocks(text: string): string {
 
   text = text.replace(
     /^[-*+] \[ \] (.*)$/gm,
-    '<span class="block pl-4 relative"><span class="absolute left-0">☐</span>$1</span>',
+    '<span class="chat-markdown-list-item"><span class="chat-markdown-list-marker">☐</span>&nbsp;$1</span>',
   );
   text = text.replace(
     /^[-*+] \[[xX]\] (.*)$/gm,
-    '<span class="block pl-4 relative"><span class="absolute left-0">☑</span>$1</span>',
+    '<span class="chat-markdown-list-item"><span class="chat-markdown-list-marker">☑</span>&nbsp;$1</span>',
   );
 
   text = text.replace(
     /^[-*+] (?!\[[ xX]\] )(.*)$/gm,
-    '<span class="chat-markdown-list-item block pl-3 relative"><span class="absolute left-0">•</span>$1</span>',
+    '<span class="chat-markdown-list-item"><span class="chat-markdown-list-marker">•</span>&nbsp;$1</span>',
   );
 
   text = text.replace(
     /^(\d+)\. (.*)$/gm,
-    '<span class="chat-markdown-list-item block pl-5 relative"><span class="absolute left-0 text-ink-mute tabular-nums">$1.</span>$2</span>',
+    '<span class="chat-markdown-list-item"><span class="chat-markdown-list-marker text-ink-mute tabular-nums">$1.</span>&nbsp;$2</span>',
   );
 
   return text;
@@ -192,7 +192,7 @@ function renderInternal(input: string, mode: RenderMode): string {
     return `\u0001PH${ph.length - 1}\u0001`;
   };
 
-  let text = escapeHtml(input);
+  let text = escapeHtml(input.replace(/&nbsp;/gi, "\u00a0"));
 
   if (mode === "message") {
     text = text.replace(/```([\w+-]*)[ \t]*\n([\s\S]*?)```/g, (_m, lang, code) => {
@@ -217,7 +217,7 @@ function renderInternal(input: string, mode: RenderMode): string {
       /!\[([^\]]*)\]\(([^)\s]+)\)/g,
       (_m, alt, url) =>
         stash(
-          `<img src="${sanitizeUrl(url)}" alt="${alt}" class="my-1 block max-w-full rounded-lg" />`,
+          `<img src="${sanitizeUrl(url)}" alt="${alt}" class="inline-block max-w-full rounded-lg align-middle" />`,
         ),
     );
   }
@@ -269,19 +269,26 @@ function renderInternal(input: string, mode: RenderMode): string {
   );
 
   if (mode === "message") {
-    text = text.replace(
-      /^([ \t]*[-*+] (?:\[[ xX]\] )?[^\n]+)\n(?:[ \t]*\n)+(?=[ \t]*[-*+] )/gm,
-      "$1\n",
-    );
     text = renderBlocks(text);
     text = text.replace(/\n/g, "<br>");
-    text = text.replace(
-      /(<span class="chat-markdown-list-item[^"]*">[\s\S]*?<\/span>)(?:<br>)+(?=<span class="chat-markdown-list-item)/g,
-      "$1",
-    );
   }
 
   text = text.replace(/\u0001PH(\d+)\u0001/g, (_m, i) => ph[Number(i)] ?? "");
+
+  if (mode === "message") {
+    const removeStructuralBreak = (breaks: string) =>
+      "<br>".repeat(Math.max(0, breaks.length / 4 - 1));
+    text = text.replace(
+      /((?:<br>)*)<div class="chat-code-block">([\s\S]*?<\/pre><\/div>)((?:<br>)*)/g,
+      (_match, before: string, block: string, after: string) =>
+        `${removeStructuralBreak(before)}<div class="chat-code-block">${block}${removeStructuralBreak(after)}`,
+    );
+    text = text.replace(
+      /((?:<br>)*)<hr class="chat-markdown-rule m-0 border-t border-line" \/>((?:<br>)*)/g,
+      (_match, before: string, after: string) =>
+        `${removeStructuralBreak(before)}<hr class="chat-markdown-rule m-0 border-t border-line" />${removeStructuralBreak(after)}`,
+    );
+  }
 
   return text;
 }

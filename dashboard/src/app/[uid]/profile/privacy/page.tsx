@@ -6,23 +6,23 @@ export const dynamic = "force-dynamic";
 const SECTIONS: { title: string; body: string }[] = [
   {
     title: "Data yang diproses",
-    body: "CheyaVerse memproses identitas Telegram untuk menghubungkan akun, nama tampilan pilihan pengguna, media dan pesan yang disimpan atau dikirim melalui fitur layanan, serta informasi sesi dan perangkat untuk menjaga akses akun. Jika GitHub dihubungkan, CheyaVerse juga menyimpan nama akun dan token akses GitHub dalam bentuk terenkripsi.",
+    body: "CheyaVerse memproses ID Telegram serta nama dan username yang tersedia untuk menghubungkan akun; nama tampilan pilihan pengguna; pesan, status pengiriman/baca, dan metadata media yang dikirim atau disimpan melalui layanan; serta pengenal sesi dan informasi perangkat/browser yang diperlukan untuk keamanan dan fungsi dashboard. Jika GitHub dihubungkan, nama akun, scopes yang dilaporkan GitHub, waktu koneksi, dan token akses disimpan; token dienkripsi pada server.",
   },
   {
     title: "Cara data digunakan",
-    body: "Data digunakan untuk menyediakan dashboard, media, percakapan, notifikasi, keamanan sesi, dan fitur Projects. Informasi repositori, branch, commit, deployment, serta statistik GitHub diminta saat fitur tersebut digunakan; data ini disajikan dari GitHub dan bukan arsip riwayat terpisah di CheyaVerse.",
+    body: "Data digunakan untuk menyediakan dashboard, media, percakapan, notifikasi, keamanan sesi, dan fitur Projects. Data repositori, branch, commit, release, deployment, Actions, dan statistik diminta dari GitHub saat halaman atau fitur yang memerlukannya digunakan. Home menampilkan repo neveerlabs/CheyaVerse di kartu unggulan dan daftar repositori populer dari akun GitHub yang tersambung di grid berikutnya. Nilai repository tersebut bersumber dari GitHub dan bukan arsip lengkap aktivitas terpisah di CheyaVerse.",
   },
   {
     title: "Layanan pihak ketiga",
-    body: "CheyaVerse tidak menjual data pengguna. Telegram digunakan untuk autentikasi dan fitur bot/media; GitHub memproses permintaan ketika akun GitHub dihubungkan; layanan verifikasi dapat digunakan pada halaman media. Browser dan penyedia push yang dipakai browser dapat memproses data yang diperlukan untuk mengirim notifikasi.",
+    body: "CheyaVerse tidak menjual data pengguna. Telegram digunakan untuk autentikasi dan fitur bot/media; GitHub menerima permintaan data yang diminta pengguna melalui dashboard. Jika pengguna mengaktifkan AI chat, teks permintaan, instruksi sistem, hingga 50 pesan chat terakhir yang tersedia (cuplikan isi dibatasi server), metadata identitas/perangkat/role akun, dan konteks GitHub terpilih untuk pertanyaan repositori dikirim ke penyedia AI yang dikonfigurasi. Konteks GitHub dibatasi ke satu repo pilihan per permintaan; jika tidak ada repo yang dipilih, AI dapat menerima daftar ringkas repositori milik akun untuk membantu memilih. Token GitHub, kunci API AI, gambar, dan file media chat tidak disertakan dalam prompt. Layanan verifikasi serta browser/penyedia push dapat memproses data yang dibutuhkan fitur terkait.",
   },
   {
     title: "Keamanan akun",
-    body: "Akun web terhubung dengan ID Telegram. Token GitHub dienkripsi sebelum disimpan dan tidak dikirim kembali ke browser setelah tersimpan. Pengguna dapat memutus koneksi GitHub, mengelola sesi perangkat, atau keluar dari akun melalui Settings. Gunakan token GitHub dengan izin minimum yang diperlukan (minim scopes: `repo`).",
+    body: "Akun web terhubung dengan ID Telegram. Token GitHub dienkripsi sebelum disimpan di server dan tidak dikirim kembali ke browser setelah tersimpan. Token digunakan server untuk permintaan GitHub atas nama akun yang terhubung dan tidak diteruskan sebagai teks prompt kepada penyedia AI. Pengguna dapat memutus koneksi GitHub atau mengelola sesi melalui Settings; pemutusan koneksi di CheyaVerse tidak mencabut token di GitHub. Buat token dengan izin minimum yang diperlukan dan cabut dari GitHub bila tidak lagi digunakan.",
   },
   {
     title: "Masa penyimpanan",
-    body: "Media disimpan sampai tanggal kedaluwarsa yang ditampilkan pada layanan, lalu dihapus otomatis. Token GitHub disimpan sampai koneksinya diputus atau akun web dihapus. Data akun dan percakapan disimpan selama diperlukan untuk menyediakan fitur terkait; pengguna dapat menghapus akun web melalui Settings.",
+    body: "Media dikelola sesuai tanggal kedaluwarsa yang ditampilkan pada layanan dan dihapus otomatis setelah masa berlakunya berakhir. Token GitHub disimpan sampai koneksinya diputus atau akun web dihapus. Data akun dan percakapan disimpan selama diperlukan untuk menyediakan fitur terkait; pengguna dapat menghapus akun web melalui Settings. Salinan yang sudah dikirim ke Telegram, GitHub, atau penyedia AI mengikuti kebijakan penyedia masing-masing.",
   },
   {
     title: "Pilihan dan penghapusan",
@@ -46,7 +46,7 @@ export default function PrivacyPage({
     <>
       <SubPageHeader
         title="Privacy Policy"
-        subtitle="Last updated: 2026-01-October"
+        subtitle="Last updated: October 5, 2026"
         backHref={`/${params.uid}/profile`}
         cornerLabel="PRIVACY POLICY"
       />

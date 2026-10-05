@@ -28,6 +28,10 @@ const SECTIONS: { title: string; body: string }[] = [
     body: "Jika menghubungkan GitHub, pengguna memberi CheyaVerse izin untuk meminta data repositori sesuai cakupan token yang diberikan. Pilih izin minimum yang diperlukan dan putuskan koneksi atau cabut token dari GitHub saat tidak lagi digunakan.",
   },
   {
+    title: "AI chat dan data repositori",
+    body: "Jika mengaktifkan AI chat dengan penyedia dan kunci API sendiri, pengguna meminta penyedia AI memproses pesan untuk menghasilkan jawaban. Untuk pertanyaan GitHub, server dapat menggunakan token GitHub yang tersambung untuk mengambil konteks terbatas dari satu repositori pilihan, seperti metadata, README, branch, commit terbaru, release, deployment, struktur, atau file yang diminta. Jika repositori tidak disebutkan, AI dapat menerima indeks ringkas repositori milik akun agar dapat memilih dengan konteks; kode seluruh akun tidak dipindai. Pengguna bertanggung jawab memastikan hak akses dan izin token sesuai. Jawaban AI dapat tidak lengkap atau keliru dan perlu ditinjau sebelum digunakan.",
+  },
+  {
     title: "Penghapusan dan ketersediaan",
     body: "Pengguna dapat menghapus data akun web melalui Settings. Penghapusan akun web tidak menghapus data yang tersimpan di Telegram atau GitHub. Layanan dapat mengalami gangguan atau perubahan fitur; CheyaVerse tidak menjanjikan layanan selalu tersedia tanpa jeda.",
   },
@@ -38,7 +42,7 @@ export default function AgreementPage() {
     <>
       <AppHeader
         title="User Agreement"
-        subtitle="Last updated: 2026-01-October"
+        subtitle="Last updated: October 5, 2026"
         cornerLabel="USER AGREEMENT"
       />
 

@@ -79,6 +79,16 @@ export function BotChatLauncher({
   const badgeRequestRef = useRef(false);
   const badgeRefreshQueuedRef = useRef(false);
   const dataRequestRef = useRef(false);
+  const pointerStartedInDialogRef = useRef(false);
+  const launcherUnavailable =
+    pathname.startsWith(`/${uid}/profile/settings`) ||
+    pathname === `/${uid}/profile/privacy` ||
+    pathname === `/${uid}/profile/agreement` ||
+    pathname === `/${uid}/profile/support` ||
+    pathname === `/${uid}/profile/cover` ||
+    pathname === `/${uid}/profile/link-device` ||
+    pathname === `/${uid}/about` ||
+    /^\/\d+\/(?:project|keranjang)\/[^/]+\/[^/]+\/?$/.test(pathname);
 
   const refreshDraft = useCallback(() => {
     try {
@@ -224,6 +234,14 @@ export function BotChatLauncher({
   }, [pathname, refreshBadge, refreshDraft]);
 
   useEffect(() => {
+    if (launcherUnavailable && open) closeChat();
+  }, [closeChat, launcherUnavailable, open]);
+
+  useEffect(() => {
+    if (launcherHiddenByModal && open) closeChat();
+  }, [closeChat, launcherHiddenByModal, open]);
+
+  useEffect(() => {
     const updateLauncherVisibility = () => {
       setLauncherHiddenByModal(
         Boolean(document.querySelector("[data-hide-bot-launcher='true']")),
@@ -317,6 +335,7 @@ export function BotChatLauncher({
       {!open &&
         !launcherHiddenByModal &&
         !hideLauncher &&
+        !launcherUnavailable &&
         !pathname?.endsWith("/profile/link-device") && (
         <button
           type="button"
@@ -346,6 +365,12 @@ export function BotChatLauncher({
               ? "inset-x-0 items-start px-3"
               : "inset-0 items-center p-3 pt-[calc(12px+env(safe-area-inset-top))] pb-[calc(12px+env(safe-area-inset-bottom))]"
           }`}
+          onPointerDownCapture={(event) => {
+            pointerStartedInDialogRef.current = Boolean(
+              event.target instanceof Element &&
+                event.target.closest("[data-bot-chat-dialog]"),
+            );
+          }}
           style={
             keyboardViewport.open
               ? {
@@ -356,7 +381,13 @@ export function BotChatLauncher({
                 }
               : undefined
           }
-          onClick={closeChat}
+          onClick={(event) => {
+            const shouldClose =
+              event.target === event.currentTarget &&
+              !pointerStartedInDialogRef.current;
+            pointerStartedInDialogRef.current = false;
+            if (shouldClose) closeChat();
+          }}
         >
           <div
             role="dialog"
@@ -371,7 +402,10 @@ export function BotChatLauncher({
                 : "min(82dvh, 720px)",
               maxHeight: keyboardViewport.open ? "none" : "82dvh",
             }}
-            onClick={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              pointerStartedInDialogRef.current = false;
+              event.stopPropagation();
+            }}
           >
             {loading && (
               <div

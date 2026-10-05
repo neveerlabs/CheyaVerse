@@ -201,7 +201,11 @@ export function ProfileClient({
     function onAny(e: MouseEvent) {
       const t = e.target as HTMLElement | null;
       if (!t) return;
-      if (t.closest("[data-media-menu]") || t.closest("[data-media-menu-trigger]")) return;
+      if (
+        t.closest("[data-media-menu]") ||
+        t.closest("[data-media-menu-trigger]") ||
+        t.closest("[data-media-menu-action]")
+      ) return;
       setMenuItem(null);
       setMenuItemAnchor(null);
     }
@@ -1234,6 +1238,9 @@ export function ProfileClient({
             role="dialog"
             aria-modal="true"
             aria-labelledby="logout-dialog-title"
+            data-hide-bot-launcher="true"
+            data-report-anchor="above-dialog"
+            data-report-resume-align="true"
             className="w-full max-w-[380px] animate-fade-up rounded-[28px] border border-white/70 bg-white p-5 shadow-[0_24px_80px_-24px_rgba(0,0,0,.35)] sm:p-6"
           >
             <h2 id="logout-dialog-title" className="text-[18px] font-bold tracking-tight text-ink">

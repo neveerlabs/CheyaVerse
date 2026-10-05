@@ -46,6 +46,22 @@ const FAQS: { q: string; a: string[] }[] = [
       "Repositori dan riwayatnya diminta dari GitHub saat halaman Projects dibuka; pastikan GitHub dapat diakses.",
     ],
   },
+  {
+    q: "Home shows a different repository than my popular repositories",
+    a: [
+      "Kartu unggulan Home selalu menampilkan data neveerlabs/CheyaVerse. Grid di bawahnya tetap menampilkan repositori populer dari akun GitHub yang tersambung.",
+      "Jika grid kosong atau data akun sendiri belum tampil, buka Settings → GitHub dan pastikan akun serta token yang tersambung benar dan masih punya akses.",
+      "Data repository diminta dari GitHub saat halaman dimuat. Gangguan GitHub, batas API, izin organisasi, atau token yang perlu disambungkan ulang dapat membuat sebagian data tidak tersedia.",
+    ],
+  },
+  {
+    q: "AI tidak menemukan repository atau file yang saya maksud",
+    a: [
+      "Untuk pertanyaan repositori, AI memakai koneksi GitHub milik akun yang sedang masuk. Hubungkan GitHub di Settings dan pastikan token dapat membaca repo tersebut.",
+      "Sebutkan nama repository atau owner/repository. AI mengutamakan repository milik akun yang tersambung dan hanya memuat satu repository untuk satu permintaan.",
+      "Untuk pertanyaan kode, sebutkan path file yang tepat. Isi seluruh repository tidak dimuat sekaligus; README, struktur terbatas, dan file yang diminta dipilih sesuai pertanyaan.",
+    ],
+  },
 ];
 
 export default function SupportPage({
@@ -60,7 +76,7 @@ export default function SupportPage({
     <>
       <SubPageHeader
         title="Help Center"
-        subtitle="Last updated: 2026-01-October"
+        subtitle="Last updated: October 5, 2026"
         backHref={`/${params.uid}/profile`}
       />
 

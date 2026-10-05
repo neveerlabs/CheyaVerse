@@ -221,8 +221,6 @@ export function playReceiveSound() {
 }
 
 export function playReceiveSoundOutside() {
-  if (!getCtx()) {
-    if (tryPlayAudio("notification", playSynthReceive)) return;
-  }
+  if (tryPlayAudio("notification", playSynthReceive)) return;
   playSynthReceive();
 }

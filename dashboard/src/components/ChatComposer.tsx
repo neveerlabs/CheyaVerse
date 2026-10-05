@@ -20,6 +20,7 @@ type ChatComposerProps = {
   inputRef: RefObject<HTMLTextAreaElement>;
   onChange: (value: string) => void;
   onSend: () => void;
+  onFocus?: () => void;
   onInput?: (event: TextareaFormEvent<HTMLTextAreaElement>) => void;
   onKeyDown?: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
   onToggleDictation?: () => void;
@@ -44,6 +45,7 @@ export function ChatComposer({
   inputRef,
   onChange,
   onSend,
+  onFocus,
   onInput,
   onKeyDown,
   onToggleDictation,
@@ -78,6 +80,26 @@ export function ChatComposer({
     return () => ta.removeEventListener("scroll", sync);
   }, [inputRef]);
 
+  useEffect(() => {
+    const ta = inputRef.current;
+    const mirror = mirrorRef.current;
+    if (!ta || !mirror) return;
+
+    ta.style.height = "auto";
+    const contentHeight = ta.scrollHeight;
+    ta.style.height = `${Math.max(22, Math.min(contentHeight, 120))}px`;
+    ta.style.overflowY = contentHeight > 120 ? "auto" : "hidden";
+    if (
+      document.activeElement === ta &&
+      ta.selectionStart >= value.length &&
+      ta.selectionEnd >= value.length
+    ) {
+      ta.scrollTop = ta.scrollHeight;
+    }
+    mirror.scrollTop = ta.scrollTop;
+    mirror.scrollLeft = ta.scrollLeft;
+  }, [inputRef, value]);
+
   const mirrorHtml = useMemo(() => {
     if (!value) return "";
     return renderMarkdownInline(value);
@@ -105,13 +127,18 @@ export function ChatComposer({
       style={{ ...style, touchAction: "none" }}
     >
       {above}
-      <div className="flex w-full min-w-0 items-center gap-2">
+      <div className="flex w-full min-w-0 items-end gap-2">
         <div
           data-chat-composer-input="true"
-          className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-[22px] border border-line bg-white"
+          onClick={(event) => {
+            const target = event.target;
+            if (target instanceof HTMLElement && target.closest("button")) return;
+            inputRef.current?.focus();
+          }}
+          className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-[22px] border border-line bg-white transition-[border-color,box-shadow] focus-within:border-[#c7cdd5] focus-within:ring-4 focus-within:ring-black/[.035]"
         >
           {reply}
-          <div className="flex min-h-11 w-full items-center px-3 py-1.5">
+          <div className="flex min-h-11 w-full items-end px-3 py-1.5">
             <div className="relative min-w-0 flex-1">
               <div
                 ref={mirrorRef}
@@ -126,10 +153,12 @@ export function ChatComposer({
                 enterKeyHint={isMobile ? "enter" : "send"}
                 value={value}
                 onChange={(event) => onChange(event.target.value)}
+                onFocus={onFocus}
                 onInput={onInput}
                 onKeyDown={handleKeyDown}
                 className={TEXTAREA_CLASS}
                 style={{
+                  minHeight: 22,
                   maxHeight: 120,
                   fontFamily: "inherit",
                   touchAction: "auto",

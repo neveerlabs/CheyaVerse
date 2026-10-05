@@ -23,6 +23,7 @@ const RANKING_LIMIT = 12;
 const HOME_PROJECT_LIMIT = 5;
 const COMMIT_ACTIVITY_LIMIT = 1000;
 const ACTIVITY_CONCURRENCY = 6;
+const FEATURED_REPOSITORY = { owner: "neveerlabs", name: "CheyaVerse" };
 
 type Repository = {
   id: number;
@@ -464,7 +465,30 @@ export async function GET(request: NextRequest) {
       }),
     );
     const rankedProjects = scoreProjects(detailedProjects);
-    const projects = rankedProjects.slice(0, HOME_PROJECT_LIMIT);
+    const popularProjects = rankedProjects
+      .filter(
+        (project) =>
+          project.repository.fullName.toLowerCase() !==
+          `${FEATURED_REPOSITORY.owner}/${FEATURED_REPOSITORY.name}`.toLowerCase(),
+      )
+      .slice(0, HOME_PROJECT_LIMIT - 1);
+    let featuredProject: ProjectActivity | null = null;
+    try {
+      const { data: featuredRepository } = await githubJson<Repository>(
+        token,
+        `/repos/${encodeURIComponent(FEATURED_REPOSITORY.owner)}/${encodeURIComponent(FEATURED_REPOSITORY.name)}`,
+      );
+      const candidate = await loadActivityCandidate(token, featuredRepository);
+      featuredProject = (await addProjectInsights(token, [candidate]))[0] ?? null;
+    } catch (error) {
+      console.error("[github/overview] featured repository could not be loaded:", error);
+    }
+    const projects = [
+      ...(featuredProject ? [featuredProject] : []),
+      ...popularProjects.filter(
+        (project) => project.repository.id !== featuredProject?.repository.id,
+      ),
+    ];
     const accountActivity = Array.from({ length: 52 }, (_, index) => ({
       week: index,
       commits: activityCandidates.reduce(
@@ -496,7 +520,7 @@ export async function GET(request: NextRequest) {
         stats,
         accountActivity,
         projects,
-        featuredProjectId: projects[0]?.repository.id ?? null,
+        featuredProjectId: featuredProject?.repository.id ?? null,
       },
       { headers: { "Cache-Control": "no-store" } },
     );

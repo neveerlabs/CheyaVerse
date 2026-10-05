@@ -110,6 +110,18 @@ export function SettingsClient({
   const [githubBusy, setGithubBusy] = useState(false);
   const [githubError, setGithubError] = useState("");
   const [githubNotice, setGithubNotice] = useState("");
+  const [aiProviders, setAiProviders] = useState<
+    Array<{ id: string; provider: string; model: string; active: boolean; lastError: string | null }>
+  >([]);
+  const [aiForm, setAiForm] = useState({
+    provider: "openrouter",
+    model: "openai/gpt-4o-mini",
+    apiKey: "",
+  });
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiTesting, setAiTesting] = useState(false);
+  const [aiError, setAiError] = useState("");
+  const [aiNotice, setAiNotice] = useState("");
 
   const loadAccountSettings = useCallback(async () => {
     setAccountLoading(true);
@@ -277,9 +289,39 @@ export function SettingsClient({
     if (tab === "security") void loadDevices();
   }, [tab, loadDevices]);
 
+  const loadAiProviders = useCallback(async () => {
+    try {
+      const response = await fetch("/api/ai/providers", { cache: "no-store" });
+      const result = (await response.json()) as {
+        ok?: boolean;
+        providers?: Array<{
+          id: string;
+          provider: string;
+          model: string;
+          active: boolean;
+          lastError: string | null;
+        }>;
+        error?: string;
+      };
+      if (!response.ok || !result.ok || !Array.isArray(result.providers)) {
+        throw new Error(result.error || "AI providers could not be loaded.");
+      }
+      setAiProviders(result.providers);
+    } catch (cause) {
+      setAiError(
+        cause instanceof Error
+          ? cause.message
+          : "AI providers could not be loaded.",
+      );
+    }
+  }, []);
+
   useEffect(() => {
-    if (tab === "github") void loadGitHubSettings();
-  }, [tab, loadGitHubSettings]);
+    if (tab === "github") {
+      void loadGitHubSettings();
+      void loadAiProviders();
+    }
+  }, [tab, loadGitHubSettings, loadAiProviders]);
 
   async function connectGitHub() {
     if (githubBusy || !githubToken.trim()) return;
@@ -340,6 +382,106 @@ export function SettingsClient({
       );
     } finally {
       setGithubBusy(false);
+    }
+  }
+
+  async function testAiProviderConnection() {
+    if (aiTesting || aiBusy || !aiForm.provider || !aiForm.model || !aiForm.apiKey.trim()) {
+      return;
+    }
+    setAiTesting(true);
+    setAiError("");
+    setAiNotice("");
+    try {
+      const response = await fetch("/api/ai/providers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "test",
+          provider: aiForm.provider,
+          model: aiForm.model,
+          apiKey: aiForm.apiKey,
+        }),
+        cache: "no-store",
+      });
+      const result = (await response.json()) as {
+        ok?: boolean;
+        error?: string;
+        message?: string;
+      };
+      if (!response.ok || result.ok !== true) {
+        throw new Error(result.error || "AI provider test failed.");
+      }
+      setAiNotice(result.message || "AI provider is ready.");
+    } catch (cause) {
+      setAiError(
+        cause instanceof Error ? cause.message : "AI provider test failed.",
+      );
+    } finally {
+      setAiTesting(false);
+    }
+  }
+
+  async function saveAiProviderConnection() {
+    if (aiBusy || !aiForm.provider || !aiForm.model || !aiForm.apiKey.trim()) {
+      return;
+    }
+    setAiBusy(true);
+    setAiError("");
+    setAiNotice("");
+    try {
+      const response = await fetch("/api/ai/providers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: aiForm.provider,
+          model: aiForm.model,
+          apiKey: aiForm.apiKey,
+          active: true,
+        }),
+        cache: "no-store",
+      });
+      const result = (await response.json()) as {
+        ok?: boolean;
+        error?: string;
+        message?: string;
+      };
+      if (!response.ok || result.ok !== true) {
+        throw new Error(result.error || "AI provider could not be saved.");
+      }
+      setAiForm((current) => ({ ...current, apiKey: "" }));
+      setAiNotice(result.message || "AI provider saved.");
+      await loadAiProviders();
+    } catch (cause) {
+      setAiError(
+        cause instanceof Error ? cause.message : "AI provider could not be saved.",
+      );
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
+  async function deleteAiProviderConfig(providerId: string) {
+    if (!providerId || aiBusy) return;
+    setAiBusy(true);
+    setAiError("");
+    try {
+      const response = await fetch(`/api/ai/providers?id=${encodeURIComponent(providerId)}`, {
+        method: "DELETE",
+        cache: "no-store",
+      });
+      const result = (await response.json()) as { ok?: boolean; error?: string };
+      if (!response.ok || result.ok !== true) {
+        throw new Error(result.error || "AI provider could not be removed.");
+      }
+      setAiNotice("AI provider removed.");
+      await loadAiProviders();
+    } catch (cause) {
+      setAiError(
+        cause instanceof Error ? cause.message : "AI provider could not be removed.",
+      );
+    } finally {
+      setAiBusy(false);
     }
   }
 
@@ -937,6 +1079,118 @@ export function SettingsClient({
               )}
             </div>
           </SettingsSection>
+          <SettingsSection title="AI assistants">
+            <div className="p-4">
+              <p className="text-[11.5px] leading-relaxed text-ink-mute">
+                Tambahkan API key provider AI untuk aktifkan respon otomatis di chat. Sistem akan mencoba provider yang aktif secara berurutan dan otomatis berpindah ke provider berikutnya jika salah satu gagal.
+              </p>
+              {aiError && (
+                <p role="alert" className="mt-3 rounded-xl border border-red-100 bg-red-50 px-3 py-2.5 text-[11px] text-danger">
+                  {aiError}
+                </p>
+              )}
+              {aiNotice && (
+                <p role="status" className="mt-3 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2.5 text-[11px] text-emerald-800">
+                  {aiNotice}
+                </p>
+              )}
+
+              <div className="mt-4 grid gap-3 sm:grid-cols-[180px_minmax(0,1fr)]">
+                <label className="block text-[11px] font-semibold text-ink-soft">
+                  Provider
+                  <select
+                    value={aiForm.provider}
+                    onChange={(event) =>
+                      setAiForm((current) => ({ ...current, provider: event.target.value }))
+                    }
+                    className="mt-1.5 w-full rounded-2xl border border-line bg-[#fafafa] px-3 py-2.5 text-[12px] text-ink outline-none focus:border-[#a5a5a5]"
+                  >
+                    <option value="openrouter">OpenRouter</option>
+                    <option value="openai">OpenAI</option>
+                    <option value="gemini">Gemini</option>
+                  </select>
+                </label>
+                <label className="block text-[11px] font-semibold text-ink-soft">
+                  Model
+                  <input
+                    value={aiForm.model}
+                    onChange={(event) =>
+                      setAiForm((current) => ({ ...current, model: event.target.value }))
+                    }
+                    placeholder="openai/gpt-4o-mini"
+                    className="mt-1.5 w-full rounded-2xl border border-line bg-[#fafafa] px-3 py-2.5 text-[12px] text-ink outline-none placeholder:text-ink-mute focus:border-[#a5a5a5]"
+                  />
+                </label>
+              </div>
+
+              <label className="mt-3 block text-[11px] font-semibold text-ink-soft">
+                API key
+                <input
+                  type="password"
+                  value={aiForm.apiKey}
+                  onChange={(event) =>
+                    setAiForm((current) => ({ ...current, apiKey: event.target.value }))
+                  }
+                  placeholder="sk-... / AIza..."
+                  className="mt-1.5 w-full rounded-2xl border border-line bg-[#fafafa] px-3 py-2.5 text-[12px] text-ink outline-none placeholder:text-ink-mute focus:border-[#a5a5a5]"
+                />
+              </label>
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => void testAiProviderConnection()}
+                  disabled={aiTesting || aiBusy || !aiForm.provider || !aiForm.model || !aiForm.apiKey.trim()}
+                  className="rounded-full border border-line bg-white px-4 py-2.5 text-[11.5px] font-semibold text-ink-soft disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  {aiTesting ? "Testing…" : "Test connection"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void saveAiProviderConnection()}
+                  disabled={aiBusy || aiTesting || !aiForm.provider || !aiForm.model || !aiForm.apiKey.trim()}
+                  className="rounded-full bg-ink px-4 py-2.5 text-[11.5px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  {aiBusy ? "Saving…" : "Save provider"}
+                </button>
+              </div>
+
+              {aiProviders.length > 0 && (
+                <div className="mt-5 space-y-2">
+                  <p className="text-[10.5px] font-semibold uppercase tracking-[.08em] text-ink-mute">
+                    Saved providers
+                  </p>
+                  {aiProviders.map((provider) => (
+                    <div
+                      key={provider.id}
+                      className="flex items-center justify-between gap-3 rounded-2xl border border-line bg-[#fafafa] px-3 py-2.5"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 text-[12px] font-semibold text-ink">
+                          <span className="capitalize">{provider.provider}</span>
+                          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[.08em] text-emerald-700">
+                            {provider.active ? "Active" : "Paused"}
+                          </span>
+                        </div>
+                        <p className="mt-0.5 text-[10.5px] text-ink-mute">{provider.model}</p>
+                        {provider.lastError && (
+                          <p className="mt-1 text-[9.5px] text-danger">Last error: {provider.lastError}</p>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void deleteAiProviderConfig(provider.id)}
+                        className="shrink-0 rounded-full border border-red-100 bg-red-50 px-3 py-1.5 text-[10.5px] font-semibold text-danger"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </SettingsSection>
+
           <p className="px-3 text-[10.5px] leading-relaxed text-ink-mute">
             Revoke the token on GitHub at any time. Disconnecting here deletes
             the encrypted token from this CheyaVerse account.
@@ -1010,11 +1264,11 @@ export function SettingsClient({
             role="alertdialog"
             aria-modal="true"
             aria-labelledby="delete-account-title"
+            data-hide-bot-launcher="true"
+            data-report-anchor="above-dialog"
+            data-report-resume-align="true"
             className="w-full max-w-[420px] animate-fade-up rounded-[28px] border border-white/70 bg-white p-5 shadow-[0_24px_80px_-24px_rgba(0,0,0,.35)] sm:p-6"
           >
-            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-[17px] bg-[#fff1f0] text-danger">
-              <Trash2 size={21} />
-            </div>
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h2 id="delete-account-title" className="text-[18px] font-bold tracking-tight text-ink">

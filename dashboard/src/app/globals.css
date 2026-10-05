@@ -47,6 +47,12 @@ main {
   transition: filter 320ms cubic-bezier(.4,0,.2,1), opacity 320ms cubic-bezier(.4,0,.2,1);
 }
 
+.app-tabbar-fixed {
+  position: fixed;
+  inset: auto 0 0;
+  transform: translateZ(0);
+}
+
 .app-shell {
   width: min(100%, 1180px);
   background: #fff;
@@ -255,11 +261,6 @@ a {
   overflow: hidden;
   border: 1px solid rgb(0 0 0 / 8%);
   border-radius: 0.55rem;
-}
-
-.chat-rich-text .chat-code-block + br,
-.chat-rich-text pre + br {
-  display: none;
 }
 
 .chat-rich-text:has(.chat-code-block) {
@@ -477,6 +478,7 @@ a {
 }
 
 .chat-rich-text .chat-note {
+  display: inline;
   margin-block: 0;
 }
 
@@ -493,16 +495,24 @@ a {
 .chat-rich-text h4,
 .chat-rich-text h5,
 .chat-rich-text h6 {
+  display: inline;
   margin-block: 0;
 }
 
 .chat-rich-text .chat-markdown-list-item {
+  display: inline;
   margin-block: 0;
   line-height: inherit;
 }
 
+.chat-rich-text .chat-markdown-list-marker {
+  display: inline-block;
+  min-width: 0.85em;
+}
+
 .chat-rich-text hr {
-  margin-block: 0.65rem;
+  display: block;
+  margin-block: 0;
   border-color: currentColor;
   opacity: 0.28;
 }

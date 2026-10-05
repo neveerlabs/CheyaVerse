@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Suspense } from "react";
-import { Bot } from "lucide-react";
 import { LoginApproval } from "./LoginApproval";
 
 const DEVICE_ID_KEY = "cheya_device_id";
@@ -72,9 +71,6 @@ export function LoginPageClient({
   return (
     <main className="mx-auto flex min-h-screen max-w-[600px] items-center justify-center px-5 py-10">
       <section className="w-full max-w-[400px] rounded-3xl border border-line bg-white p-7 text-center shadow-[0_16px_60px_-36px_rgba(0,0,0,.25)]">
-        <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-[#f5f5f5]">
-          <Bot size={30} className="text-ink" />
-        </div>
         <h1 className="mb-2 text-[22px] font-bold tracking-[-.02em] text-ink">
           Sign in
         </h1>

@@ -9,6 +9,19 @@ import { LinkPreview } from "@/components/LinkPreview";
 import { extractFirstUrl } from "@/lib/link-preview";
 import { highlightCode, renderMarkdown } from "@/lib/markdown";
 
+const MESSAGE_PREVIEW_LIMIT = 1000;
+
+function messagePreview(content: string, markdown: boolean): string {
+  let preview = content.slice(0, MESSAGE_PREVIEW_LIMIT).trimEnd();
+  if (markdown) {
+    const fences = preview.match(/```/g)?.length ?? 0;
+    if (fences % 2 === 1) {
+      preview = preview.slice(0, preview.lastIndexOf("```")).trimEnd();
+    }
+  }
+  return preview;
+}
+
 export function chatMessageTime(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "";
@@ -26,6 +39,11 @@ type ChatMessageBubbleProps = {
   timestamp: string;
   status?: ReactNode;
   prefix?: ReactNode;
+  tokenUsage?: {
+    inputTokens?: number | null;
+    outputTokens?: number | null;
+  };
+  showTokenUsage?: boolean;
   edited?: boolean;
   pinned?: boolean;
   deleted?: boolean;
@@ -61,6 +79,8 @@ export function ChatMessageBubble({
   timestamp,
   status,
   prefix,
+  tokenUsage,
+  showTokenUsage = false,
   edited = false,
   pinned = false,
   deleted = false,
@@ -94,7 +114,10 @@ export function ChatMessageBubble({
   };
   const [expanded, setExpanded] = useState(false);
   const [messageHasMultipleLines, setMessageHasMultipleLines] = useState(false);
-  const canExpand = !deleted && content.length > 1000;
+  const canExpand = !deleted && content.length > MESSAGE_PREVIEW_LIMIT;
+  const displayContent = canExpand && !expanded
+    ? messagePreview(content, markdown)
+    : content;
 
   useEffect(() => {
     setExpanded(false);
@@ -112,12 +135,12 @@ export function ChatMessageBubble({
   const markdownHtml = useMemo(() => {
     if (!markdown) return null;
     if (deleted) return null;
-    return renderMarkdown(content);
-  }, [markdown, deleted, content]);
+    return renderMarkdown(displayContent);
+  }, [markdown, deleted, displayContent]);
 
   const richTextHtml = useMemo(() => {
     if (!richText || deleted) return content;
-    return content.replace(
+    return displayContent.replace(
       /<pre><code(?:\s+class=["']language-([A-Za-z0-9_+-]+)["'])?>([\s\S]*?)<\/code><\/pre>/gi,
       (_match, language: string | undefined, code: string) => {
         const safeLanguage = language ?? "";
@@ -125,7 +148,7 @@ export function ChatMessageBubble({
         return `<div class="chat-code-block">${header}<pre class="my-0 block overflow-x-auto font-mono text-[12.5px] leading-[1.5]"><code>${highlightCode(code, safeLanguage)}</code></pre></div>`;
       },
     );
-  }, [richText, deleted, content]);
+  }, [richText, deleted, displayContent]);
 
   const previewUrl = useMemo(() => {
     if (!linkPreview || deleted || richText) return null;
@@ -164,9 +187,19 @@ export function ChatMessageBubble({
       observer.disconnect();
       window.removeEventListener("resize", measureLines);
     };
-  }, [content, markdownHtml, richTextHtml, richTextHasCodeBlock]);
+  }, [displayContent, markdownHtml, richTextHtml, richTextHasCodeBlock]);
 
   const hasReplyPrefix = Boolean(prefix);
+  const totalTokens =
+    (tokenUsage?.inputTokens ?? 0) + (tokenUsage?.outputTokens ?? 0);
+  const inputPercent =
+    totalTokens > 0
+      ? Math.round(((tokenUsage?.inputTokens ?? 0) / totalTokens) * 100)
+      : null;
+  const outputPercent =
+    totalTokens > 0
+      ? 100 - (inputPercent ?? 0)
+      : null;
   const messageMeta = (
     <span
       className={`${hasReplyPrefix ? "" : "ml-1"} inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-[10px] leading-none ${
@@ -192,8 +225,6 @@ export function ChatMessageBubble({
         ref={messageContentRef}
         className={`relative min-w-0 ${
           inlineReplyMeta ? "flex items-end justify-between gap-2" : ""
-        } ${
-          canExpand && !expanded ? "max-h-[20.3em] overflow-hidden" : ""
         }`}
       >
         {richText ? (
@@ -235,7 +266,7 @@ export function ChatMessageBubble({
               inlineReplyMeta ? "min-w-0 flex-1" : ""
             } ${deleted ? "italic opacity-65" : ""}`}
           >
-            {content}
+            {displayContent}
           </span>
         )}
         {((!hasReplyPrefix &&
@@ -243,25 +274,44 @@ export function ChatMessageBubble({
           !richTextHasCodeBlock) ||
           inlineReplyMeta) &&
           messageMeta}
+        {canExpand && !expanded && (
+          <>
+            {" "}
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                setExpanded(true);
+              }}
+              className="inline appearance-none border-0 bg-transparent p-0 align-baseline font-[inherit] text-[inherit]"
+              style={{ font: "inherit", color: "inherit" }}
+            >
+              See more...
+            </button>
+          </>
+        )}
       </div>
-      {canExpand && !expanded && (
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            setExpanded(true);
-          }}
-          className={`mt-1 text-[12px] font-semibold underline underline-offset-2 ${
-            outgoing ? "text-white/80" : "text-ink-soft"
-          }`}
-        >
-          See more...
-        </button>
-      )}
       {((hasReplyPrefix && !inlineReplyMeta) ||
         messageHasMultipleLines ||
         richTextHasCodeBlock) && (
         <div className="text-right">{messageMeta}</div>
+      )}
+      {showTokenUsage && tokenUsage && (
+        <p
+          className="mt-1 text-right text-[9px] leading-tight text-ink-mute"
+          title="Persentase menunjukkan bagian input dan output dari total token pada respons ini."
+        >
+          {totalTokens > 0 ? (
+            <>
+              Token: input {tokenUsage.inputTokens ?? "—"}
+              {inputPercent !== null ? ` (${inputPercent}%)` : ""} · output{" "}
+              {tokenUsage.outputTokens ?? "—"}
+              {outputPercent !== null ? ` (${outputPercent}%)` : ""}
+            </>
+          ) : (
+            "Token usage unavailable"
+          )}
+        </p>
       )}
     </div>
   );

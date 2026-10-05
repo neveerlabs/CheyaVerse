@@ -1398,6 +1398,9 @@ export type ChatMessage = {
   deleted_at: string | null;
   reply_to_id: string | null;
   is_pinned: boolean;
+  ai_input_tokens: number | null;
+  ai_output_tokens: number | null;
+  sender_device_id: string | null;
 };
 
 let chatMessageActionsReady: Promise<void> | null = null;
@@ -1414,6 +1417,9 @@ async function ensureChatMessageActions(): Promise<void> {
         ["edited_at", "TEXT"],
         ["deleted_at", "TEXT"],
         ["reply_to_id", "TEXT"],
+        ["ai_input_tokens", "INTEGER"],
+        ["ai_output_tokens", "INTEGER"],
+        ["sender_device_id", "TEXT"],
       ]) {
         if (!existing.has(name)) {
           await db.execute(`ALTER TABLE messages ADD COLUMN ${name} ${type}`);
@@ -1460,6 +1466,12 @@ function rowToMessage(row: Record<string, unknown>): ChatMessage {
     deleted_at: row.deleted_at == null ? null : String(row.deleted_at),
     reply_to_id: row.reply_to_id == null ? null : String(row.reply_to_id),
     is_pinned: Number(row.is_pinned ?? 0) === 1,
+    ai_input_tokens:
+      row.ai_input_tokens == null ? null : Number(row.ai_input_tokens),
+    ai_output_tokens:
+      row.ai_output_tokens == null ? null : Number(row.ai_output_tokens),
+    sender_device_id:
+      row.sender_device_id == null ? null : String(row.sender_device_id),
   };
 }
 
@@ -1477,6 +1489,9 @@ export async function createMessage(data: {
   delivered_at?: string | null;
   read_at?: string | null;
   reply_to_id?: string | null;
+  ai_input_tokens?: number | null;
+  ai_output_tokens?: number | null;
+  sender_device_id?: string | null;
 }): Promise<ChatMessage | null> {
   try {
     await ensureChatMessageActions();
@@ -1486,8 +1501,8 @@ export async function createMessage(data: {
     const readAt = data.read_at ?? null;
     await getTurso().execute({
       sql: `INSERT INTO messages
-              (id, uid, sender, sender_role, title, content, created_at, delivered_at, read_at, reply_to_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              (id, uid, sender, sender_role, title, content, created_at, delivered_at, read_at, reply_to_id, ai_input_tokens, ai_output_tokens, sender_device_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       args: [
         id,
         data.uid,
@@ -1499,6 +1514,9 @@ export async function createMessage(data: {
         deliveredAt,
         readAt,
         data.reply_to_id ?? null,
+        data.ai_input_tokens ?? null,
+        data.ai_output_tokens ?? null,
+        data.sender_device_id ?? null,
       ],
     });
     return {
@@ -1515,6 +1533,9 @@ export async function createMessage(data: {
       deleted_at: null,
       reply_to_id: data.reply_to_id ?? null,
       is_pinned: false,
+      ai_input_tokens: data.ai_input_tokens ?? null,
+      ai_output_tokens: data.ai_output_tokens ?? null,
+      sender_device_id: data.sender_device_id ?? null,
     };
   } catch (err) {
     console.error("createMessage error:", err);
