@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchMedia } from "@/lib/storage";
-import { fetchTelegramFile } from "@/lib/telegram";
+import { fetchUserMediaObject } from "@/lib/supabase-storage";
 import { verifyRecaptcha } from "@/lib/recaptcha";
 
 export const runtime = "nodejs";
@@ -26,13 +26,26 @@ export async function GET(
     return new NextResponse("Media not found.", { status: 404 });
   }
 
-  const upstream = await fetchTelegramFile(meta.storage_path);
-  if (!upstream || !upstream.body) {
-    return new NextResponse("Media not available.", { status: 502 });
+  if (!Number.isSafeInteger(meta.owner_id) || !meta.owner_id) {
+    return new NextResponse("Media owner is invalid.", { status: 500 });
   }
-
   const safeName =
     (meta.filename || params.id).replace(/["\\\r\n]/g, "").slice(0, 200) || "file";
+  let upstream: Response;
+  try {
+    upstream = await fetchUserMediaObject(
+      meta.owner_id,
+      meta.storage_path,
+      undefined,
+      safeName,
+    );
+  } catch (error) {
+    console.error(`[download] Supabase media fetch failed for ${params.id}:`, error);
+    return new NextResponse("Media is temporarily unavailable.", { status: 502 });
+  }
+  if (!upstream.ok || !upstream.body) {
+    return new NextResponse("Media not available.", { status: 502 });
+  }
 
   return new NextResponse(upstream.body, {
     status: 200,

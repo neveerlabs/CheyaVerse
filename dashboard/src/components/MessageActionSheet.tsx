@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { useBackDismiss } from "@/lib/back-dismiss";
 
 export function MessageActionSheet({
   preview,
@@ -11,6 +12,8 @@ export function MessageActionSheet({
   onClose: () => void;
   children: ReactNode;
 }) {
+  useBackDismiss(true, onClose, "message-actions");
+
   return (
     <div
       role="presentation"

@@ -16,7 +16,7 @@ function deliverToLocalClients(uid: number, event: RealtimeEvent): void {
     try {
       client.send(event);
     } catch (error) {
-      console.error("[realtime] failed to deliver event to local SSE client:", error);
+      console.error("[realtime] failed to deliver event to a local listener:", error);
     }
   }
 }

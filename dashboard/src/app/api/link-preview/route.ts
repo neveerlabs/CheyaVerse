@@ -27,12 +27,34 @@ function decodeEntities(text: string): string {
     .replace(/&nbsp;/g, " ");
 }
 
-function matchMeta(html: string, patterns: RegExp[]): string | null {
-  for (const re of patterns) {
-    const m = html.match(re);
-    if (m && m[1]) return decodeEntities(m[1].trim());
+function matchMeta(html: string, names: string[]): string | null {
+  const expectedAttributes = new Set(names.map((name) => name.toLowerCase()));
+  for (const tag of html.matchAll(/<meta\b[^>]*>/gi)) {
+    const attributes = new Map<string, string>();
+    for (const attribute of tag[0].matchAll(
+      /([^\s=/>]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/g,
+    )) {
+      attributes.set(
+        attribute[1].toLowerCase(),
+        decodeEntities(attribute[2] ?? attribute[3] ?? attribute[4] ?? ""),
+      );
+    }
+    const key = (
+      attributes.get("property") ??
+      attributes.get("name") ??
+      ""
+    ).toLowerCase();
+    if (!expectedAttributes.has(key)) continue;
+    const value = attributes.get("content")?.trim();
+    if (value) return value;
   }
+
   return null;
+}
+
+function matchTagText(html: string, pattern: RegExp): string | null {
+  const match = html.match(pattern);
+  return match?.[1] ? decodeEntities(match[1].trim()) : null;
 }
 
 function isPrivateHost(host: string): boolean {
@@ -88,53 +110,74 @@ async function fetchOg(url: string): Promise<OgData | null> {
       html = await res.text();
     }
 
-    const title = matchMeta(html, [
-      /<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i,
-      /<meta[^>]+name=["']twitter:title["'][^>]+content=["']([^"']+)["']/i,
-      /<title[^>]*>([^<]+)<\/title>/i,
-    ]);
+    const title =
+      matchMeta(html, ["og:title", "twitter:title"]) ??
+      matchTagText(html, /<title[^>]*>([^<]+)<\/title>/i);
     const description = matchMeta(html, [
-      /<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i,
-      /<meta[^>]+name=["']twitter:description["'][^>]+content=["']([^"']+)["']/i,
-      /<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i,
+      "og:description",
+      "twitter:description",
+      "description",
     ]);
     const image = matchMeta(html, [
-      /<meta[^>]+property=["']og:image:secure_url["'][^>]+content=["']([^"']+)["']/i,
-      /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i,
-      /<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["']/i,
-      /<meta[^>]+name=["']twitter:image:src["'][^>]+content=["']([^"']+)["']/i,
+      "og:image:secure_url",
+      "og:image",
+      "twitter:image",
+      "twitter:image:src",
     ]);
     const video = matchMeta(html, [
-      /<meta[^>]+property=["']og:video:secure_url["'][^>]+content=["']([^"']+)["']/i,
-      /<meta[^>]+property=["']og:video:url["'][^>]+content=["']([^"']+)["']/i,
-      /<meta[^>]+property=["']og:video["'][^>]+content=["']([^"']+)["']/i,
-      /<meta[^>]+name=["']twitter:player:stream["'][^>]+content=["']([^"']+)["']/i,
+      "og:video:secure_url",
+      "og:video:url",
+      "og:video",
+      "twitter:player:stream",
     ]);
     const videoType = matchMeta(html, [
-      /<meta[^>]+property=["']og:video:type["'][^>]+content=["']([^"']+)["']/i,
-      /<meta[^>]+name=["']twitter:player:stream:content_type["'][^>]+content=["']([^"']+)["']/i,
+      "og:video:type",
+      "twitter:player:stream:content_type",
     ]);
-    const siteName = matchMeta(html, [
-      /<meta[^>]+property=["']og:site_name["'][^>]+content=["']([^"']+)["']/i,
-    ]);
+    const siteName = matchMeta(html, ["og:site_name"]);
 
-    const faviconMatch = html.match(
-      /<link[^>]+rel=["'](?:icon|shortcut icon|apple-touch-icon)["'][^>]+href=["']([^"']+)["']/i,
-    );
-    let favicon: string | null = faviconMatch ? faviconMatch[1].trim() : null;
+    let favicon: string | null = null;
+    for (const tag of html.matchAll(/<link\b[^>]*>/gi)) {
+      const attributes = new Map<string, string>();
+      for (const attribute of tag[0].matchAll(
+        /([^\s=/>]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/g,
+      )) {
+        attributes.set(
+          attribute[1].toLowerCase(),
+          decodeEntities(attribute[2] ?? attribute[3] ?? attribute[4] ?? ""),
+        );
+      }
+      const rel = attributes.get("rel")?.toLowerCase() ?? "";
+      const href = attributes.get("href");
+      if (href && /(?:^|\s)(?:icon|shortcut icon|apple-touch-icon)(?:\s|$)/.test(rel)) {
+        favicon = href;
+        break;
+      }
+    }
 
+    const parsed = new URL(url);
+    let absoluteFavicon: string | null = null;
     try {
-      const parsed = new URL(url);
-      favicon = favicon
+      absoluteFavicon = favicon
         ? new URL(favicon, parsed.origin).toString()
         : `${parsed.origin}/favicon.ico`;
     } catch {
-      favicon = null;
+      absoluteFavicon = null;
     }
 
-    let absoluteImage: string | null = image;
+    let absoluteImage: string | null = null;
     try {
-      if (image) absoluteImage = new URL(image, url).toString();
+      if (image) {
+        const candidate = new URL(image, url);
+        if (
+          (candidate.protocol === "https:" || candidate.protocol === "http:") &&
+          !candidate.username &&
+          !candidate.password &&
+          !isPrivateHost(candidate.hostname)
+        ) {
+          absoluteImage = candidate.toString();
+        }
+      }
     } catch {
       absoluteImage = null;
     }
@@ -161,7 +204,7 @@ async function fetchOg(url: string): Promise<OgData | null> {
       video: absoluteVideo,
       videoType,
       siteName,
-      favicon,
+      favicon: absoluteFavicon,
     };
   } catch {
     return null;

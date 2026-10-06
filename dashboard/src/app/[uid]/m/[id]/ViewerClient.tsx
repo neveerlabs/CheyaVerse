@@ -492,10 +492,6 @@ export default function ViewerClient({
       const orientation = width > height ? "landscape" : "portrait";
       mediaOrientationRef.current = orientation;
       setMediaOrientation(orientation);
-      const orientationApi = screen.orientation as LockableScreenOrientation;
-      if (isFsRef.current && typeof orientationApi.lock === "function") {
-        orientationApi.lock(orientation).catch(() => {});
-      }
     },
     [],
   );
@@ -546,8 +542,8 @@ export default function ViewerClient({
       if (isCssFullscreen) return;
       setIsFs(fullscreen);
       const orientationApi = screen.orientation as LockableScreenOrientation;
-      if (fullscreen && mediaOrientationRef.current && typeof orientationApi.lock === "function") {
-        orientationApi.lock(mediaOrientationRef.current).catch(() => {});
+      if (fullscreen && typeof orientationApi.lock === "function") {
+        orientationApi.lock("portrait").catch(() => {});
       } else if (!fullscreen && typeof orientationApi.unlock === "function") {
         orientationApi.unlock();
       }
@@ -568,6 +564,8 @@ export default function ViewerClient({
       if (event.key !== "Escape") return;
       setIsCssFullscreen(false);
       setIsFs(false);
+      const orientationApi = screen.orientation as LockableScreenOrientation;
+      orientationApi.unlock?.();
     };
     window.addEventListener("keydown", onEscape);
     return () => {
@@ -824,6 +822,8 @@ export default function ViewerClient({
       if (isCssFullscreen) {
         setIsCssFullscreen(false);
         setIsFs(false);
+        const orientationApi = screen.orientation as LockableScreenOrientation;
+        orientationApi.unlock?.();
         return;
       }
       const doc = document as FsDoc;
@@ -834,8 +834,8 @@ export default function ViewerClient({
     }
     const lockOrientation = () => {
       const orientationApi = screen.orientation as LockableScreenOrientation;
-      if (!mediaOrientationRef.current || typeof orientationApi.lock !== "function") return;
-      orientationApi.lock(mediaOrientationRef.current).catch(() => {});
+      if (typeof orientationApi.lock !== "function") return;
+      orientationApi.lock("portrait").catch(() => {});
     };
     try {
       if (typeof el.requestFullscreen === "function") {
@@ -1170,50 +1170,62 @@ export default function ViewerClient({
           </div>
         )}
 
-        <div
-          ref={innerRef}
-          style={{ transformOrigin: "center center", touchAction: "none" }}
-          className="absolute inset-0 will-change-transform"
-        >
-          {kind === "video" && (
-            <VideoPlayer
-              ref={videoRef}
-              src={signedUrl}
-              onReady={handleVideoReady}
-              onError={() => setFailed(true)}
-              onDimensions={setOrientationFromDimensions}
-              controlsHidden={controlsHidden}
-              onSeek={handleSeek}
-            />
-          )}
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div
+            ref={innerRef}
+            style={{
+              transformOrigin: "center center",
+              touchAction: "none",
+              width: isFs || isCssFullscreen
+                ? "min(100vw, calc(100dvh * 0.5625))"
+                : "100%",
+              height: isFs || isCssFullscreen
+                ? "min(100dvh, calc(100vw * 1.7778))"
+                : "100%",
+              aspectRatio: isFs || isCssFullscreen ? "9 / 16" : undefined,
+            }}
+            className="relative will-change-transform"
+          >
+            {kind === "video" && (
+              <VideoPlayer
+                ref={videoRef}
+                src={signedUrl}
+                onReady={handleVideoReady}
+                onError={() => setFailed(true)}
+                onDimensions={setOrientationFromDimensions}
+                controlsHidden={controlsHidden}
+                onSeek={handleSeek}
+              />
+            )}
 
-          {kind === "image" && (
-            <img
-              src={signedUrl}
-              alt={filename}
-              draggable={false}
-              onLoad={(event) => {
-                setOrientationFromDimensions(
-                  event.currentTarget.naturalWidth,
-                  event.currentTarget.naturalHeight,
-                );
-                setReady(true);
-              }}
-              onError={() => setFailed(true)}
-              className={`protect absolute inset-0 w-full h-full object-contain transition-opacity duration-500 ${
-                ready ? "opacity-100" : "opacity-0"
-              }`}
-            />
-          )}
+            {kind === "image" && (
+              <img
+                src={signedUrl}
+                alt={filename}
+                draggable={false}
+                onLoad={(event) => {
+                  setOrientationFromDimensions(
+                    event.currentTarget.naturalWidth,
+                    event.currentTarget.naturalHeight,
+                  );
+                  setReady(true);
+                }}
+                onError={() => setFailed(true)}
+                className={`protect absolute inset-0 w-full h-full object-contain transition-opacity duration-500 ${
+                  ready ? "opacity-100" : "opacity-0"
+                }`}
+              />
+            )}
 
-          {kind === "other" && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center px-6 py-14 text-center">
-              <ImageIcon size={32} className="text-white/40 mb-2" />
-              <p className="text-[13px] text-white/70">
-                Pratinjau tidak tersedia untuk jenis berkas ini.
-              </p>
-            </div>
-          )}
+            {kind === "other" && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center px-6 py-14 text-center">
+                <ImageIcon size={32} className="text-white/40 mb-2" />
+                <p className="text-[13px] text-white/70">
+                  Pratinjau tidak tersedia untuk jenis berkas ini.
+                </p>
+              </div>
+            )}
+          </div>
         </div>
 
         {kind === "video" && seekFx && (

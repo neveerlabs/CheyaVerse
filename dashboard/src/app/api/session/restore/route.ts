@@ -38,42 +38,50 @@ export async function POST(request: NextRequest) {
       ? clearSession(response)
       : response;
   }
-  if (session.sessionVersion !== (await getAccountSessionVersion(session.uid))) {
-    return clearSession(
-      NextResponse.json({ ok: true, authenticated: false, clearDeviceId: true }),
-    );
-  }
-
   const body = await request.json().catch(() => ({}));
   const deviceId =
     typeof body?.deviceId === "string" ? body.deviceId.trim() : "";
-  const validDeviceId = /^\d{10}$/.test(deviceId);
-
-  if (!validDeviceId || session.deviceId !== deviceId) {
+  const signedDeviceId = session.deviceId ?? "";
+  if (!/^\d{10}$/.test(signedDeviceId)) {
     const response = NextResponse.json({
       ok: true,
       authenticated: false,
-      clearDeviceId: true,
     });
     return clearSession(response);
   }
 
-  const [device, blocked] = await Promise.all([
-    getDeviceIdRow(deviceId, session.uid),
-    isDeviceBlacklisted(deviceId, session.uid),
-  ]);
-  if (!device || blocked) {
-    const response = NextResponse.json({
-      ok: true,
-      authenticated: false,
-      clearDeviceId: true,
-    });
-    return clearSession(response);
+  try {
+    const sessionVersion = await getAccountSessionVersion(session.uid);
+    if (session.sessionVersion !== sessionVersion) {
+      return clearSession(
+        NextResponse.json({ ok: true, authenticated: false }),
+      );
+    }
+
+    const [device, blocked] = await Promise.all([
+      getDeviceIdRow(signedDeviceId, session.uid),
+      isDeviceBlacklisted(signedDeviceId, session.uid),
+    ]);
+    if (!device || blocked) {
+      const response = NextResponse.json({
+        ok: true,
+        authenticated: false,
+      });
+      return clearSession(response);
+    }
+  } catch (error) {
+    console.error("[session/restore] session verification failed:", error);
+    return NextResponse.json(
+      { ok: false, error: "session_verification_unavailable" },
+      { status: 503, headers: { "Cache-Control": "no-store" } },
+    );
   }
 
   return NextResponse.json({
     ok: true,
     authenticated: true,
     uid: session.uid,
+    deviceId: signedDeviceId,
+    localDeviceIdMatched: deviceId === signedDeviceId,
   });
 }

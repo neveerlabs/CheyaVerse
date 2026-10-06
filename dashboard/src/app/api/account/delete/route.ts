@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserSession, hasValidSameOrigin } from "@/lib/auth-request";
-import {
-  listLibraryTelegramMessageIds,
-} from "@/lib/library";
-import { deleteTelegramMessage } from "@/lib/telegram";
+import { listLibraryStoragePaths } from "@/lib/library";
+import { deleteUserMediaObject, isUserMediaPath } from "@/lib/supabase-storage";
 import {
   deleteWebAccountData,
   getDeviceIdRow,
@@ -31,14 +29,16 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const libraryTelegramMessageIds = await listLibraryTelegramMessageIds(session.uid);
-    const messageIds = await deleteWebAccountData(session.uid);
-    const deletionResults = await Promise.all(
-      Array.from(new Set([...messageIds, ...libraryTelegramMessageIds])).map(
-        (messageId) => deleteTelegramMessage(messageId),
-      ),
+    const libraryStoragePaths = await listLibraryStoragePaths(session.uid);
+    const storagePaths = await deleteWebAccountData(session.uid);
+    const cleanupResults = await Promise.allSettled(
+      Array.from(new Set([...storagePaths, ...libraryStoragePaths]))
+        .filter((path) => isUserMediaPath(session.uid, path))
+        .map((path) => deleteUserMediaObject(session.uid, path)),
     );
-    const storageCleanupFailed = deletionResults.filter((success) => !success).length;
+    const storageCleanupFailed = cleanupResults.filter(
+      (result) => result.status === "rejected",
+    ).length;
     const response = NextResponse.json({
       ok: true,
       storageCleanupFailed,

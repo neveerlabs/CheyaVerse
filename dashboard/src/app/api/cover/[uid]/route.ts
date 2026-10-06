@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCover, upsertCover, deleteCover } from "@/lib/storage";
-import { getTelegramAvatarFileId, deleteTelegramMessage } from "@/lib/telegram";
 import { broadcastToUid } from "@/lib/realtime";
 import { getUserSession } from "@/lib/auth-request";
+import {
+  deleteUserMediaObject,
+  isUserMediaPath,
+  uploadUserMediaObject,
+} from "@/lib/supabase-storage";
+import { fetchTelegramFile, getTelegramAvatarFileId } from "@/lib/telegram";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,11 +25,14 @@ function num(v: unknown): number | undefined {
 }
 
 async function cleanupPrevCover(
+  uid: number,
   prev: Awaited<ReturnType<typeof getCover>>,
 ) {
   if (!prev) return;
-  if (prev.storage_message_id) {
-    await deleteTelegramMessage(prev.storage_message_id).catch(() => {});
+  if (prev.storage_path && isUserMediaPath(uid, prev.storage_path)) {
+    await deleteUserMediaObject(uid, prev.storage_path).catch((error) => {
+      console.error(`[cover] Previous cover cleanup failed for account ${uid}:`, error);
+    });
   }
 }
 
@@ -79,11 +87,33 @@ export async function POST(
         { status: 404 },
       );
     }
+    let avatar: Response | null;
+    try {
+      avatar = await fetchTelegramFile(fileId);
+    } catch {
+      avatar = null;
+    }
+    if (!avatar?.body) {
+      return NextResponse.json({ ok: false, error: "no_telegram_photo" }, { status: 404 });
+    }
+    let storagePath: string;
+    try {
+      const bytes = Buffer.from(await avatar.arrayBuffer());
+      storagePath = await uploadUserMediaObject(
+        uid,
+        "covers",
+        new Blob([bytes], { type: "image/jpeg" }),
+        `telegram-${uid}.jpg`,
+        "image/jpeg",
+      );
+    } catch (error) {
+      console.error(`[cover] Telegram avatar storage upload failed for account ${uid}:`, error);
+      return NextResponse.json({ ok: false, error: "upload_failed" }, { status: 502 });
+    }
     const prev = await getCover(uid);
-    await cleanupPrevCover(prev);
     const res = await upsertCover(uid, {
       type: "telegram",
-      storage_path: fileId,
+      storage_path: storagePath,
       storage_message_id: null,
       content_type: "image/jpeg",
       color1: prev?.color1 ?? null,
@@ -94,8 +124,12 @@ export async function POST(
       bg_y: prev?.bg_y ?? 50,
     });
     if (!res.ok) {
+      await deleteUserMediaObject(uid, storagePath).catch((error) => {
+        console.error(`[cover] Avatar rollback failed for account ${uid}:`, error);
+      });
       return NextResponse.json({ ok: false, error: res.reason }, { status: 500 });
     }
+    await cleanupPrevCover(uid, prev);
     await broadcastToUid(uid, { type: "cover:changed" });
     return NextResponse.json({ ok: true, cover: await getCover(uid) });
   }
@@ -119,7 +153,6 @@ export async function POST(
   }
 
   const prev = await getCover(uid);
-  await cleanupPrevCover(prev);
 
   const res = await upsertCover(uid, {
     type: "color",
@@ -134,6 +167,7 @@ export async function POST(
   if (!res.ok) {
     return NextResponse.json({ ok: false, error: res.reason }, { status: 500 });
   }
+  await cleanupPrevCover(uid, prev);
   await broadcastToUid(uid, { type: "cover:changed" });
   return NextResponse.json({ ok: true, cover: await getCover(uid) });
 }
@@ -147,10 +181,12 @@ export async function DELETE(
   if (!(await getUserSession(req, uid))) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
+  const prev = await getCover(uid);
   const res = await deleteCover(uid);
   if (!res.ok) {
     return NextResponse.json({ ok: false, error: res.reason }, { status: 500 });
   }
+  await cleanupPrevCover(uid, prev);
   await broadcastToUid(uid, { type: "cover:changed" });
   return NextResponse.json({ ok: true });
 }

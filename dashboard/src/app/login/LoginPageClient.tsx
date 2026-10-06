@@ -36,13 +36,23 @@ export function LoginPageClient({
         ok?: boolean;
         authenticated?: boolean;
         uid?: number;
-        clearDeviceId?: boolean;
+        deviceId?: string;
+        localDeviceIdMatched?: boolean;
+        error?: string;
       };
       if (!response.ok || !result.ok) {
-        throw new Error("Sesi perangkat tidak dapat diperiksa. Silakan coba kembali.");
+        throw new Error(
+          result.error === "session_verification_unavailable"
+            ? "Database sedang tidak dapat dijangkau. Sesi perangkat tidak dihapus; periksa koneksi lalu coba lagi."
+            : "Sesi perangkat tidak dapat diperiksa. Silakan coba kembali.",
+        );
       }
-      if (result.clearDeviceId) {
-        window.localStorage.removeItem(DEVICE_ID_KEY);
+      if (
+        typeof result.deviceId === "string" &&
+        /^\d{10}$/.test(result.deviceId) &&
+        result.localDeviceIdMatched !== true
+      ) {
+        window.localStorage.setItem(DEVICE_ID_KEY, result.deviceId);
       }
       if (
         result.authenticated &&

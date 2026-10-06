@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchMedia } from "@/lib/storage";
-import { fetchTelegramFile } from "@/lib/telegram";
 import { getCachedMedia } from "@/lib/media-cache";
 import type { MediaMeta } from "@/lib/storage";
+import { fetchUserMediaObject } from "@/lib/supabase-storage";
 
 export const runtime = "nodejs";
 
@@ -82,18 +82,19 @@ export async function GET(
 
   let upstream: Response | null;
   try {
-    upstream = await fetchTelegramFile(
+    upstream = await fetchUserMediaObject(
+      meta.owner_id,
       meta.storage_path,
       rangeHeader ? { headers: { Range: rangeHeader } } : undefined,
     );
   } catch (error) {
-    console.error(`[media/content] failed to open Telegram media ${params.id}:`, error);
+    console.error(`[media/content] failed to open Supabase media ${params.id}:`, error);
     return new NextResponse("Media is temporarily unavailable.", {
       status: 503,
       headers: { "Cache-Control": "no-store", "Retry-After": "5" },
     });
   }
-  if (!upstream?.body) {
+  if (!upstream?.ok || !upstream.body) {
     return new NextResponse("Media is temporarily unavailable.", {
       status: 503,
       headers: { "Cache-Control": "no-store", "Retry-After": "5" },

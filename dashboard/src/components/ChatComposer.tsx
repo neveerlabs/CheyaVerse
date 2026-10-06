@@ -132,7 +132,7 @@ export function ChatComposer({
           data-chat-composer-input="true"
           onClick={(event) => {
             const target = event.target;
-            if (target instanceof HTMLElement && target.closest("button")) return;
+            if (target instanceof Element && target.closest("button")) return;
             inputRef.current?.focus();
           }}
           className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-[22px] border border-line bg-white transition-[border-color,box-shadow] focus-within:border-[#c7cdd5] focus-within:ring-4 focus-within:ring-black/[.035]"

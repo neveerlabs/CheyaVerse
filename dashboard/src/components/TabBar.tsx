@@ -139,7 +139,7 @@ export function TabBar({ uid }: { uid: string }) {
             href={mediaHref}
             onClick={() => refreshCurrentTab(mediaHref)}
             aria-label="Media"
-            className="absolute left-1/2 top-0 z-10 flex h-[52px] w-[52px] -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-white/90 bg-gradient-to-br from-slate-800 via-slate-950 to-black text-white shadow-[0_4px_10px_rgba(15,23,42,.24),0_12px_26px_-12px_rgba(15,23,42,.55)] transition-[transform,box-shadow] active:scale-95"
+            className="media-tab-button absolute left-1/2 top-0 z-10 flex h-[52px] w-[52px] -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-transparent text-white transition-[transform,box-shadow] active:scale-95"
           >
             <span className="media-tab-sheen" aria-hidden="true" />
             <ImageIcon size={20} strokeWidth={2.1} className="relative z-10 drop-shadow-[0_1px_3px_rgba(255,255,255,.28)]" />

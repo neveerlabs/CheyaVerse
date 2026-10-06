@@ -4,9 +4,13 @@ import type { PointerEventHandler, ReactNode } from "react";
 import type { MouseEventHandler } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, Pin, X } from "lucide-react";
+import { AiSourceLinks } from "@/components/AiSourceLinks";
 import { TelegramAvatar } from "@/components/TelegramAvatar";
 import { LinkPreview } from "@/components/LinkPreview";
-import { extractFirstUrl } from "@/lib/link-preview";
+import {
+  extractFirstUrl,
+  stripSourceLinks,
+} from "@/lib/link-preview";
 import { highlightCode, renderMarkdown } from "@/lib/markdown";
 
 const MESSAGE_PREVIEW_LIMIT = 1000;
@@ -44,12 +48,14 @@ type ChatMessageBubbleProps = {
     outputTokens?: number | null;
   };
   showTokenUsage?: boolean;
+  compact?: boolean;
   edited?: boolean;
   pinned?: boolean;
   deleted?: boolean;
   richText?: boolean;
   markdown?: boolean;
   linkPreview?: boolean;
+  aiSourceLinks?: boolean;
   pending?: boolean;
   highlight?: boolean;
   label: string;
@@ -81,12 +87,14 @@ export function ChatMessageBubble({
   prefix,
   tokenUsage,
   showTokenUsage = false,
+  compact = false,
   edited = false,
   pinned = false,
   deleted = false,
   richText = false,
   markdown = false,
   linkPreview = false,
+  aiSourceLinks = false,
   pending = false,
   highlight = false,
   label,
@@ -118,6 +126,9 @@ export function ChatMessageBubble({
   const displayContent = canExpand && !expanded
     ? messagePreview(content, markdown)
     : content;
+  const renderedContent = aiSourceLinks
+    ? stripSourceLinks(displayContent)
+    : displayContent;
 
   useEffect(() => {
     setExpanded(false);
@@ -135,8 +146,8 @@ export function ChatMessageBubble({
   const markdownHtml = useMemo(() => {
     if (!markdown) return null;
     if (deleted) return null;
-    return renderMarkdown(displayContent);
-  }, [markdown, deleted, displayContent]);
+    return renderMarkdown(renderedContent);
+  }, [markdown, deleted, renderedContent]);
 
   const richTextHtml = useMemo(() => {
     if (!richText || deleted) return content;
@@ -148,7 +159,7 @@ export function ChatMessageBubble({
         return `<div class="chat-code-block">${header}<pre class="my-0 block overflow-x-auto font-mono text-[12.5px] leading-[1.5]"><code>${highlightCode(code, safeLanguage)}</code></pre></div>`;
       },
     );
-  }, [richText, deleted, displayContent]);
+  }, [richText, deleted, displayContent, content]);
 
   const previewUrl = useMemo(() => {
     if (!linkPreview || deleted || richText) return null;
@@ -200,9 +211,14 @@ export function ChatMessageBubble({
     totalTokens > 0
       ? 100 - (inputPercent ?? 0)
       : null;
+  const messageTextSize = compact
+    ? "text-[12px] leading-[1.32]"
+    : "text-[12.5px] leading-[1.35] md:text-[14px] md:leading-[1.45]";
   const messageMeta = (
     <span
-      className={`${hasReplyPrefix ? "" : "ml-1"} inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-[10px] leading-none ${
+      className={`${hasReplyPrefix || compact ? "" : "ml-1"} inline-flex shrink-0 items-center gap-1 whitespace-nowrap ${
+        compact ? "text-[9px]" : "text-[10px]"
+      } leading-none ${
         outgoing ? "text-white/70" : "text-ink-mute"
       }`}
     >
@@ -231,7 +247,7 @@ export function ChatMessageBubble({
           richTextHasCodeBlock ? (
             <div
               ref={setMessageTextElement}
-              className={`chat-rich-text block min-w-0 break-words text-[12.5px] leading-[1.35] md:text-[14px] md:leading-[1.45] ${
+              className={`chat-rich-text block min-w-0 break-words ${messageTextSize} ${
                 outgoing ? "chat-rich-text-outgoing" : "chat-rich-text-incoming"
               } ${deleted ? "italic opacity-65" : ""}`}
               dangerouslySetInnerHTML={{ __html: richTextHtml }}
@@ -239,7 +255,7 @@ export function ChatMessageBubble({
           ) : (
             <span
               ref={setMessageTextElement}
-              className={`chat-rich-text align-baseline text-[12.5px] leading-[1.35] md:text-[14px] md:leading-[1.45] ${
+              className={`chat-rich-text align-baseline ${messageTextSize} ${
                 inlineReplyMeta ? "min-w-0 flex-1" : ""
               } ${
                 outgoing ? "chat-rich-text-outgoing" : "chat-rich-text-incoming"
@@ -256,20 +272,20 @@ export function ChatMessageBubble({
               outgoing
                 ? "chat-rich-text-outgoing"
                 : "chat-rich-text-incoming"
-            } whitespace-pre-wrap break-words text-[12.5px] leading-[1.35] md:text-[14px] md:leading-[1.45] ${markdownClass}`}
+            } whitespace-pre-wrap break-words ${messageTextSize} ${markdownClass}`}
             dangerouslySetInnerHTML={{ __html: markdownHtml }}
           />
         ) : (
           <span
             ref={setMessageTextElement}
-            className={`whitespace-pre-wrap break-words text-[12.5px] leading-[1.35] md:text-[14px] md:leading-[1.45] ${
+            className={`whitespace-pre-wrap break-words ${messageTextSize} ${
               inlineReplyMeta ? "min-w-0 flex-1" : ""
             } ${deleted ? "italic opacity-65" : ""}`}
           >
-            {displayContent}
+            {renderedContent}
           </span>
         )}
-        {((!hasReplyPrefix &&
+        {!compact && ((!hasReplyPrefix &&
           !messageHasMultipleLines &&
           !richTextHasCodeBlock) ||
           inlineReplyMeta) &&
@@ -291,14 +307,20 @@ export function ChatMessageBubble({
           </>
         )}
       </div>
-      {((hasReplyPrefix && !inlineReplyMeta) ||
+      {aiSourceLinks && !deleted && <AiSourceLinks content={content} />}
+      {(compact ||
+        (hasReplyPrefix && !inlineReplyMeta) ||
         messageHasMultipleLines ||
         richTextHasCodeBlock) && (
-        <div className="text-right">{messageMeta}</div>
+        <div className={`flex justify-end ${compact ? "mt-0.5" : ""}`}>
+          {messageMeta}
+        </div>
       )}
       {showTokenUsage && tokenUsage && (
         <p
-          className="mt-1 text-right text-[9px] leading-tight text-ink-mute"
+          className={`text-right leading-tight text-ink-mute ${
+            compact ? "mt-0.5 text-[8px]" : "mt-1 text-[9px]"
+          }`}
           title="Persentase menunjukkan bagian input dan output dari total token pada respons ini."
         >
           {totalTokens > 0 ? (
@@ -352,27 +374,51 @@ export function ChatMessageBubble({
       {selectMode && outgoing && <span aria-hidden className="flex-1" />}
       <div
         className={`w-fit min-w-0 ${
-          outgoing || !avatarUrl ? "max-w-[94%] md:max-w-[92%]" : "max-w-[calc(100%-40px)]"
+          compact
+            ? outgoing || !avatarUrl
+              ? "max-w-[90%]"
+              : "max-w-[calc(100%-36px)]"
+            : outgoing || !avatarUrl
+              ? "max-w-[94%] md:max-w-[92%]"
+              : "max-w-[calc(100%-40px)]"
         }`}
       >
         <div
           role="group"
           aria-label={label}
-          onPointerDown={editing ? undefined : onPointerDown}
-          onPointerMove={editing ? undefined : onPointerMove}
+          onPointerDown={editing ? undefined : (event) => {
+            const target = event.target;
+            if (target instanceof Element && target.closest(".chat-code-block pre")) {
+              onPointerCancel?.(event);
+              return;
+            }
+            onPointerDown?.(event);
+          }}
+          onPointerMove={editing ? undefined : (event) => {
+            const target = event.target;
+            if (target instanceof Element && target.closest(".chat-code-block pre")) {
+              onPointerCancel?.(event);
+              return;
+            }
+            onPointerMove?.(event);
+          }}
           onPointerUp={editing ? undefined : onPointerUp}
           onPointerCancel={editing ? undefined : onPointerCancel}
           onLostPointerCapture={editing ? undefined : onLostPointerCapture}
           onContextMenu={editing ? undefined : onContextMenu}
           onDoubleClick={editing ? undefined : onDoubleClick}
-          className={`flex w-fit min-w-[68px] max-w-full touch-pan-y flex-col break-words transition-[transform,box-shadow] duration-200 ease-out [overflow-wrap:anywhere] ${
+          className={`flex w-fit min-w-[68px] max-w-full flex-col break-words transition-[transform,box-shadow] duration-200 ease-out [overflow-wrap:anywhere] ${
             selectMode ? "cursor-pointer" : "active:scale-[.985]"
           } ${
             editing
               ? "rounded-[16px] border border-slate-200 bg-[#f1f2f4] px-2.5 py-2 text-ink shadow-[0_2px_6px_rgba(0,0,0,.06)]"
               : outgoing
-                ? "rounded-[16px] rounded-br-[5px] border border-white/[.07] bg-ink px-2.5 py-1 md:rounded-[18px] md:rounded-br-[6px] md:px-3.5 md:py-1.5 text-white shadow-[0_2px_6px_rgba(0,0,0,.09)]"
-                : "rounded-[16px] rounded-bl-[5px] border border-black/[.025] bg-[#f1f2f4] px-2.5 py-1 md:rounded-[18px] md:rounded-bl-[6px] md:px-3.5 md:py-1.5 text-ink shadow-[0_2px_6px_rgba(0,0,0,.04)]"
+                ? compact
+                  ? "rounded-[13px] rounded-br-[4px] border border-white/[.06] bg-ink px-2 py-[3px] text-white shadow-[0_1px_4px_rgba(0,0,0,.08)]"
+                  : "rounded-[16px] rounded-br-[5px] border border-white/[.07] bg-ink px-2.5 py-1 md:rounded-[18px] md:rounded-br-[6px] md:px-3.5 md:py-1.5 text-white shadow-[0_2px_6px_rgba(0,0,0,.09)]"
+                : compact
+                  ? "rounded-[13px] rounded-bl-[4px] border border-black/[.025] bg-[#f1f2f4] px-2 py-[3px] text-ink shadow-[0_1px_4px_rgba(0,0,0,.04)]"
+                  : "rounded-[16px] rounded-bl-[5px] border border-black/[.025] bg-[#f1f2f4] px-2.5 py-1 md:rounded-[18px] md:rounded-bl-[6px] md:px-3.5 md:py-1.5 text-ink shadow-[0_2px_6px_rgba(0,0,0,.04)]"
           } ${pending ? "opacity-70" : ""} ${
             highlight
               ? "ring-2 ring-ink/20 shadow-[0_2px_10px_rgba(15,23,42,.12)]"

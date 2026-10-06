@@ -168,20 +168,68 @@ a {
 
 .media-tab-glow {
   position: absolute;
-  inset: -4px;
+  inset: -15px;
   border-radius: 9999px;
-  background: rgba(255, 255, 255, .95);
-  filter: blur(8px);
-  opacity: .56;
-  animation: media-tab-pulse 3.2s ease-in-out infinite;
+  background:
+    radial-gradient(ellipse at 34% 48%, rgba(168, 85, 247, .78), transparent 56%),
+    radial-gradient(ellipse at 68% 54%, rgba(124, 58, 237, .74), transparent 58%),
+    radial-gradient(ellipse at 52% 78%, rgba(217, 70, 239, .3), transparent 62%);
+  filter: blur(14px);
+  opacity: .9;
 }
 
 .media-tab-glow::after {
   position: absolute;
-  inset: 4px;
+  inset: 10px;
   border-radius: inherit;
-  background: #fff;
+  background: radial-gradient(circle, rgba(255, 255, 255, .42), transparent 68%);
   content: "";
+}
+
+.media-tab-button {
+  position: absolute;
+  isolation: isolate;
+  background:
+    linear-gradient(145deg, #171321 0%, #070710 55%, #030309 100%) padding-box,
+    conic-gradient(
+      from var(--media-tab-angle, 0deg),
+      #ff75e8 0deg,
+      #fff2fe 42deg,
+      #ac76ff 105deg,
+      #65dcff 168deg,
+      #9266ff 226deg,
+      #ff69d5 300deg,
+      #ff75e8 360deg
+    ) border-box;
+  animation: media-tab-border-spin 6s linear infinite;
+  box-shadow:
+    0 4px 12px rgba(15, 23, 42, .28),
+    0 12px 26px -12px rgba(15, 23, 42, .58),
+    0 0 18px rgba(255, 77, 218, .46),
+    0 0 32px rgba(115, 95, 255, .32),
+    inset 0 1px 1px rgba(255, 255, 255, .16);
+}
+
+.media-tab-button::before {
+  position: absolute;
+  z-index: -1;
+  inset: -2px;
+  border: 1px solid rgba(255, 232, 255, .64);
+  border-radius: inherit;
+  content: "";
+  opacity: .72;
+  filter: blur(2px);
+  pointer-events: none;
+}
+
+@property --media-tab-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@keyframes media-tab-border-spin {
+  to { --media-tab-angle: 360deg; }
 }
 
 .media-tab-sheen {
@@ -214,11 +262,6 @@ a {
   62%, 100% { left: 135%; opacity: 0; }
 }
 
-@keyframes media-tab-pulse {
-  0%, 100% { opacity: .34; scale: .96; }
-  50% { opacity: .72; scale: 1.06; }
-}
-
 .chat-rich-text b,
 .chat-rich-text strong {
   font-weight: 700;
@@ -249,6 +292,7 @@ a {
   font-size: 0.82em;
   line-height: 1.4;
   white-space: pre;
+  touch-action: pan-x pan-y;
 }
 
 .chat-code-block {
@@ -280,7 +324,8 @@ a {
 .chat-code-block pre {
   scrollbar-width: thin;
   scrollbar-color: rgb(127 127 127 / 42%) transparent;
-  touch-action: pan-y;
+  touch-action: pan-x pan-y;
+  overscroll-behavior-inline: contain;
 }
 
 .chat-code-block pre::-webkit-scrollbar {
@@ -536,6 +581,9 @@ a {
     animation-duration: 1ms;
   }
   .media-tab-glow {
+    animation: none;
+  }
+  .media-tab-button {
     animation: none;
   }
   .media-tab-sheen::after {

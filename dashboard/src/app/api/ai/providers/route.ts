@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserSession, hasValidSameOrigin } from "@/lib/auth-request";
 import {
+  AI_PROVIDER_OPTIONS,
   deleteAiProvider,
+  listAiModels,
   listAiProviders,
   saveAiProvider,
   testAiProviderConnection,
@@ -21,12 +23,14 @@ export async function GET(request: NextRequest) {
     providers: providers.map((provider) => ({
       id: provider.id,
       provider: provider.provider,
+      endpointUrl: provider.endpointUrl,
       model: provider.model,
       active: provider.active,
       createdAt: provider.createdAt,
       updatedAt: provider.updatedAt,
       lastError: provider.lastError,
     })),
+    options: AI_PROVIDER_OPTIONS.map(({ value, label }) => ({ value, label })),
   });
 }
 
@@ -44,23 +48,42 @@ export async function POST(request: NextRequest) {
   const provider = typeof body?.provider === "string" ? body.provider : "";
   const model = typeof body?.model === "string" ? body.model : "";
   const apiKey = typeof body?.apiKey === "string" ? body.apiKey : "";
+  const endpointUrl = typeof body?.endpointUrl === "string" ? body.endpointUrl : "";
+
+  if (action === "models") {
+    try {
+      const models = await listAiModels(provider, apiKey, endpointUrl);
+      return NextResponse.json(
+        { ok: true, models },
+        { headers: { "Cache-Control": "no-store" } },
+      );
+    } catch (error) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: error instanceof Error ? error.message : "Provider models could not be loaded.",
+        },
+        { status: 400, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+  }
 
   if (action === "test") {
-    const result = await testAiProviderConnection(provider, model, apiKey);
+    const result = await testAiProviderConnection(provider, model, apiKey, endpointUrl);
     return NextResponse.json(result, {
       status: result.ok ? 200 : 400,
       headers: { "Cache-Control": "no-store" },
     });
   }
 
-  if (!provider || !model || !apiKey.trim()) {
+  if (!provider || !model || (provider !== "local" && !apiKey.trim())) {
     return NextResponse.json(
-      { ok: false, error: "Select a provider, fill in the model, and add an API key." },
+      { ok: false, error: "Select a provider and model; add an API key unless using a local endpoint." },
       { status: 400 },
     );
   }
 
-  const check = await testAiProviderConnection(provider, model, apiKey);
+  const check = await testAiProviderConnection(provider, model, apiKey, endpointUrl);
   if (!check.ok) {
     return NextResponse.json(
       { ok: false, error: check.message },
@@ -74,6 +97,7 @@ export async function POST(request: NextRequest) {
     model,
     apiKey,
     typeof body?.active === "boolean" ? body.active : true,
+    endpointUrl,
   );
 
   return NextResponse.json(

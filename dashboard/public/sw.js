@@ -1,5 +1,5 @@
 const ICON_PATH = "/push-icon.png";
-const CACHE_NAME = "cheya-push-assets-v5";
+const CACHE_NAME = "cheya-push-assets-v6";
 const DEFAULT_TITLE = "CheyaVerse · Web";
 
 function absoluteUrl(path) {
@@ -135,11 +135,19 @@ self.addEventListener("push", (event) => {
     payload = { title: DEFAULT_TITLE, body: event.data ? event.data.text() : "" };
   }
 
+  const data = payload.data && typeof payload.data === "object" ? payload.data : {};
+  if (
+    data.source !== "bot-message" ||
+    data.senderRole !== "admin" ||
+    data.senderRole === "ai"
+  ) {
+    return;
+  }
+
   const title = typeof payload.title === "string" && payload.title
     ? payload.title
     : DEFAULT_TITLE;
   const body = typeof payload.body === "string" ? payload.body : "";
-  const data = payload.data && typeof payload.data === "object" ? payload.data : {};
   const messageId = typeof data.msgId === "string"
     ? data.msgId
     : typeof data.notifId === "string"

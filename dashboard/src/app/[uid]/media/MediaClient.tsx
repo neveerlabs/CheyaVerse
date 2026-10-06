@@ -18,6 +18,7 @@ import {
 import { config } from "@/lib/config";
 import { setViewPreferenceClient, type MediaView } from "@/lib/view-preference-client";
 import { VideoThumbnail } from "@/components/VideoThumbnail";
+import { useBackDismiss } from "@/lib/back-dismiss";
 
 type Item = {
   id: string;
@@ -78,6 +79,13 @@ export function MediaClient({
   const lpTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lpTriggered = useRef(false);
   const recaptchaRef = useRef<ReCAPTCHA>(null);
+
+  useBackDismiss(Boolean(menuItem), closeMenu, "media-item-menu");
+  useBackDismiss(Boolean(deleteItem) && !busy, () => setDeleteItem(null), "media-delete");
+  useBackDismiss(Boolean(captchaItem), () => {
+    setCaptchaItem(null);
+    recaptchaRef.current?.reset();
+  }, "media-captcha");
 
   useEffect(() => {
     setLocalItems(items);

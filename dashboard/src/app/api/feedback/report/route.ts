@@ -227,7 +227,7 @@ export async function POST(request: NextRequest) {
   ) {
     return NextResponse.json({ error: "Invalid report content." }, { status: 400 });
   }
-  let text: string;
+  let text = "";
   if (isChatViolation) {
     const allowedCategories = new Set([
       "Pesan tidak pantas",
@@ -301,7 +301,7 @@ export async function POST(request: NextRequest) {
         : "";
       const categoryDetail =
         category === "Lainnya"
-          ? `<br><b>Detail:</b> ${escapeHtml(otherDescription)}`
+          ? `\n<b>Detail:</b> ${escapeHtml(otherDescription)}`
           : "";
       return [
         "<b>Subjek:</b> Laporan Pelanggaran Pengguna",
@@ -429,10 +429,15 @@ export async function POST(request: NextRequest) {
     }
     bugCaption = formattedReport;
     text = formattedReport;
-  } else {
-    text = "";
   }
   if (isChatViolation) {
+    if (!text.trim()) {
+      console.error("[feedback/report] chat violation report text is empty.");
+      return NextResponse.json(
+        { error: "The chat report could not be formatted. Please retry." },
+        { status: 500 },
+      );
+    }
     textParts.push(text);
   }
 

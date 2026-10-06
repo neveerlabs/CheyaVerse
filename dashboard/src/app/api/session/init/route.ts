@@ -8,6 +8,7 @@ import {
   countDeviceIdsForUid,
   isDeviceBlacklisted,
   getTelegramUser,
+  setDeviceAccountState,
 } from "@/lib/storage";
 import {
   getClientIp,
@@ -120,8 +121,7 @@ export async function POST(req: NextRequest) {
     typeof body?.deviceId === "string" && DEVICE_ID_RE.test(body.deviceId)
       ? body.deviceId
       : "";
-  const rawDeviceId =
-    session.deviceId ?? (session.deviceLink ? "" : requestedDeviceId);
+  const rawDeviceId = session.deviceId ?? requestedDeviceId;
   const ua = String(body?.ua ?? "").slice(0, 1000);
   const cpuCores =
     typeof body?.cpuCores === "number" &&
@@ -191,27 +191,6 @@ export async function POST(req: NextRequest) {
   const fingerprint = computeFingerprint(ident);
   let deviceId = rawDeviceId;
 
-  if (
-    session.deviceId &&
-    (typeof body?.deviceId !== "string" || body.deviceId !== session.deviceId)
-  ) {
-    const response = NextResponse.json(
-      { ok: false, error: "device_id_mismatch" },
-      { status: 401 },
-    );
-    response.cookies.set(SESSION_COOKIE_NAME, "", {
-      httpOnly: true,
-      secure:
-        process.env.NODE_ENV === "production" ||
-        req.headers.get("x-forwarded-proto")?.split(",")[0]?.trim() === "https" ||
-        req.nextUrl.protocol === "https:",
-      sameSite: "lax",
-      path: "/",
-      maxAge: 0,
-    });
-    return response;
-  }
-
   if (DEVICE_ID_RE.test(deviceId)) {
     const blocked = await isDeviceBlacklisted(deviceId, uid);
     if (blocked) {
@@ -245,6 +224,7 @@ export async function POST(req: NextRequest) {
         ua_platform_version: uaPlatformVersion,
         ua_bitness: uaBitness,
       });
+      await setDeviceAccountState(deviceId, uid);
       return withDeviceSession(req, uid, deviceId, session.sessionVersion);
     }
 
@@ -265,14 +245,15 @@ export async function POST(req: NextRequest) {
       });
       return response;
     }
-    deviceId = "";
   }
 
-  deviceId = generateDeviceId();
-  for (let i = 0; i < 12; i++) {
-    const clash = await getDeviceIdRow(deviceId, uid);
-    if (!clash) break;
+  if (!DEVICE_ID_RE.test(deviceId)) {
     deviceId = generateDeviceId();
+    for (let i = 0; i < 12; i++) {
+      const clash = await getDeviceIdRow(deviceId, uid);
+      if (!clash) break;
+      deviceId = generateDeviceId();
+    }
   }
 
   const beforeCount = await countDeviceIdsForUid(uid);
@@ -315,6 +296,7 @@ export async function POST(req: NextRequest) {
     first_seen: now,
     last_seen: now,
   });
+  await setDeviceAccountState(deviceId, uid);
 
   if (beforeCount === 0) {
     const welcome = await ensureWelcomeNotification(
@@ -335,7 +317,9 @@ export async function POST(req: NextRequest) {
     const pushBody = welcome.message
       ? stripHtml(welcome.message)
       : "Otorisasi akun berhasil. Akun Anda telah terhubung dengan aman.";
-    sendPushToUid(uid, buildSystemPush(uid, pushBody)).catch(() => {});
+    sendPushToUid(uid, buildSystemPush(uid, pushBody)).catch((error) => {
+      console.error("[session/init] welcome push delivery failed:", error);
+    });
 
     return withDeviceSession(req, uid, deviceId, session.sessionVersion, {
       ok: true,
@@ -429,7 +413,7 @@ export async function POST(req: NextRequest) {
       inline_keyboard: [[{ text: "Blokir Device", url: blockUrl }]],
     },
     disableWebPagePreview: true,
-    retry: { maxAttempts: 1, timeoutMs: 5_000 },
+    retry: { maxAttempts: 3, timeoutMs: 5_000 },
   });
   if (!sent) {
     console.error(`[session/init] Security alert for account ${uid}, device ${deviceId} could not be sent through Telegram.`);

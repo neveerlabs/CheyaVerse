@@ -4,7 +4,7 @@ import { getUserSession, hasValidSameOrigin } from "@/lib/auth-request";
 import { config } from "@/lib/config";
 import { readBoundedJson } from "@/lib/read-bounded-json";
 import { sendTelegramMessage } from "@/lib/telegram";
-import { getTurso } from "@/lib/turso";
+import { getDatabase } from "@/lib/database";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,7 +19,6 @@ const INCIDENT_ENDPOINT_GROUPS = new Set([
   "/api/cover",
   "/api/device-links",
   "/api/download",
-  "/api/events",
   "/api/github",
   "/api/internal",
   "/api/library",
@@ -37,7 +36,7 @@ let incidentTableReady: Promise<void> | null = null;
 
 async function ensureIncidentTable(): Promise<void> {
   if (!incidentTableReady) {
-    incidentTableReady = getTurso()
+    incidentTableReady = getDatabase()
       .execute(`CREATE TABLE IF NOT EXISTS system_incident_alerts (
         fingerprint TEXT PRIMARY KEY,
         last_notified_at INTEGER NOT NULL
@@ -127,7 +126,7 @@ export async function POST(request: NextRequest) {
 
   try {
     await ensureIncidentTable();
-    const claim = await getTurso().execute({
+    const claim = await getDatabase().execute({
       sql: `INSERT INTO system_incident_alerts (fingerprint, last_notified_at)
             VALUES (?, ?)
             ON CONFLICT(fingerprint) DO UPDATE SET
@@ -169,13 +168,13 @@ export async function POST(request: NextRequest) {
     const deliveries = await Promise.all(
       Array.from(config.adminTelegramIds, (adminId) =>
         sendTelegramMessage(adminId, message, {
-          retry: { maxAttempts: 1, timeoutMs: 5_000 },
+          retry: { maxAttempts: 3, timeoutMs: 5_000 },
         }),
       ),
     );
     const deliveredCount = deliveries.filter(Boolean).length;
     if (deliveredCount === 0) {
-      await getTurso().execute({
+      await getDatabase().execute({
         sql: "DELETE FROM system_incident_alerts WHERE fingerprint = ? AND last_notified_at = ?",
         args: [fingerprint, now],
       });

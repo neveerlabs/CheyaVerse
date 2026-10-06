@@ -5,127 +5,152 @@
 
 ---
 
-## Requirements
+## Persiapan
 
-- Node.js 20+
-- Akun [Turso](https://turso.tech) (database SQLite cloud)
-- Bot Telegram + token dari [@BotFather](https://t.me/BotFather)
-- Google [reCAPTCHA v2](https://www.google.com/recaptcha/admin/)
-- Channel Group Telegram ID
+- Python 3.10 atau lebih baru dan `pip`
+- Node.js 20 atau lebih baru dan `npm`
+- Akun [Supabase](https://supabase.com/) dengan project baru
+- Bot Telegram dan token dari [@BotFather](https://t.me/BotFather)
+- Google [reCAPTCHA v2](https://www.google.com/recaptcha/admin/) untuk mengaktifkan unduhan terlindungi
 
----
+## Setup dari awal
 
-## Setup bot
-
-### 1. Clone & Install
+### 1. Ambil source code
 
 ```bash
 git clone https://github.com/neveerlabs/CheyaVerse.git
 cd CheyaVerse
 ```
 
-### 2. Install dependen
+### 2. Buat project Supabase kosong dan siapkan database
+
+1. Buat project baru di Supabase. Pilih region yang dekat dengan server aplikasi, atur password database, dan tunggu sampai status project siap.
+2. Dari **Project Settings → Database → Connect**, salin connection string **Session pooler** untuk PostgreSQL. Isi password database yang diminta. Gunakan string ini sebagai `SUPABASE_DB_URL` untuk bot dan web; jangan gunakan URL SQLite/Turso. Session pooler direkomendasikan untuk aplikasi Node/Python yang berjalan lama. Pertahankan opsi TLS/SSL seperti `sslmode=require` yang diberikan Supabase dan URL-encode password jika mengandung karakter khusus.
+3. Buka **SQL Editor → New query** di Supabase. Salin seluruh isi [dashboard/sql/bootstrap.sql](./dashboard/sql/bootstrap.sql) ke editor, lalu klik **Run**. Jalankan sekali pada project kosong. Skrip membuat skema aplikasi, kebijakan akses realtime, publication, serta private Storage bucket `user-media`. Skrip tidak menyalin data Turso lama.
+4. Dari **Project Settings → API**, salin Project URL, anon/publishable key, dan legacy `service_role` JWT key untuk pemanggilan Supabase Storage server-side. Ambil juga legacy HS256 JWT secret project dari pengaturan JWT/API; simpan sebagai `SUPABASE_JWT_SECRET` (ini bukan anon key maupun service-role key). Service-role key dan JWT secret adalah rahasia server: jangan taruh dengan prefix `NEXT_PUBLIC_`, jangan bagikan, dan jangan commit.
+5. Di **Storage**, pastikan bucket private `user-media` dibuat oleh bootstrap dengan batas upload 50 MiB. Batas efektif tetap tunduk pada batas plan dan konfigurasi Supabase Storage.
+
+Bootstrap adalah satu-satunya skema PostgreSQL yang dipakai aplikasi web dan bot. Jalankan ulang setelah pembaruan yang mengubah skema. Ia memakai `IF NOT EXISTS` dan memperbarui kebijakan/pengaturan Storage milik CheyaVerse; ia tidak mengosongkan tabel maupun menghapus data. Skrip juga memasang pencatat aktivitas database dan tabel sementara keepalive. Jangan jalankan perintah reset/drop kecuali memang ingin menghapus seluruh data project.
+
+Jika `psql` sudah terpasang dan `SUPABASE_DB_URL` telah diekspor ke environment terminal, alternatif SQL Editor adalah:
 
 ```bash
-pip install -r requirements.txt
+psql "$SUPABASE_DB_URL" --set ON_ERROR_STOP=on --file dashboard/sql/bootstrap.sql
+psql "$SUPABASE_DB_URL" --command "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name;"
 ```
 
-### 3. Update isi file `.env`
+Kedua perintah itu dijalankan dari root repository. Yang pertama berhenti pada error SQL; yang kedua menampilkan tabel aplikasi yang berhasil dibuat.
 
-```txt
-BOT_TOKEN=
-PUBLIC_URL=
+### 3. Siapkan dan jalankan bot
+
+Buat file `.env` di folder utama project (selevel dengan `main.py`):
+
+```dotenv
+BOT_TOKEN=token_dari_BotFather
+SUPABASE_DB_URL=postgresql://postgres.PROJECT_REF:PASSWORD@aws-0-REGION.pooler.supabase.com:5432/postgres
+SUPABASE_URL=https://PROJECT_REF.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=service_role_key_rahasia
+PUBLIC_URL=http://localhost:8080
 MEDIA_TTL_DAYS=30
-TURSO_URL=
-TURSO_AUTH_TOKEN=
-TELEGRAM_STORAGE_CHAT_ID=
-VAPID_PUBLIC_KEY=
-VAPID_PRIVATE_KEY=
-VAPID_SUBJECT=mailto:admin@example.com
-ADMIN_TELEGRAM_IDS=
-BROADCAST_WEB_SECRET=
+# Opsional untuk memori AI grup: gunakan secret acak yang sama di bot dan web
+TELEGRAM_GROUP_AI_SECRET=secret_acak_yang_sama_di_bot_dan_web
 ```
 
-`TURSO_URL` dan `TURSO_AUTH_TOKEN` harus diambil dari **database Turso yang sama** dengan yang dipakai web. URL database Turso bisa ditampilkan sebagai `turso://...` atau `libsql://...`; keduanya didukung aplikasi ini. Contoh URL yang ada di konfigurasi lokal saat panduan ini diperbarui adalah `libsql://cheyaverse-neverlabs.aws-ap-northeast-1.turso.io`. Jangan mengisi URL dengan nama database saja, dan jangan menaruh auth token di URL.
+Ganti semua nilai contoh dengan nilai project Supabase dan Telegram milik sendiri. `SUPABASE_DB_URL` harus connection string PostgreSQL Session pooler yang sama dengan web. Bot membutuhkan `SUPABASE_URL` serta `SUPABASE_SERVICE_ROLE_KEY` untuk mengunggah dan menghapus berkas di bucket private. Jangan gunakan service-role key sebagai anon key atau kirim ke browser. Isi `PUBLIC_URL` dengan alamat web yang dapat dibuka pengguna; gunakan HTTPS untuk deployment.
 
-`ADMIN_TELEGRAM_IDS` berisi ID numerik akun admin, dipisahkan dengan koma, dan harus disetel pada environment bot maupun web sesuai fitur yang digunakan. Jangan commit key ini. Bot mencatat ID numerik setiap akun Telegram yang mengirim pesan atau command ke bot dalam tabel `telegram_bot_user_ids`; ID unik dan trigger database menolak operasi update/delete. Saat tabel pertama kali dibuat, bot juga memasukkan ID akun yang sudah tercatat di tabel akun web. Interaksi Telegram lama yang tidak pernah masuk database akun tidak dapat dipulihkan oleh Bot API; ID pengirim baru akan tercatat setelah bot diperbarui dan dijalankan.
-
-`BROADCAST_WEB_SECRET` harus memakai nilai rahasia acak yang sama di `.env` bot dan environment web (local dan deployment). Jangan commit atau membagikan nilainya. Bot memakai key ini untuk memanggil endpoint internal web saat broadcast.
-
-Admin dapat mengirim pengumuman ke semua ID user client bot yang tercatat dengan `/pesan isi pengumuman`, atau mengirim media dengan caption `/pesan isi pengumuman`. ID admin dikecualikan dari penerima Telegram dan web. Pengumuman juga disimpan sebagai notifikasi dan pesan sistem untuk semua akun web aktif, dikirim ke koneksi realtime yang sedang terbuka, dan diteruskan sebagai web push jika tersedia. Bot mengirim laporan pribadi ke admin bila salah satu jalur broadcast mengalami error atau tidak ada penerima.
-
-Isi pengumuman mendukung `**bold**`, `*bold*`, `_italic_`, `__underline__`, baris kutipan `> ...`, daftar `- ...`, `&nbsp;`, dan fenced code block dengan label bahasa. Isi teks di-escape sebelum ditafsirkan sebagai format agar markup tidak menjadi HTML aktif. Garis pemisah dibuat pendek agar tetap konsisten pada layar sempit; Bot API tidak memberi tahu apakah penerima membaca pesan di perangkat mobile atau desktop, jadi format tidak dapat dipilih per perangkat.
-
-### 4. Running bot
+Pasang dependensi dan jalankan bot dari folder utama:
 
 ```bash
-python3 main.py
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python main.py
 ```
 
----
+Di Windows PowerShell:
 
-## Setup webapp
+```powershell
+py -3 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+python main.py
+```
 
-### 1. Masuk kedalam path project
+Bot memakai long polling; jalankan hanya satu instance bot untuk satu token. Saat startup, bot membuang update Telegram yang masih tertunda.
+
+### 4. Siapkan dan jalankan web
+
+Buka terminal kedua:
 
 ```bash
 cd dashboard
+npm ci
 ```
 
-### 2. Install library
+Buat file `dashboard/.env.local`:
+
+```dotenv
+SUPABASE_DB_URL=postgresql://postgres.PROJECT_REF:PASSWORD@aws-0-REGION.pooler.supabase.com:5432/postgres
+NEXT_PUBLIC_SUPABASE_URL=https://PROJECT_REF.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=anon_key_atau_publishable_key
+SUPABASE_JWT_SECRET=jwt_signing_secret_rahasia
+SUPABASE_SERVICE_ROLE_KEY=service_role_key_rahasia
+CRON_SECRET=secret_acak_panjang_untuk_cron_vercel
+TELEGRAM_BOT_TOKEN=token_yang_sama_dengan_BOT_TOKEN
+SESSION_SECRET=rahasia_acak_panjang_yang_stabil
+BOT_USERNAME=username_bot_tanpa_at
+PUBLIC_URL=http://localhost:8080
+# Opsional untuk memori AI grup: gunakan secret acak yang sama di bot dan web
+TELEGRAM_GROUP_AI_SECRET=secret_acak_yang_sama_di_bot_dan_web
+```
+
+`SUPABASE_DB_URL`, Project URL, JWT secret, dan service-role key harus berasal dari project yang sama dengan konfigurasi bot. Hanya URL dan anon/publishable key yang memang bersifat publik; key server lainnya tetap rahasia. `TELEGRAM_BOT_TOKEN` harus sama dengan `BOT_TOKEN`, sedangkan `BOT_USERNAME` diisi tanpa `@`. Atur `SESSION_SECRET` ke nilai acak yang sama pada semua instance web dan pertahankan nilainya saat restart/deploy agar sesi tidak bergantung pada rotasi token Telegram. Token sesi lama yang ditandatangani dengan bot token masih diterima untuk migrasi; sesi baru menggunakan `SESSION_SECRET`.
+
+Jalankan web:
 
 ```bash
-npm install
+npm run dev
 ```
 
-### 3. Create file `.env`
+Buka <http://localhost:8080>. Untuk login Telegram, pastikan bot aktif dan kedua aplikasi terhubung ke database Supabase yang sama; metode login ini tidak memerlukan `/setdomain` di BotFather.
 
-```txt
-MEDIA_TTL_DAYS=30
-BOT_USERNAME=CheyaVersebot
-PUBLIC_URL=
-NEXT_PUBLIC_RECAPTCHA_SITE_KEY=
-RECAPTCHA_SECRET_KEY=
-TURSO_URL=
-TURSO_AUTH_TOKEN=
-BROADCAST_WEB_SECRET=
-TELEGRAM_BOT_TOKEN=
-TELEGRAM_STORAGE_CHAT_ID=
-ADMIN_TELEGRAM_IDS=
-NEXT_PUBLIC_VAPID_PUBLIC_KEY=
-VAPID_PRIVATE_KEY=
-VAPID_SUBJECT=mailto:admin@example.com
-GITHUB_TOKEN_ENCRYPTION_KEY=
-```
+### Pengaturan opsional
 
-### 4. Buat database dan tabel Turso melalui web
+Tambahkan nilai berikut pada file environment yang disebutkan hanya jika fitur terkait diperlukan:
 
-1. Buka [Turso Dashboard](https://app.turso.tech/) lalu masuk ke akun Turso.
-2. Dari menu **Databases**, pilih **Create Database**. Masukkan nama database (contoh: `cheyaverse`) dan pilih lokasi/region yang tersedia. Tunggu sampai database selesai dibuat.
-3. Buka database yang baru dibuat, masuk ke **Shell** atau **SQL** (nama menu dapat berubah mengikuti versi dashboard).
-4. Salin seluruh blok SQL pada bagian [SQL skema awal](#sql-skema-awal) di bawah, tempel ke editor, lalu jalankan. Blok ini membuat tabel dasar dan index dengan `IF NOT EXISTS`, sehingga aman dijalankan ulang.
-5. Pada halaman database, buka **Connect** atau detail koneksi. Salin **Database URL** dan buat/salin **Auth Token**. URL dapat diawali `turso://` pada dashboard baru atau `libsql://` pada tampilan/akun lama; jangan mengubah hostname-nya. Aplikasi menerima kedua prefix tersebut.
-6. Isi `TURSO_URL` dan `TURSO_AUTH_TOKEN` di `.env` dashboard **dan** `.env` bot dengan URL/token dari database yang sama. URL harus sama persis pada kedua aplikasi; jangan mencampur URL database staging dan production. Jangan commit atau membagikan token. Untuk deployment, isi kedua variabel itu di Environment Variables hosting web dan di environment tempat bot dijalankan.
-7. Jalankan `SELECT 1;` pada Shell database untuk memastikan koneksi SQL aktif. Pastikan `.env` berada di root project bot dan di folder `dashboard` untuk web; setelah mengubah environment, restart proses bot dan web agar nilai baru terbaca.
-8. Aplikasi membuat tabel tambahan serta kolom migrasi yang diperlukan secara otomatis saat fitur terkait pertama kali digunakan. Jangan menghapus tabel/kolom migrasi otomatis saat memperbarui skema dasar.
+| Fitur | Variabel | Catatan |
+|---|---|---|
+| Login/tautan web | `PUBLIC_URL` (bot dan web), `BOT_USERNAME` (web) | Gunakan alamat web yang sama; username bot tanpa `@`. |
+| Broadcast admin | `ADMIN_TELEGRAM_IDS`, `BROADCAST_WEB_SECRET` (bot dan web) | ID numerik admin, pisahkan dengan koma. Buat satu secret acak dan gunakan nilai yang sama di kedua aplikasi. |
+| Memori AI grup Telegram | `TELEGRAM_GROUP_AI_SECRET` (bot dan web), `ADMIN_TELEGRAM_IDS` (bot dan web) | Buat secret acak panjang dan gunakan nilai yang sama pada kedua aplikasi. `PUBLIC_URL` bot harus menunjuk ke dashboard yang dapat dijangkau bot. |
+| Akses Telegram API dari web | `TELEGRAM_BOT_API_URL` (web, opsional) | Default `https://api.telegram.org`. Jika host web tidak dapat membuat koneksi keluar ke Telegram karena firewall/routing, arahkan ke Bot API proxy HTTPS yang Anda kelola atau Local Bot API Server yang dapat dijangkau web. HTTP hanya diterima untuk `localhost`/loopback, misalnya `http://127.0.0.1:8081`. Pastikan endpoint benar-benar dapat dijangkau dari proses Next.js; ini tidak memperbaiki outage Telegram atau firewall provider dengan sendirinya. |
+| Pencarian web AI | `BRAVE_SEARCH_API_KEY` (opsional) | Jika diatur, pencarian memakai Brave Search; tanpa key, server memakai hasil HTML publik DuckDuckGo. Provider publik dapat membatasi permintaan. Pencarian hanya untuk riset umum, bukan untuk melacak atau mengidentifikasi orang privat. |
+| Supabase keepalive | `CRON_SECRET` (web/deployment) | Buat nilai acak panjang, misalnya `openssl rand -hex 32`. Vercel Cron mengirimkannya untuk mengamankan endpoint keepalive. Atur pada environment deployment Vercel; cron dijadwalkan sekali sehari dan hanya menulis lalu menghapus baris sementara bila tidak ada perubahan data aplikasi selama lima hari. |
+| Push notification | Bot: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`; web: `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | Gunakan pasangan key yang sama. `VAPID_SUBJECT` opsional dan sudah memiliki nilai default. |
+| Barcode media hingga 50 MiB | `TELEGRAM_BOT_API_URL` (bot, opsional) | Bot API Telegram hosted membatasi download file ke 20 MiB. Untuk memakai batas aplikasi 50 MiB, jalankan Local Bot API Server dan arahkan variabel ini ke base URL server tersebut, misalnya `http://127.0.0.1:8081`. Pastikan bot dan server API dapat saling menjangkau; tanpa konfigurasi ini, file di atas 20 MiB ditolak dengan pesan yang menjelaskan batasnya. |
+| Verifikasi unduhan | `NEXT_PUBLIC_RECAPTCHA_SITE_KEY`, `RECAPTCHA_SECRET_KEY` (web) | Buat pasangan key reCAPTCHA v2 untuk domain web. |
+| GitHub Projects dan API key AI | `GITHUB_TOKEN_ENCRYPTION_KEY` atau `AI_PROVIDER_ENCRYPTION_KEY` (web) | Buat key base64 32-byte dengan `openssl rand -base64 32`. Jika keduanya diatur, `AI_PROVIDER_ENCRYPTION_KEY` digunakan untuk API key AI dan `GITHUB_TOKEN_ENCRYPTION_KEY` untuk token GitHub. Simpan key tetap sama; mengganti/menghilangkannya membuat kredensial tersimpan tidak dapat dibaca. |
+| Masa simpan media | `MEDIA_TTL_DAYS` (bot dan web) | Opsional; default 30 hari. |
 
-> Pada konfigurasi dashboard lokal saat ini, URL yang terbaca adalah `libsql://cheyaverse-neverlabs.aws-ap-northeast-1.turso.io`. Jika detail koneksi database baru menampilkan `turso://cheyaverse-neverlabs.aws-ap-northeast-1.turso.io`, gunakan URL yang diberikan untuk database baru tersebut dan pastikan URL identik dipasang di konfigurasi bot serta web. Auth token lama tidak dapat dipakai untuk database baru.
+#### Memori AI grup Telegram
 
-`ADMIN_TELEGRAM_IDS` di `.env` dashboard berisi ID Telegram numerik admin, dipisahkan koma jika lebih dari satu. Akun-akun ini mendapat lencana admin terverifikasi di daftar pencarian/chat dan ruang chat, serta menerima alert Telegram saat satu kelompok endpoint web berulang kali mengembalikan HTTP 5xx (minimal tiga kali dalam 30 detik). Ketidaksesuaian serius ketika Settings memastikan token GitHub tersimpan/terbaca tetapi Projects tetap tidak menemukannya setelah retry juga langsung memberi alert. Alert dikelompokkan dan dibatasi satu kali per jenis endpoint/metode setiap 10 menit; isinya hanya metadata operasional, tanpa detail akun, body request, screenshot, atau stack trace.
+Setelah bot dan dashboard hidup, fitur otomatis mulai saat admin yang ID-nya terdaftar pada `ADMIN_TELEGRAM_IDS` mengirim pesan baru ke grup/supergrup tempat bot menjadi admin. Pesan admin diverifikasi via Telegram; pesan anggota lain tidak disimpan atau diteruskan. Untuk channel broadcast, bot harus menjadi admin dan channel harus memiliki tepat satu admin manusia terdaftar pada `ADMIN_TELEGRAM_IDS`. Tidak perlu command setup: AI membaca pesan admin baru, membuat ringkasan memori, dan tetap diam. `/send` memberi izin untuk balasan yang jarang dan hanya saat admin jelas mengajukan pertanyaan/tugas kepada AI; `/up` mencabut izin dan membuat AI diam kembali. Keduanya hanya tersedia di grup/channel, tidak di chat pribadi atau web. Atur `TELEGRAM_GROUP_AI_SECRET` sama di environment bot dan dashboard, dan pastikan `PUBLIC_URL` bot dapat menjangkau dashboard.
 
-> **Login Telegram:** Isi `BOT_USERNAME` pada `.env` web dengan username bot (tanpa `@`). Pengguna membuka link sekali pakai ke bot dan memilih Setujui atau Tolak di chat pribadi. Bot harus online dan `.env` bot/web harus terhubung ke database Turso yang sama. Domain web tidak perlu didaftarkan dengan `/setdomain` untuk metode login ini.
+Pesan teks asli tidak disimpan; yang disimpan di PostgreSQL adalah catatan ringkas hasil pencernaan AI, agar konteks penting seperti topik, peristiwa, preferensi, dan perasaan yang disampaikan dapat dicari/dipakai kembali. AI mengambil konteks dari ringkasan relevan dan pesan terbaru. Bot tidak mengimpor riwayat sebelum fitur berjalan dan tidak menjalankan AI tools untuk pesan grup. Teks memakai provider AI aktif milik admin. Analisis media memakai Gemini aktif dengan model multimodal. File dibatasi total 14 MiB per pesan; jenis file yang didukung adalah gambar, audio/video yang dikenali Gemini, PDF, TXT, CSV, dan JSON. Balasan AI dikirim ke chat sehingga terlihat oleh anggota grup/channel. Data ringkasan tersimpan sampai dihapus langsung dari database.
 
-Isi `BROADCAST_WEB_SECRET` di environment web dengan nilai rahasia yang sama seperti di `.env` bot. Nilai ini melindungi endpoint internal penerima broadcast dan harus disetel juga pada environment deployment web.
+Jangan commit `.env` atau `.env.local`. Untuk deployment, tambahkan variabel yang sama melalui pengaturan environment hosting dan restart/redeploy setelah mengubahnya. Atur `PUBLIC_URL` ke URL publik HTTPS. Buat `BROADCAST_WEB_SECRET` sebagai string acak yang panjang (misalnya `openssl rand -hex 32`), lalu gunakan nilai yang sama di bot dan web. Token Telegram, kredensial PostgreSQL, JWT secret Supabase, service-role key, secret broadcast, dan private key VAPID jangan dibagikan.
 
-Pesan `/start` yang membuka permintaan login dihapus otomatis. Setelah disetujui, bot menghapus kartu permintaan dan hanya menampilkan konfirmasi singkat di Telegram.
+Jika log menunjukkan `UND_ERR_CONNECT_TIMEOUT` atau `ETIMEDOUT` saat mengakses Telegram, itu berarti proses web tidak berhasil membuat koneksi keluar ke endpoint Bot API. Pastikan DNS dan port 443 dari host web tidak diblokir. Pada server yang dikelola sendiri, `TELEGRAM_BOT_API_URL` dapat menunjuk ke proxy/Bot API server yang memang dapat dijangkau. Jangan memakai alamat `localhost` pada deployment kecuali Bot API berjalan di host/container network yang sama. Perubahan konfigurasi perlu diikuti restart/redeploy.
 
-Setiap permintaan login berlaku selama lima menit, hanya dapat digunakan sekali, dan bot mengambil ID Telegram dari update resmi Telegram—bukan dari browser. Setelah disetujui, session web ditandatangani dengan `TELEGRAM_BOT_TOKEN`; jangan membagikan token dan segera rotasi token jika pernah terekspos. Device ID dibuat setelah identitas Telegram berhasil diverifikasi. Tabel `telegram_login_challenges` dibuat otomatis; tidak perlu menghapus atau membuat ulang tabel database.
+Setiap permintaan login berlaku lima menit dan hanya dapat digunakan sekali. Persetujuan dilakukan di chat pribadi dengan bot. Command `/unblock` di chat pribadi menampilkan sesi yang diblokir pada akun Telegram pemanggil; pemilihan dan konfirmasi selalu divalidasi ulang terhadap akun tersebut.
+
+Fitur `/qr` menerima media sampai 50 MiB per file ketika bot menggunakan Local Bot API Server. Dengan Bot API hosted standar, aplikasi membatasi file ke 20 MiB karena server tersebut tidak menyediakan unduhan file yang lebih besar.
 
 ### Integrasi GitHub Projects
 
 Tab **Projects** pada navigasi bawah menampilkan repositori yang dapat diakses akun GitHub yang ditautkan, dengan pencarian berdasarkan nama/deskripsi dan pagination. Beranda menampilkan proyek milik akun, grafik aktivitas commit mingguan, serta ringkasan jumlah repo, stars, forks, dan repo aktif. Grid menampilkan statistik commit 12 bulan dan 5 minggu, commit terbaru, bahasa, branch, dan fork. Untuk menjaga permintaan GitHub tetap terbatas, statistik riwayat rinci di Beranda dihitung pada maksimal 12 repo terbaru yang memiliki push; ringkasan repo dan stars/forks mencakup maksimal 100 repo pertama yang dikembalikan GitHub. Jika token belum tersambung, Beranda menampilkan keadaan kosong tanpa mengungkap data proyek. Setiap proyek di tab Projects menampilkan deskripsi, status publik/private, branch, bahasa, statistik repo, struktur default branch, statistik file dan baris per commit, workflow GitHub Actions, deployment GitHub, dan statistik trafik agregat jika GitHub mengizinkannya.
 
-Daftar dan ringkasan GitHub diminta ulang saat halaman/tab navigasi dibuka, termasuk saat tab yang sedang aktif ditekan lagi; navigasi Back/Forward juga meminta data route terbaru tanpa memuat ulang seluruh dokumen atau menjalankan polling berkala. Detail repository menampilkan hingga 10 GitHub Releases terbaru, termasuk tag versi, catatan rilis, prerelease, aset unduhan, ukuran, dan jumlah unduhan. Beranda menampilkan tag release terbaru untuk repository yang memilikinya dan memakai tanggal release sebagai pemecah peringkat jika aktivitas commit sama.
+Daftar dan ringkasan GitHub diminta ulang saat halaman/tab navigasi dibuka, termasuk saat tab yang sedang aktif ditekan lagi; navigasi Back/Forward juga meminta data route terbaru tanpa memuat ulang seluruh dokumen atau menjalankan polling berkala. Perubahan pesan, notifikasi, media, cover, library, dan pemblokiran sesi dikirim ke browser melalui Supabase Realtime WebSocket; perubahan route tetap meminta data terbaru dari server. Detail repository menampilkan hingga 10 GitHub Releases terbaru, termasuk tag versi, catatan rilis, prerelease, aset unduhan, ukuran, dan jumlah unduhan. Beranda menampilkan tag release terbaru untuk repository yang memilikinya dan memakai tanggal release sebagai pemecah peringkat jika aktivitas commit sama.
 
 Sebelum token bisa disimpan, buat key enkripsi server 32 byte:
 
@@ -135,204 +160,95 @@ openssl rand -base64 32
 
 Masukkan hasilnya sebagai `GITHUB_TOKEN_ENCRYPTION_KEY` pada `.env` lokal dashboard serta Environment Variables deployment, lalu restart/redeploy aplikasi. Gunakan nilai key yang sama untuk seluruh instance yang membaca database yang sama. Jika key hilang atau diganti, token GitHub terenkripsi yang tersimpan tidak dapat dibuka lagi; sambungkan ulang akun GitHub setelah key dipulihkan.
 
-Tabel `github_credentials` dibuat otomatis di Turso saat pengaturan GitHub pertama kali dibuka; tidak perlu menambahkan SQL manual.
+Tabel `github_credentials` disiapkan oleh bootstrap database dan juga diperiksa aplikasi saat pengaturan GitHub dibuka.
 
-Masuk ke **Profile → Settings → GitHub** dan masukkan Personal Access Token (classic atau fine-grained). **Fine-grained token read-only** lebih disarankan: batasi token ke repositori yang diperlukan dan aktifkan metadata, contents, Actions, serta deployments dengan akses read-only. Classic PAT dapat membawa izin yang lebih luas daripada yang dibutuhkan dashboard; kode aplikasi hanya melakukan permintaan baca. Statistik traffic bersifat opsional, tersedia untuk repo tempat pemilik token memiliki akses tulis, dan hanya meliputi 14 hari terakhir. Token diverifikasi ke GitHub, lalu disimpan per akun CheyaVerse dengan enkripsi AES-256-GCM di Turso; nilainya tidak ditampilkan kembali ke browser. Tombol **Disconnect** menghapus token dari database aplikasi.
+Masuk ke **Profile → Settings → GitHub** dan masukkan Personal Access Token (classic atau fine-grained). **Fine-grained token read-only** lebih disarankan: batasi token ke repositori yang diperlukan dan aktifkan metadata, contents, Actions, serta deployments dengan akses read-only. Classic PAT dapat membawa izin yang lebih luas daripada yang dibutuhkan dashboard; kode aplikasi hanya melakukan permintaan baca. Statistik traffic bersifat opsional, tersedia untuk repo tempat pemilik token memiliki akses tulis, dan hanya meliputi 14 hari terakhir. Token diverifikasi ke GitHub, lalu disimpan per akun CheyaVerse dengan enkripsi AES-256-GCM di Supabase PostgreSQL; nilainya tidak ditampilkan kembali ke browser. Tombol **Disconnect** menghapus token dari database aplikasi.
 
 Riwayat commit dimuat tiga commit per halaman agar tidak menghabiskan GitHub API rate limit; tombol **Load more history** memuat halaman berikutnya. Statistik penambahan/penghapusan baris serta file dihitung dari data detail setiap commit yang telah dimuat. GitHub hanya menyediakan trafik agregat untuk periode terbaru (maksimal 14 hari) dan tidak memberikan identitas pengunjung. Status production di halaman ini hanya mencakup deployment yang tercatat lewat GitHub Deployments; deployment dari hosting provider lain tidak dapat dideteksi otomatis.
 
 Di chat pribadi, bot juga dapat menampilkan JSON update Telegram untuk pesan yang diteruskan. Output ditujukan hanya kepada pengirim forward; update panjang dikirim sebagai file JSON. Field update di-escape sebelum ditampilkan sebagai code block, dan pesan biasa/command tidak diproses oleh fitur ini.
 
-Pengaturan **Devices & Security** menampilkan perangkat terdaftar, waktu aktivitas terakhir, dan aksi untuk menghentikan sesi. Logout hanya mengakhiri sesi di perangkat ini. Penghapusan akun web memerlukan konfirmasi teks `HAPUS AKUN`; profil dianonimkan menjadi **Deleted account** pada salinan percakapan akun lain agar riwayat mereka tetap ada. Sesi lama dicabut lewat versi sesi akun. Media milik akun di database dihapus; penghapusan file dari Telegram Storage dilakukan sebaik mungkin dan kegagalan eksternal akan ditampilkan setelah proses.
+Pengaturan **Devices & Security** menampilkan perangkat terdaftar, waktu aktivitas terakhir, dan aksi untuk menghentikan sesi. Logout hanya mengakhiri sesi di perangkat ini. Penghapusan akun web memerlukan konfirmasi teks `HAPUS AKUN`; profil dianonimkan menjadi **Deleted account** pada salinan percakapan akun lain agar riwayat mereka tetap ada. Sesi lama dicabut lewat versi sesi akun. Media milik akun di database dihapus; berkas miliknya di Supabase Storage juga dihapus dan kegagalan eksternal akan ditampilkan setelah proses.
 
-Halaman login memulihkan sesi hanya jika cookie sesi, Device ID di browser, dan data perangkat di database masih cocok. Sesi yang tidak valid harus melewati login Telegram kembali. Dari menu profil, **Link a device** membuat QR atau link undangan sekali pakai yang kedaluwarsa dalam 60 detik; perangkat baru akan masuk otomatis setelah membuka undangan. Token undangan hanya disimpan sebagai hash di tabel `device_link_tokens`, yang dibuat otomatis. **Log out** menghapus sesi pada browser saat ini.
+DeviceID perangkat disimpan di `localStorage` (`cheya_device_id`) dan divalidasi ulang dengan ID pada cookie sesi server. Logout mengakhiri cookie sesi tetapi mempertahankan DeviceID lokal agar login berikutnya dan pergantian akun tetap memakai identitas perangkat yang sama. Tabel `device_account_state` mencatat akun aktif untuk DeviceID tersebut; setelah logout, `current_uid` menjadi `NULL` (akun tidak diketahui/tidak sedang login). Tabel ini memiliki RLS aktif dan tidak dapat dibaca langsung browser. Data relasi perangkat-akun pada `device_ids` tetap tersedia agar **Switch account** bisa menampilkan akun yang memang pernah terhubung; server memeriksa relasi dan blacklist sebelum menerbitkan sesi baru. Jika cookie sesi yang valid masih ada tetapi ID lokal hilang atau tidak cocok, server memulihkan DeviceID dari cookie bertanda tangan, bukan membuat identitas baru.
+
+Dari menu profil, **Link a device** membuat QR atau link undangan sekali pakai yang kedaluwarsa dalam 60 detik; perangkat baru akan masuk otomatis setelah membuka undangan. Jika browser penerima sudah memiliki DeviceID tersimpan, proses link memakai ID yang sama. Token undangan hanya disimpan sebagai hash di tabel `device_link_tokens`, yang dibuat otomatis. **Log out** mengakhiri sesi pada browser saat ini tanpa menghapus DeviceID.
+
+Pesan AI menampilkan URL sebagai chip sumber berbentuk kapsul dengan favicon/domain yang dapat dibuka. Preview tautan mencoba memakai gambar Open Graph/Twitter dari situs; jika situs tidak menyediakan gambar, favicon situs ditampilkan sebagai visual pengganti. Gambar preview dapat diklik untuk membuka sumber.
 
 Untuk push saat bot menghapus media yang kedaluwarsa, isi `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, dan `VAPID_SUBJECT` di `.env` bot dengan pasangan yang sama seperti `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, dan `VAPID_SUBJECT` di `.env` web.
 
 Push dari CheyaVerse web ditandai **Web** dan setiap pesan memakai tag unik agar browser tidak mengganti pesan sebelumnya. Browser atau OS dapat mengelompokkan notifikasi secara visual sesuai dukungannya. Suara dan getar push mengikuti dukungan serta pengaturan notifikasi browser/OS; halaman web memakai audio lokal ketika browser mengizinkan pemutaran. QR cadangan di viewer media dibuat dan dikustomisasi di browser, tanpa menyimpan desainnya di server.
 
-Beranda web menyediakan **Library** virtual pada path `/home/{username}`. Path ini hanya struktur data aplikasi di Turso, bukan akses ke filesystem server. Pengguna dapat mengelola folder, file teks (maksimal 1 MB), dan file gambar/video (maksimal 4 MiB per file); media disimpan di Telegram Storage melalui `TELEGRAM_BOT_TOKEN` dan `TELEGRAM_STORAGE_CHAT_ID`, sementara metadata/path disimpan di Turso. Vercel Blob tidak digunakan dan `BLOB_READ_WRITE_TOKEN` tidak diperlukan. Penghapusan folder menghapus seluruh isinya; data library dibatasi pada akun pemilik dan ikut dihapus saat akun web dihapus. Halaman Statistik telah dihapus.
+Beranda web menyediakan **Library** virtual pada path `/home/{username}`. Path ini hanya struktur data aplikasi di Supabase PostgreSQL, bukan akses ke filesystem server. Pengguna dapat mengelola folder, file teks (maksimal 1 MB), dan file gambar/video (maksimal 4 MiB per file); media disimpan di private Supabase Storage bucket `user-media`, sementara metadata/path disimpan di Supabase PostgreSQL. Berkas media Telegram yang dibuat oleh bot juga disimpan di bucket yang sama. Vercel Blob tidak digunakan dan `BLOB_READ_WRITE_TOKEN` tidak diperlukan. Penghapusan folder menghapus seluruh isinya; data library dibatasi pada akun pemilik dan ikut dihapus saat akun web dihapus. Halaman Statistik telah dihapus.
 
-### SQL skema awal
+### Reset project Supabase
+
+CheyaVerse menggunakan **Supabase PostgreSQL** dan Supabase Storage; skrip database tidak berisi perintah `DROP TABLE`. Untuk mulai benar-benar kosong, buat project Supabase baru, jalankan [dashboard/sql/bootstrap.sql](./dashboard/sql/bootstrap.sql) di SQL Editor project tersebut, lalu ganti konfigurasi `SUPABASE_DB_URL`, URL/key Supabase, dan rahasia JWT untuk bot, dashboard, dan deployment. Menghapus project dari Supabase menghapus seluruh isi database dan bucket secara permanen, termasuk data lain yang mungkin menggunakan project itu; pastikan project yang benar dipilih dan ekspor/backup dahulu jika data ingin dipertahankan. Database Turso lama tidak dimigrasikan oleh aplikasi ini dan dapat dipensiunkan terpisah setelah dipastikan tidak lagi digunakan.
+
+Bootstrap menyiapkan seluruh skema PostgreSQL untuk bot dan web serta kebijakan realtime dan bucket privat. Untuk memperbarui skema pada project yang sudah berjalan, jalankan skrip tersebut lagi di Supabase SQL Editor; jangan gunakan perintah SQLite/Turso seperti `sqlite_master` atau `turso db shell`.
+
+Tabel lama `ai_context_preferences`, jika masih tersisa dari versi sebelumnya, akan dimigrasikan otomatis saat koneksi PostgreSQL pertama agar kolom `uid` memakai `BIGINT` dan mendukung ID Telegram yang lebih besar dari batas `INTEGER`. Migrasi yang sama dapat dijalankan manual di SQL Editor:
 
 ```sql
-CREATE TABLE IF NOT EXISTS media (
-  id TEXT PRIMARY KEY,
-  owner_id INTEGER,
-  filename TEXT NOT NULL,
-  storage_path TEXT NOT NULL,
-  storage_message_id INTEGER,
-  content_type TEXT NOT NULL,
-  file_size INTEGER NOT NULL DEFAULT 0,
-  expires_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS telegram_users (
-  uid INTEGER PRIMARY KEY,
-  username TEXT,
-  first_name TEXT,
-  last_name TEXT,
-  photo_file_id TEXT,
-  role TEXT NOT NULL DEFAULT 'user',
-  created_at TEXT,
-  updated_at TEXT
-);
-
-CREATE TABLE IF NOT EXISTS "akun-telegram" (
-  uid INTEGER PRIMARY KEY,
-  username TEXT,
-  first_name TEXT,
-  last_name TEXT,
-  photo_url TEXT,
-  photo_file_id TEXT,
-  auth_date INTEGER,
-  allows_write_to_pm INTEGER,
-  role TEXT NOT NULL DEFAULT 'user',
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_akun_telegram_name
-  ON "akun-telegram"(first_name, last_name);
-CREATE INDEX IF NOT EXISTS idx_akun_telegram_username
-  ON "akun-telegram"(username);
-
-CREATE TABLE IF NOT EXISTS direct_messages (
-  id TEXT PRIMARY KEY,
-  sender_uid INTEGER NOT NULL,
-  recipient_uid INTEGER NOT NULL,
-  content TEXT NOT NULL,
-  created_at TEXT NOT NULL,
-  delivered_at TEXT,
-  read_at TEXT
-);
-
-CREATE INDEX IF NOT EXISTS idx_direct_messages_participants
-  ON direct_messages(sender_uid, recipient_uid, created_at);
-CREATE INDEX IF NOT EXISTS idx_direct_messages_recipient_unread
-  ON direct_messages(recipient_uid, read_at, created_at);
-
-CREATE TABLE IF NOT EXISTS push_subscriptions (
-  endpoint TEXT PRIMARY KEY,
-  uid INTEGER NOT NULL,
-  device_id TEXT,
-  p256dh TEXT NOT NULL,
-  auth TEXT NOT NULL,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS messages (
-  id TEXT PRIMARY KEY,
-  uid INTEGER NOT NULL,
-  sender TEXT NOT NULL,
-  sender_role TEXT NOT NULL,
-  title TEXT,
-  content TEXT NOT NULL,
-  created_at TEXT NOT NULL,
-  delivered_at TEXT,
-  read_at TEXT
-);
-
-CREATE INDEX IF NOT EXISTS idx_messages_uid_created ON messages(uid, created_at);
-
-CREATE TABLE IF NOT EXISTS notifications (
-  id TEXT PRIMARY KEY,
-  uid INTEGER NOT NULL,
-  title TEXT NOT NULL,
-  message TEXT NOT NULL,
-  ip TEXT,
-  location TEXT,
-  device TEXT,
-  read INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_notifications_uid_created ON notifications(uid, created_at);
-
-CREATE TABLE IF NOT EXISTS device_ids (
-  device_id TEXT NOT NULL,
-  uid INTEGER NOT NULL,
-  fingerprint TEXT NOT NULL,
-  device_type TEXT,
-  os TEXT,
-  brand TEXT,
-  model TEXT,
-  browser TEXT,
-  cpu_cores INTEGER,
-  ram_gb REAL,
-  user_agent TEXT,
-  language TEXT,
-  timezone TEXT,
-  platform TEXT,
-  max_touch INTEGER,
-  color_depth INTEGER,
-  webgl_vendor TEXT,
-  webgl_renderer TEXT,
-  screen_w INTEGER,
-  screen_h INTEGER,
-  first_seen TEXT NOT NULL,
-  last_seen TEXT NOT NULL,
-  PRIMARY KEY (device_id, uid)
-);
-
-CREATE TABLE IF NOT EXISTS session_blacklist (
-  device_id TEXT NOT NULL,
-  uid INTEGER NOT NULL,
-  created_at TEXT NOT NULL,
-  PRIMARY KEY (device_id, uid)
-);
-
-CREATE TABLE IF NOT EXISTS user_covers (
-  uid INTEGER PRIMARY KEY,
-  type TEXT NOT NULL DEFAULT 'color',
-  color1 TEXT,
-  color2 TEXT,
-  icon TEXT,
-  storage_path TEXT,
-  storage_message_id INTEGER,
-  content_type TEXT,
-  bg_size REAL,
-  bg_x REAL,
-  bg_y REAL,
-  updated_at TEXT
-);
+DO $migration$
+BEGIN
+  IF to_regclass('public.ai_context_preferences') IS NOT NULL THEN
+    ALTER TABLE public.ai_context_preferences
+      ALTER COLUMN uid TYPE BIGINT USING uid::BIGINT;
+  END IF;
+END;
+$migration$;
 ```
-> **Pemberitahuan:** Database dibuat terlebih dahulu dari menu **Create Database** di dashboard Turso; blok SQL di atas dijalankan pada Shell/SQL milik database tersebut. Sesuaikan nama database jika tidak memakai `cheyaverse`.
-> Aplikasi membuat/memigrasikan tabel akun `"akun-telegram"`, `direct_messages`, challenge login, presence, pin, dan penghapusan pesan secara otomatis. Kolom tambahan untuk edit/hapus/forward, balasan, dan pesan suara juga dimigrasikan saat akses pertama. Kolom fingerprint device yang baru juga dimigrasikan otomatis. Jangan drop tabel atau reset database untuk menerapkan pembaruan ini.
 
 Chat langsung menyinkronkan pesan dan tanda dibaca saat room terbuka. Status online didasarkan pada heartbeat web aktif; untuk penerima offline, pesan tetap tersimpan di web dan bot mengirim notifikasi Telegram dengan tombol **Dibaca** serta **Balas**. Pesan dari kontak tidak memicu notifikasi browser atau web-push; notifikasi browser hanya digunakan untuk pemberitahuan CheyaVerse. Balasan Telegram masuk ke room web yang sama.
 
+AI mencari history chat di seluruh pesan yang masih tersimpan menggunakan indeks full-text PostgreSQL, bukan hanya 500 pesan awal/terbaru. Setiap permintaan AI hanya mengirim hingga 24 pesan yang cocok dengan kata kunci beserta pesan reply terkait, ditambah hingga 8 pesan terbaru, dengan anggaran 22.000 karakter. Pesan yang dihapus atau disembunyikan dari akun tidak dipakai; seluruh transcript tidak dikirim ke provider AI, tetapi pesan asli tetap tersimpan sesuai kebijakan retensi sampai dihapus. Pencarian menggunakan kata kunci literal, jadi pertanyaan yang menyebut topik/nama/istilah dari obrolan lama paling mudah ditemukan; follow-up pendek juga memakai konteks pertanyaan user terbaru sebagai kata kunci tambahan. Setelah update, bootstrap menambahkan indeks `idx_messages_ai_memory_search`; aplikasi juga mencoba membuatnya otomatis ketika fitur chat dijalankan.
+
+Detail identitas/role atau hingga 25 DeviceID dibaca hanya saat ditanya tentang akun/perangkat. Data perangkat dapat mencakup browser, sistem operasi, model, spesifikasi, layar, jaringan, dan WebGL; fingerprint mentah serta user-agent mentah tidak dikirim. Lokasi IP hanya dicari saat pengguna menanyakan lokasinya saat ini: IP publik diteruskan ke ipapi.co/ipwho.is untuk perkiraan kota/wilayah/negara/kode pos, bukan lokasi GPS atau kecamatan yang terjamin; alamat IP mentah hanya dikirim ke AI jika pengguna secara khusus menanyakan IP-nya. Untuk pertanyaan repo/kode, server menggunakan token GitHub terenkripsi dan memilih satu repo milik akun; repo publik atau repo lain yang tokennya dapat baca juga bisa dipilih jika pengguna menyebut `owner/repo` atau URL GitHub secara eksplisit. Jika tree repo lengkap dan maksimal 400 file teks/source masing-masing berukuran paling besar 1 MiB serta total 8 MiB, semua file yang memenuhi filter dibaca untuk permintaan itu lalu cuplikan relevan dibatasi hingga 14 file/55.000 karakter (file yang disebut langsung hingga 30.000 karakter); repo lebih besar atau tree terpotong dibatasi ke 80 file kandidat. Pola kredensial umum disamarkan, tetapi tidak ada pemindai secret yang dapat menjamin semua kredensial tertutup; tinjau repo sebelum menghubungkannya. Source tidak disimpan sebagai snapshot oleh CheyaVerse, tetapi konteks yang dikirim dapat diproses oleh provider AI sesuai kebijakannya. AI boleh memberi saran, tetapi tidak dapat memblokir atau mencabut sesi; tindakan tetap memerlukan admin.
+
+Pengambilan ini berjalan ulang pada setiap permintaan AI dan context packet mencatat command data yang benar-benar dieksekusi (misalnya `/account.profile`, `/device.sessions`, `/network.location`, `/github.repository`, dan `/chat.history`). Command yang tidak relevan tidak dijalankan; riwayat tindakan pengguna tidak direkam atau dibuat-buat.
+
+Provider/model AI dikonfigurasi di **Settings → GitHub → AI assistants**. Daftar model diminta langsung dari endpoint masing-masing provider setelah API key (jika diperlukan) diberikan. Provider yang didukung: OpenRouter, OpenAI, Gemini, Anthropic/Claude, DeepSeek, Qwen/DashScope, dan Groq (termasuk model Llama yang tersedia melalui Groq). **Local (OpenAI-compatible)** mendukung server seperti Ollama melalui base URL loopback, misalnya `http://localhost:11434/v1`; endpoint lokal dipanggil dari server CheyaVerse dan dibatasi ke localhost/loopback, sehingga deployment publik tidak dapat menjangkau localhost di perangkat pengguna. Untuk model lokal, jalankan dashboard sendiri pada mesin yang dapat mengakses model. Atur `AI_PROVIDER_ENCRYPTION_KEY` atau `GITHUB_TOKEN_ENCRYPTION_KEY` sebagai key base64 32-byte di environment web agar API key AI tersimpan terenkripsi; jangan commit atau membagikan key ini.
+
+AI juga dapat mencari history akun yang sedang login, menjalankan command Linux, dan mengetes kode Python, JavaScript/Node.js, atau Bash. Tool dipanggil oleh AI hanya bila relevan dengan permintaan; tidak ada tombol **Run** pada code block. Setiap eksekusi berjalan di Vercel Sandbox sementara, terpisah dari server aplikasi, dengan network dinonaktifkan dan batas waktu; file sandbox dibuang setelah selesai. Eksekusi tidak dapat membaca file host atau mengakses database/provider key. Fitur ini memerlukan autentikasi Vercel Sandbox: di deployment Vercel gunakan OIDC deployment; untuk lokal, jalankan perintah berikut dari folder `dashboard`:
+
+```bash
+vercel link
+vercel env pull .env.local
+```
+
+Token `VERCEL_OIDC_TOKEN` lokal kedaluwarsa dan perlu ditarik ulang dengan `vercel env pull .env.local`. Di CI/non-Vercel, konfigurasi `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, dan `VERCEL_PROJECT_ID`. Jika autentikasi gagal, tool mengembalikan instruksi setup tanpa membocorkan credential. Jangan kirim token tersebut ke browser atau ke dalam kode yang dijalankan.
+
+Status web aktif memakai heartbeat terautentikasi setiap 20 detik; heartbeat kedaluwarsa setelah 55 detik. Data disimpan di tabel `web_presence` dengan RLS aktif dan tanpa akses browser langsung. AI hanya membaca status akun yang sedang login dan jumlah admin terkonfigurasi yang baru aktif, saat pertanyaan memang memerlukan status. Pesan yang secara eksplisit dimulai dengan `sampaikan ke admin: ` atau `forward to admin: ` dapat diteruskan verbatim ke chat web admin; AI tidak boleh mengubah isi atau mengirimkannya ke Telegram.
+
 Laporan login baru mencoba menentukan kota dan negara dari IP publik melalui layanan geolokasi IP; IP proxy privat/lokal tidak dikirim untuk lookup. Lokasi berbasis IP hanya perkiraan jaringan (bukan GPS), dan dapat berbeda atau tidak tersedia jika ISP memakai gateway/VPN atau layanan lookup sedang tidak tersedia.
 
-Pesan suara direkam di browser, dapat diputar ulang sebelum dikirim, lalu disimpan ke chat penyimpanan Telegram yang dikonfigurasi oleh `TELEGRAM_STORAGE_CHAT_ID`. Room membatasi rekaman hingga dua menit dan unggahan hingga 3 MiB. Kolom media dan balasan pada `direct_messages` dimigrasikan otomatis; tidak perlu menjalankan `DROP TABLE` atau mengubah secret environment baru.
+### Pemeriksaan dan production
 
-### 5. Periksa kualitas dan build
+Jalankan dari folder `dashboard`:
 
 ```bash
 npm run lint
 npm run build
 ```
 
-ESLint memeriksa pola Next.js, React, dan aksesibilitas tanpa mengubah kode aplikasi.
-
-### 6. Running server
+Untuk menjalankan hasil build production secara lokal:
 
 ```bash
-npm run dev
+npm start
 ```
-> **Disclaimer:** *Biasakan setiap kali update server atau ingin running, folder `.next` sudah terhapus untuk mencegah adanya bug apapun saat deployment*
 
 ---
 
 ## Catatan & pemberitahuan
-- Biasakan untuk sellau menghapus folder `.next` untuk kelancaran **running web**
-- Untuk deploy, arahkan root project pada folder `dashboard` (bukan `root`). Dan untuk file `.env` nya, bukan diclone dari repo, emlainkan isi manual / upload di **dashboard UI** web hosting
-- Pastikan `PUBLIC_URL` yg di `.env` **bot** & **web** isinya sama
-- Login Telegram pada setiap domain memerlukan domain tersebut didaftarkan di BotFather; URL `trycloudflare.com` sementara perlu didaftarkan ulang saat hostname berubah
+- Untuk deploy web, atur root project hosting ke folder `dashboard` dan isi environment variable di pengaturan hosting, bukan dengan mengunggah file `.env` ke repository.
+- Vercel Cron untuk keepalive diatur oleh [dashboard/vercel.json](./dashboard/vercel.json). Pastikan `CRON_SECRET` tersedia di environment deployment. Setelah mengubah skema, jalankan ulang [dashboard/sql/bootstrap.sql](./dashboard/sql/bootstrap.sql) di Supabase SQL Editor.
+- Pastikan `PUBLIC_URL` pada environment bot dan web mengarah ke URL web yang sama.
+- Login Telegram CheyaVerse tidak memerlukan pendaftaran domain dengan `/setdomain` di BotFather. Untuk alamat tunnel sementara, perbarui `PUBLIC_URL` jika alamat tunnel berubah.
 - Chat hanya mencari akun yang sudah login/register di CheyaVerse. Untuk akun yang belum ditemukan, tombol undangan membuka Telegram Share dengan pesan terisi; pemilik harus memilih penerima dan menekan kirim di Telegram
-- Apabila webapp sudah **dideploy** tetapi saat percobaan unduh data media gagal karena reCAPTCHA tidak dapat muncul, itu bukan bug atau error kode! Lihat data di file `.env` nya dan pastikan di web hosting seluruh data file `.env` benar benar valid dan terisi
-- Apabila file `.env` bot belum diisi, maka bot akan shutdown dengan sendirinya saat di running
+- Jika verifikasi unduhan tidak tersedia, periksa bahwa kedua key reCAPTCHA untuk domain tersebut telah diisi di environment web dan aplikasi sudah di-restart/redeploy.
+- Jangan hapus `.next` sebagai langkah rutin; Next.js mengelola folder build tersebut.
 
 <div align="center">
 
@@ -346,7 +262,7 @@ npm run dev
 
 ### Backend / Runtime
 
-![Node.js](https://img.shields.io/badge/Node.js_18+-339933?style=for-the-badge&logo=node.js&logoColor=white)
+![Node.js](https://img.shields.io/badge/Node.js_20+-339933?style=for-the-badge&logo=node.js&logoColor=white)
 ![Next.js API](https://img.shields.io/badge/Next.js_API_Routes-000000?style=for-the-badge&logo=next.js&logoColor=white)
 ![Edge Runtime](https://img.shields.io/badge/Node_Runtime-5FA04E?style=for-the-badge&logo=nodedotjs&logoColor=white)
 
@@ -358,9 +274,9 @@ npm run dev
 
 ### Database & Storage
 
-![Turso](https://img.shields.io/badge/Turso-4FF8D2?style=for-the-badge&logo=turso&logoColor=black)
-![SQLite](https://img.shields.io/badge/SQLite-003B57?style=for-the-badge&logo=sqlite&logoColor=white)
-![Telegram Storage](https://img.shields.io/badge/Telegram_Storage-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)
+![Supabase](https://img.shields.io/badge/Supabase-3ECF8E?style=for-the-badge&logo=supabase&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)
+![Supabase Storage](https://img.shields.io/badge/Supabase_Storage-3ECF8E?style=for-the-badge&logo=supabase&logoColor=white)
 
 ### Deployment
 
@@ -387,10 +303,10 @@ npm run dev
 | **Styling** | Tailwind CSS | Utility-first CSS |
 | **Icons** | Lucide React | Icon set modern |
 | **Bot Runtime** | Python + Telegram Bot API | Handler command `/web`, `/qr`, upload media |
-| **Database** | Turso (libSQL) | Database SQLite cloud, low-latency |
-| **Storage File** | Telegram Bot API | Penyimpanan file media |
+| **Database** | Supabase PostgreSQL | Database terkelola untuk dashboard dan bot |
+| **Storage File** | Supabase Storage | Bucket privat untuk berkas media |
 | **Auth / Verification** | Google reCAPTCHA v2 | Proteksi endpoint download |
-| **Realtime** | Adaptive HTTP Polling | Kompatibel dengan Vercel (serverless) |
+| **Realtime** | Supabase Realtime (WebSocket) | Perubahan database dikirim ke klien melalui Postgres Changes |
 | **Caching** | In-memory + IndexedDB | Cache media & thumbnail video di client |
 | **Deployment** | Vercel / Suga | Serverless hosting |
 

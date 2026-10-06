@@ -193,6 +193,7 @@ type LocationFields = {
   city: string | null;
   region: string | null;
   country: string | null;
+  postal: string | null;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -215,7 +216,14 @@ function locationFields(
     typeof countryValue === "string" && countryValue.trim()
       ? countryValue.trim()
       : null;
-  return city || region || country ? { city, region, country } : null;
+  const postalValue = value.postal ?? value.postal_code;
+  const postal =
+    typeof postalValue === "string" && postalValue.trim()
+      ? postalValue.trim()
+      : null;
+  return city || region || country || postal
+    ? { city, region, country, postal }
+    : null;
 }
 
 async function fetchLocation(
@@ -258,6 +266,7 @@ async function lookupLocationFields(ip: string): Promise<LocationFields | null> 
             city: data.city,
             region: data.region,
             country: data.country,
+            postal: data.postal,
           }),
   );
   if (!primary && !fallback) {
@@ -269,7 +278,14 @@ async function lookupLocationFields(ip: string): Promise<LocationFields | null> 
     city: primary.city ?? fallback.city,
     region: primary.region ?? fallback.region,
     country: primary.country ?? fallback.country,
+    postal: primary.postal ?? fallback.postal,
   };
+}
+
+export async function lookupLocationDetails(
+  ip: string,
+): Promise<LocationFields | null> {
+  return lookupLocationFields(ip);
 }
 
 export async function lookupLocation(ip: string): Promise<string | null> {

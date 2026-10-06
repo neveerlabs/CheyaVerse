@@ -6,7 +6,7 @@ import {
   LIBRARY_MEDIA_LIMIT,
   updateLibraryNode,
 } from "@/lib/library";
-import { deleteTelegramMessage } from "@/lib/telegram";
+import { deleteUserMediaObject, isUserMediaPath } from "@/lib/supabase-storage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -119,22 +119,23 @@ export async function DELETE(
   if (!deleted.deleted) {
     return NextResponse.json({ error: "Item not found." }, { status: 404 });
   }
-  const telegramCleanup = await Promise.allSettled(
-    deleted.storageMessageIds.map((messageId) => deleteTelegramMessage(messageId)),
+  const storagePaths = deleted.storagePaths.filter((path) => isUserMediaPath(uid, path));
+  const invalidStoragePathCount = deleted.storagePaths.length - storagePaths.length;
+  const storageCleanup = await Promise.allSettled(
+    storagePaths.map((path) => deleteUserMediaObject(uid, path)),
   );
-  const telegramStorageCleanupFailed =
-    telegramCleanup.filter(
-      (result) => result.status === "rejected" || result.value !== true,
-    ).length;
-  if (telegramStorageCleanupFailed) {
+  const storageCleanupFailed =
+    invalidStoragePathCount +
+    storageCleanup.filter((result) => result.status === "rejected").length;
+  if (storageCleanupFailed) {
     console.error(
-      `[library/delete] ${telegramStorageCleanupFailed} Telegram storage message(s) could not be deleted for account ${uid}.`,
+      `[library/delete] ${storageCleanupFailed} Supabase Storage object(s) could not be deleted for account ${uid}.`,
     );
   }
   return NextResponse.json({
     ok: true,
-    storageCleanupFailed: telegramStorageCleanupFailed,
-    telegramStorageCleanupFailed,
+    storageCleanupFailed,
+    telegramStorageCleanupFailed: storageCleanupFailed,
   });
 }
 

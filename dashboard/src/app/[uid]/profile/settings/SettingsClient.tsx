@@ -4,9 +4,11 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { reportClientError } from "@/lib/client-errors";
 import { readApiJson } from "@/lib/read-api-json";
+import { useBackDismiss } from "@/lib/back-dismiss";
 import {
   Calendar,
   Check,
+  ChevronDown,
   ChevronRight,
   Database,
   Github,
@@ -54,6 +56,161 @@ type AccountSettings = {
   createdAt: string | null;
 };
 
+type TelegramHistoryImportMessage = {
+  messageId: number;
+  senderKind: "user" | "bot";
+  senderName: string;
+  content: string;
+  mediaTypes: string[];
+  replyToMessageId: number | null;
+  createdAt: string;
+};
+
+type TelegramHistoryGroup = {
+  groupId: number;
+  groupTitle: string;
+};
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function exportedText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (!Array.isArray(value)) return "";
+  return value.map((part) => {
+    if (typeof part === "string") return part;
+    const item = recordValue(part);
+    return typeof item?.text === "string" ? item.text : "";
+  }).join("");
+}
+
+function exportedMediaType(message: Record<string, unknown>): string | null {
+  const raw = [
+    message.media_type,
+    message.photo ? "photo" : "",
+    message.video_file ? "video" : "",
+    message.video_message ? "video_note" : "",
+    message.voice_message ? "voice" : "",
+    message.audio_file ? "audio" : "",
+    message.sticker_emoji || message.sticker ? "sticker" : "",
+    message.animation ? "animation" : "",
+    message.file ? "document" : "",
+  ].find((value) => typeof value === "string" && value);
+  if (typeof raw !== "string") return null;
+  const normalized = raw.toLowerCase();
+  if (normalized.includes("photo")) return "photo";
+  if (normalized.includes("video_message") || normalized.includes("video_note")) return "video_note";
+  if (normalized.includes("video")) return "video";
+  if (normalized.includes("voice")) return "voice";
+  if (normalized.includes("audio")) return "audio";
+  if (normalized.includes("sticker")) return "sticker";
+  if (normalized.includes("animation") || normalized.includes("gif")) return "animation";
+  if (normalized.includes("document") || normalized.includes("file")) return "document";
+  return null;
+}
+
+function parseTelegramDesktopExport(
+  value: unknown,
+  ownerUid: number,
+  botUid: number | null,
+  targetGroupId: number,
+): TelegramHistoryImportMessage[] {
+  const root = recordValue(value);
+  if (!root || !Array.isArray(root.messages)) {
+    throw new Error("JSON tidak berisi daftar messages dari Telegram Desktop.");
+  }
+  const exportChatId = typeof root.id === "number"
+    ? String(root.id)
+    : typeof root.id === "string" && /^\d+$/.test(root.id)
+      ? root.id
+      : "";
+  const exportType = typeof root.type === "string" ? root.type : "";
+  const targetId = String(targetGroupId).replace(/^-100/, "").replace(/^-/, "");
+  const isSelectedChannelExport =
+    ["private_channel", "public_channel", "channel"].includes(exportType) &&
+    exportChatId !== "" &&
+    exportChatId === targetId;
+  if (
+    ["private_channel", "public_channel", "channel"].includes(exportType) &&
+    !isSelectedChannelExport
+  ) {
+    throw new Error("Export ini bukan dari channel Telegram yang dipilih di atas.");
+  }
+  if (root.messages.length > 100_000) {
+    throw new Error("Export terlalu besar; batas impor adalah 100.000 pesan.");
+  }
+  const imported = new Map<number, TelegramHistoryImportMessage>();
+  let mostRecentOwnerMessageId: number | null = null;
+  for (const candidate of root.messages) {
+    const message = recordValue(candidate);
+    if (!message || message.type !== "message") continue;
+    const id = typeof message.id === "number"
+      ? message.id
+      : typeof message.id === "string" && /^\d+$/.test(message.id)
+        ? Number(message.id)
+        : NaN;
+    if (!Number.isSafeInteger(id) || id <= 0) continue;
+    const fromId = typeof message.from_id === "string"
+      ? message.from_id
+      : typeof message.from_id === "number"
+        ? String(message.from_id)
+        : "";
+    const senderKind = fromId === `user${ownerUid}` ||
+      fromId === String(ownerUid) ||
+      isSelectedChannelExport && fromId === `channel${exportChatId}`
+      ? "user"
+      : botUid !== null && (fromId === `user${botUid}` || fromId === String(botUid))
+        ? "bot"
+        : null;
+    if (!senderKind) continue;
+
+    const mediaType = exportedMediaType(message);
+    const text = exportedText(message.text).trim();
+    if (!text && !mediaType) continue;
+    const content = [
+      text.slice(0, 3600),
+      mediaType ? `[${mediaType}; media file is not included in this text import]` : "",
+    ].filter(Boolean).join("\n").slice(0, 4000);
+    const createdAt = typeof message.date === "string"
+      ? new Date(message.date)
+      : null;
+    if (!createdAt || !Number.isFinite(createdAt.getTime())) continue;
+    const explicitReplyToMessageId = typeof message.reply_to_message_id === "number"
+      ? message.reply_to_message_id
+      : typeof message.reply_to_message_id === "string" &&
+          /^\d+$/.test(message.reply_to_message_id)
+        ? Number(message.reply_to_message_id)
+        : null;
+    const replyToMessageId = explicitReplyToMessageId ??
+      (senderKind === "bot" ? mostRecentOwnerMessageId : null);
+    if (
+      replyToMessageId !== null &&
+      (!Number.isSafeInteger(replyToMessageId) || replyToMessageId <= 0)
+    ) continue;
+    const senderName = senderKind === "bot"
+      ? "Cheya"
+      : typeof message.from === "string"
+        ? message.from.slice(0, 120)
+        : "Admin";
+    imported.set(id, {
+      messageId: id,
+      senderKind,
+      senderName,
+      content,
+      mediaTypes: mediaType ? [mediaType] : [],
+      replyToMessageId,
+      createdAt: createdAt.toISOString(),
+    });
+    if (senderKind === "user") mostRecentOwnerMessageId = id;
+  }
+  return Array.from(imported.values()).sort(
+    (a, b) => a.createdAt.localeCompare(b.createdAt) || a.messageId - b.messageId,
+  );
+}
+
 const DEVICE_ID_KEY = "cheya_device_id";
 const DELETE_CONFIRMATION = "HAPUS AKUN";
 
@@ -69,9 +226,11 @@ function formatDate(value: string): string {
 export function SettingsClient({
   uid,
   initialTab,
+  isConfiguredAdmin,
 }: {
   uid: string;
   initialTab: Tab;
+  isConfiguredAdmin: boolean;
 }) {
   const [tab, setTab] = useState<Tab>(initialTab);
   const [account, setAccount] = useState<AccountSettings | null>(null);
@@ -111,17 +270,35 @@ export function SettingsClient({
   const [githubError, setGithubError] = useState("");
   const [githubNotice, setGithubNotice] = useState("");
   const [aiProviders, setAiProviders] = useState<
-    Array<{ id: string; provider: string; model: string; active: boolean; lastError: string | null }>
+    Array<{ id: string; provider: string; model: string; active: boolean; createdAt: string; lastError: string | null }>
   >([]);
+  const [aiProviderOptions, setAiProviderOptions] = useState<
+    Array<{ value: string; label: string }>
+  >([]);
+  const [aiModels, setAiModels] = useState<Array<{ id: string; name: string }>>([]);
+  const [aiModelsLoading, setAiModelsLoading] = useState(false);
   const [aiForm, setAiForm] = useState({
     provider: "openrouter",
-    model: "openai/gpt-4o-mini",
+    model: "",
     apiKey: "",
+    endpointUrl: "",
   });
   const [aiBusy, setAiBusy] = useState(false);
   const [aiTesting, setAiTesting] = useState(false);
   const [aiError, setAiError] = useState("");
   const [aiNotice, setAiNotice] = useState("");
+  const [telegramHistoryGroups, setTelegramHistoryGroups] = useState<TelegramHistoryGroup[]>([]);
+  const [telegramHistoryGroupId, setTelegramHistoryGroupId] = useState("");
+  const [telegramBotUid, setTelegramBotUid] = useState<number | null>(null);
+  const [telegramHistoryLoading, setTelegramHistoryLoading] = useState(false);
+  const [telegramHistoryBusy, setTelegramHistoryBusy] = useState(false);
+  const [telegramHistoryProgress, setTelegramHistoryProgress] = useState("");
+  const [telegramHistoryError, setTelegramHistoryError] = useState("");
+  const [telegramHistoryNotice, setTelegramHistoryNotice] = useState("");
+  useBackDismiss(Boolean(revokingDevice), () => setRevokingDevice(null), "settings-revoke-device");
+  useBackDismiss(logoutOthersOpen, () => setLogoutOthersOpen(false), "settings-logout-others");
+  useBackDismiss(deleteOpen, () => setDeleteOpen(false), "settings-delete-account");
+  useBackDismiss(githubReplaceOpen, () => setGithubReplaceOpen(false), "settings-github-replace");
 
   const loadAccountSettings = useCallback(async () => {
     setAccountLoading(true);
@@ -299,14 +476,17 @@ export function SettingsClient({
           provider: string;
           model: string;
           active: boolean;
+          createdAt: string;
           lastError: string | null;
         }>;
+        options?: Array<{ value: string; label: string }>;
         error?: string;
       };
       if (!response.ok || !result.ok || !Array.isArray(result.providers)) {
         throw new Error(result.error || "AI providers could not be loaded.");
       }
       setAiProviders(result.providers);
+      if (Array.isArray(result.options)) setAiProviderOptions(result.options);
     } catch (cause) {
       setAiError(
         cause instanceof Error
@@ -316,12 +496,180 @@ export function SettingsClient({
     }
   }, []);
 
+  const loadTelegramHistoryGroups = useCallback(async () => {
+    if (!isConfiguredAdmin) return;
+    setTelegramHistoryLoading(true);
+    setTelegramHistoryError("");
+    try {
+      const response = await fetch("/api/telegram/group-ai/history", {
+        cache: "no-store",
+      });
+      const result = await readApiJson<{
+        ok?: boolean;
+        error?: string;
+        groups?: TelegramHistoryGroup[];
+        botId?: number | null;
+      }>(response);
+      if (!response.ok || !result.ok || !Array.isArray(result.groups)) {
+        throw new Error(result.error || "Grup Telegram AI tidak dapat dimuat.");
+      }
+      setTelegramHistoryGroups(result.groups);
+      setTelegramBotUid(
+        typeof result.botId === "number" && Number.isSafeInteger(result.botId)
+          ? result.botId
+          : null,
+      );
+      setTelegramHistoryGroupId((current) =>
+        result.groups?.some((group) => String(group.groupId) === current)
+          ? current
+          : String(result.groups?.[0]?.groupId ?? ""),
+      );
+    } catch (cause) {
+      setTelegramHistoryError(
+        cause instanceof Error
+          ? cause.message
+          : "Grup Telegram AI tidak dapat dimuat.",
+      );
+    } finally {
+      setTelegramHistoryLoading(false);
+    }
+  }, [isConfiguredAdmin]);
+
+  async function importTelegramHistoryFile(file: File) {
+    if (telegramHistoryBusy) return;
+    setTelegramHistoryError("");
+    setTelegramHistoryNotice("");
+    setTelegramHistoryProgress("");
+    if (file.size > 50 * 1024 * 1024) {
+      setTelegramHistoryError("Ukuran export melebihi batas 50 MiB.");
+      return;
+    }
+    if (!telegramHistoryGroupId) {
+      setTelegramHistoryError("Pilih grup Telegram AI yang akan diisi.");
+      return;
+    }
+
+    setTelegramHistoryBusy(true);
+    let importedCount = 0;
+    try {
+      let exportData: unknown;
+      try {
+        exportData = JSON.parse(await file.text());
+      } catch {
+        throw new Error("File bukan JSON export Telegram Desktop yang valid.");
+      }
+      const entries = parseTelegramDesktopExport(
+        exportData,
+        Number(uid),
+        telegramBotUid,
+        Number(telegramHistoryGroupId),
+      );
+      if (entries.length === 0) {
+        throw new Error(
+          "Tidak ditemukan pesan teks/media dari akun admin atau bot ini. Pastikan export memakai format JSON dan pilih chat yang benar.",
+        );
+      }
+      for (let offset = 0; offset < entries.length; offset += 100) {
+        const batch = entries.slice(offset, offset + 100);
+        setTelegramHistoryProgress(
+          `Menyimpan riwayat Telegram… ${Math.min(offset + batch.length, entries.length)} dari ${entries.length}`,
+        );
+        const response = await fetch("/api/telegram/group-ai/history", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            groupId: Number(telegramHistoryGroupId),
+            messages: batch,
+          }),
+          cache: "no-store",
+        });
+        const result = await readApiJson<{
+          ok?: boolean;
+          error?: string;
+          imported?: number;
+        }>(response);
+        if (
+          !response.ok ||
+          !result.ok ||
+          result.imported !== batch.length
+        ) {
+          throw new Error(
+            result.error || "Sebagian riwayat Telegram gagal disimpan.",
+          );
+        }
+        importedCount += result.imported;
+      }
+      setTelegramHistoryNotice(
+        `${importedCount} pesan lama berhasil diimpor. Pesan tersebut sekarang dapat ditemukan lewat pencarian memori AI.`,
+      );
+      setTelegramHistoryProgress("");
+    } catch (cause) {
+      setTelegramHistoryError(
+        `${cause instanceof Error ? cause.message : "Riwayat Telegram gagal diimpor."}${
+          importedCount
+            ? ` ${importedCount} pesan sudah tersimpan; impor dapat diulangi dengan aman.`
+            : ""
+        }`,
+      );
+    } finally {
+      setTelegramHistoryBusy(false);
+    }
+  }
+
+  async function loadAiModels() {
+    if (aiModelsLoading) return;
+    setAiModelsLoading(true);
+    setAiError("");
+    setAiNotice("");
+    try {
+      const response = await fetch("/api/ai/providers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "models",
+          provider: aiForm.provider,
+          apiKey: aiForm.apiKey,
+          endpointUrl: aiForm.endpointUrl,
+        }),
+        cache: "no-store",
+      });
+      const result = await readApiJson<{
+        ok?: boolean;
+        error?: string;
+        models?: Array<{ id: string; name: string }>;
+      }>(response);
+      if (!response.ok || !result.ok || !Array.isArray(result.models)) {
+        throw new Error(result.error || "AI models could not be loaded.");
+      }
+      setAiModels(result.models);
+      if (result.models.length === 0) {
+        throw new Error("The provider returned no models available to this API key.");
+      }
+      setAiForm((current) => ({
+        ...current,
+        model: result.models?.some((model) => model.id === current.model)
+          ? current.model
+          : result.models?.[0]?.id ?? "",
+      }));
+      setAiNotice(`${result.models.length} available models loaded.`);
+    } catch (cause) {
+      setAiModels([]);
+      setAiForm((current) => ({ ...current, model: "" }));
+      setAiError(
+        cause instanceof Error ? cause.message : "AI models could not be loaded.",
+      );
+    } finally {
+      setAiModelsLoading(false);
+    }
+  }
+
   useEffect(() => {
     if (tab === "github") {
       void loadGitHubSettings();
       void loadAiProviders();
+      if (isConfiguredAdmin) void loadTelegramHistoryGroups();
     }
-  }, [tab, loadGitHubSettings, loadAiProviders]);
+  }, [tab, loadGitHubSettings, loadAiProviders, isConfiguredAdmin, loadTelegramHistoryGroups]);
 
   async function connectGitHub() {
     if (githubBusy || !githubToken.trim()) return;
@@ -386,7 +734,13 @@ export function SettingsClient({
   }
 
   async function testAiProviderConnection() {
-    if (aiTesting || aiBusy || !aiForm.provider || !aiForm.model || !aiForm.apiKey.trim()) {
+    if (
+      aiTesting ||
+      aiBusy ||
+      !aiForm.provider ||
+      !aiForm.model ||
+      (aiForm.provider !== "local" && !aiForm.apiKey.trim())
+    ) {
       return;
     }
     setAiTesting(true);
@@ -401,6 +755,7 @@ export function SettingsClient({
           provider: aiForm.provider,
           model: aiForm.model,
           apiKey: aiForm.apiKey,
+          endpointUrl: aiForm.endpointUrl,
         }),
         cache: "no-store",
       });
@@ -423,7 +778,12 @@ export function SettingsClient({
   }
 
   async function saveAiProviderConnection() {
-    if (aiBusy || !aiForm.provider || !aiForm.model || !aiForm.apiKey.trim()) {
+    if (
+      aiBusy ||
+      !aiForm.provider ||
+      !aiForm.model ||
+      (aiForm.provider !== "local" && !aiForm.apiKey.trim())
+    ) {
       return;
     }
     setAiBusy(true);
@@ -437,6 +797,7 @@ export function SettingsClient({
           provider: aiForm.provider,
           model: aiForm.model,
           apiKey: aiForm.apiKey,
+          endpointUrl: aiForm.endpointUrl,
           active: true,
         }),
         cache: "no-store",
@@ -524,9 +885,6 @@ export function SettingsClient({
       );
       setRevokingDevice(null);
       if (current) {
-        try {
-          window.localStorage.removeItem(DEVICE_ID_KEY);
-        } catch {}
         window.location.replace("/blocked");
       }
     } catch (cause) {
@@ -596,9 +954,6 @@ export function SettingsClient({
             : "Akun tidak dapat dihapus. Silakan coba kembali.",
         );
       }
-      try {
-        window.localStorage.removeItem(DEVICE_ID_KEY);
-      } catch {}
       setDeleteOpen(false);
       setDeleteText("");
       setNotice(
@@ -1082,7 +1437,7 @@ export function SettingsClient({
           <SettingsSection title="AI assistants">
             <div className="p-4">
               <p className="text-[11.5px] leading-relaxed text-ink-mute">
-                Tambahkan API key provider AI untuk aktifkan respon otomatis di chat. Sistem akan mencoba provider yang aktif secara berurutan dan otomatis berpindah ke provider berikutnya jika salah satu gagal.
+                Pilih provider, masukkan API key, lalu muat daftar model provider untuk memilih model dari dropdown. Sistem mencoba provider aktif berurutan dan berpindah ke provider berikutnya jika salah satu gagal.
               </p>
               {aiError && (
                 <p role="alert" className="mt-3 rounded-xl border border-red-100 bg-red-50 px-3 py-2.5 text-[11px] text-danger">
@@ -1095,43 +1450,127 @@ export function SettingsClient({
                 </p>
               )}
 
-              <div className="mt-4 grid gap-3 sm:grid-cols-[180px_minmax(0,1fr)]">
+              <div className="mt-4 grid min-w-0 gap-3 sm:grid-cols-2">
                 <label className="block text-[11px] font-semibold text-ink-soft">
                   Provider
-                  <select
-                    value={aiForm.provider}
-                    onChange={(event) =>
-                      setAiForm((current) => ({ ...current, provider: event.target.value }))
-                    }
-                    className="mt-1.5 w-full rounded-2xl border border-line bg-[#fafafa] px-3 py-2.5 text-[12px] text-ink outline-none focus:border-[#a5a5a5]"
-                  >
-                    <option value="openrouter">OpenRouter</option>
-                    <option value="openai">OpenAI</option>
-                    <option value="gemini">Gemini</option>
-                  </select>
+                  <span className="relative mt-1.5 block">
+                    <select
+                      value={aiForm.provider}
+                      onChange={(event) => {
+                        setAiModels([]);
+                        setAiForm((current) => ({
+                          ...current,
+                          provider: event.target.value,
+                          model: "",
+                          apiKey: "",
+                        }));
+                      }}
+                      className="h-12 w-full min-w-0 appearance-none truncate rounded-2xl border border-line bg-white px-4 pr-11 text-[12px] font-medium text-ink shadow-sm outline-none transition focus:border-violet-300 focus:ring-4 focus:ring-violet-100"
+                    >
+                      {aiProviderOptions.map((provider) => (
+                        <option key={provider.value} value={provider.value}>
+                          {provider.label}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown
+                      size={16}
+                      aria-hidden="true"
+                      className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-ink-mute"
+                    />
+                  </span>
                 </label>
-                <label className="block text-[11px] font-semibold text-ink-soft">
-                  Model
-                  <input
-                    value={aiForm.model}
-                    onChange={(event) =>
-                      setAiForm((current) => ({ ...current, model: event.target.value }))
-                    }
-                    placeholder="openai/gpt-4o-mini"
-                    className="mt-1.5 w-full rounded-2xl border border-line bg-[#fafafa] px-3 py-2.5 text-[12px] text-ink outline-none placeholder:text-ink-mute focus:border-[#a5a5a5]"
-                  />
-                </label>
+                <div className="block min-w-0 text-[11px] font-semibold text-ink-soft">
+                  <label htmlFor="ai-model">Model</label>
+                  <div className="mt-1.5 flex min-w-0 gap-2">
+                    <span className="relative min-w-0 flex-1">
+                      <select
+                        id="ai-model"
+                        value={aiForm.model}
+                        onChange={(event) =>
+                          setAiForm((current) => ({ ...current, model: event.target.value }))
+                        }
+                        disabled={aiModelsLoading || aiModels.length === 0}
+                        className="h-12 w-full min-w-0 appearance-none truncate rounded-2xl border border-line bg-white px-4 pr-11 text-[12px] font-medium text-ink shadow-sm outline-none transition focus:border-violet-300 focus:ring-4 focus:ring-violet-100 disabled:cursor-not-allowed disabled:bg-[#f5f5f7] disabled:text-ink-mute"
+                      >
+                        <option value="">
+                          {aiModelsLoading
+                            ? "Loading models…"
+                            : aiModels.length
+                              ? "Select a model"
+                              : "Load models first"}
+                        </option>
+                        {aiModels.map((model) => (
+                          <option key={model.id} value={model.id}>
+                            {model.name === model.id
+                              ? model.id
+                              : `${model.name} · ${model.id}`}
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronDown
+                        size={16}
+                        aria-hidden="true"
+                        className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-ink-mute"
+                      />
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => void loadAiModels()}
+                      disabled={aiModelsLoading || aiTesting || aiBusy}
+                      className="shrink-0 rounded-2xl border border-line bg-white px-3 text-[10.5px] font-semibold text-ink-soft shadow-sm transition hover:border-violet-200 hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {aiModelsLoading ? "Loading…" : aiModels.length ? "Refresh" : "Load"}
+                    </button>
+                  </div>
+                  <p className="mt-1.5 min-h-4 text-[10px] font-normal text-ink-mute">
+                    {aiModels.length
+                      ? `${aiModels.length} models available`
+                      : "Load the models available to this provider"}
+                  </p>
+                </div>
               </div>
 
+              {aiForm.provider === "local" && (
+                <>
+                  <label className="mt-3 block text-[11px] font-semibold text-ink-soft">
+                    Local OpenAI-compatible base URL
+                    <input
+                      value={aiForm.endpointUrl}
+                      onChange={(event) => {
+                        setAiModels([]);
+                        setAiForm((current) => ({
+                          ...current,
+                          endpointUrl: event.target.value,
+                          model: "",
+                        }));
+                      }}
+                      placeholder="http://localhost:11434/v1"
+                      inputMode="url"
+                      autoComplete="url"
+                      className="mt-1.5 w-full rounded-2xl border border-line bg-[#fafafa] px-3 py-2.5 text-[12px] text-ink outline-none placeholder:text-ink-mute focus:border-[#a5a5a5]"
+                    />
+                  </label>
+                  <p className="mt-1.5 text-[10.5px] leading-relaxed text-amber-800">
+                    Local requests run from the CheyaVerse server and are restricted to localhost/loopback for safety. A deployed server cannot reach localhost on your phone or computer; use this with a self-hosted CheyaVerse server running beside your local model (for example Ollama).
+                  </p>
+                </>
+              )}
+
               <label className="mt-3 block text-[11px] font-semibold text-ink-soft">
-                API key
+                API key{aiForm.provider === "local" ? " (optional)" : ""}
                 <input
                   type="password"
                   value={aiForm.apiKey}
-                  onChange={(event) =>
-                    setAiForm((current) => ({ ...current, apiKey: event.target.value }))
-                  }
-                  placeholder="sk-... / AIza..."
+                  onChange={(event) => {
+                    setAiModels([]);
+                    setAiForm((current) => ({
+                    ...current,
+                    apiKey: event.target.value,
+                    model: "",
+                    }));
+                  }}
+                  placeholder={aiForm.provider === "local" ? "Optional endpoint key" : "Provider API key"}
                   className="mt-1.5 w-full rounded-2xl border border-line bg-[#fafafa] px-3 py-2.5 text-[12px] text-ink outline-none placeholder:text-ink-mute focus:border-[#a5a5a5]"
                 />
               </label>
@@ -1160,7 +1599,7 @@ export function SettingsClient({
                   <p className="text-[10.5px] font-semibold uppercase tracking-[.08em] text-ink-mute">
                     Saved providers
                   </p>
-                  {aiProviders.map((provider) => (
+                  {aiProviders.map((provider, index) => (
                     <div
                       key={provider.id}
                       className="flex items-center justify-between gap-3 rounded-2xl border border-line bg-[#fafafa] px-3 py-2.5"
@@ -1168,6 +1607,9 @@ export function SettingsClient({
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 text-[12px] font-semibold text-ink">
                           <span className="capitalize">{provider.provider}</span>
+                          <span className="rounded-full border border-slate-200 bg-white px-1.5 py-0.5 text-[9px] font-semibold text-ink-mute">
+                            API key {index === 0 ? "· newest" : `· ${index + 1}`}
+                          </span>
                           <span className="rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[.08em] text-emerald-700">
                             {provider.active ? "Active" : "Paused"}
                           </span>
@@ -1190,6 +1632,88 @@ export function SettingsClient({
               )}
             </div>
           </SettingsSection>
+
+          {isConfiguredAdmin && (
+            <SettingsSection title="Telegram AI memory">
+              <div className="p-4">
+                <div className="flex items-start gap-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[15px] bg-violet-50 text-violet-700">
+                    <Database size={19} />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <h3 className="text-[13px] font-semibold text-ink">
+                      Import older Telegram history
+                    </h3>
+                    <p className="mt-1 text-[11px] leading-relaxed text-ink-mute">
+                      Telegram Bot API tidak dapat mengambil pesan sebelum bot mulai menerimanya. Impor JSON dari Telegram Desktop agar teks pesan lama bisa dicari dan dipakai sebagai konteks AI.
+                    </p>
+                  </div>
+                </div>
+
+                {telegramHistoryError && (
+                  <p role="alert" className="mt-3 rounded-xl border border-red-100 bg-red-50 px-3 py-2.5 text-[11px] text-danger">
+                    {telegramHistoryError}
+                  </p>
+                )}
+                {telegramHistoryNotice && (
+                  <p role="status" className="mt-3 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2.5 text-[11px] text-emerald-800">
+                    {telegramHistoryNotice}
+                  </p>
+                )}
+
+                <label className="mt-4 block text-[11px] font-semibold text-ink-soft">
+                  Destination Telegram group/channel
+                  <select
+                    value={telegramHistoryGroupId}
+                    onChange={(event) => setTelegramHistoryGroupId(event.target.value)}
+                    disabled={telegramHistoryLoading || telegramHistoryBusy || telegramHistoryGroups.length === 0}
+                    className="mt-1.5 h-11 w-full rounded-2xl border border-line bg-white px-3 text-[12px] text-ink outline-none focus:border-violet-300 disabled:opacity-60"
+                  >
+                    <option value="">
+                      {telegramHistoryLoading
+                        ? "Loading your enabled groups…"
+                        : telegramHistoryGroups.length
+                          ? "Select a group"
+                          : "No enabled groups are configured"}
+                    </option>
+                    {telegramHistoryGroups.map((group) => (
+                      <option key={group.groupId} value={String(group.groupId)}>
+                        {group.groupTitle || `Telegram group ${group.groupId}`}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="mt-3 block text-[11px] font-semibold text-ink-soft">
+                  Telegram Desktop JSON export
+                  <input
+                    type="file"
+                    accept=".json,application/json"
+                    disabled={telegramHistoryBusy || !telegramHistoryGroupId}
+                    onChange={(event) => {
+                      const file = event.currentTarget.files?.[0];
+                      event.currentTarget.value = "";
+                      if (file) void importTelegramHistoryFile(file);
+                    }}
+                    className="mt-1.5 block w-full cursor-pointer rounded-2xl border border-dashed border-line bg-[#fafafa] px-3 py-3 text-[11px] text-ink-soft file:mr-3 file:rounded-full file:border-0 file:bg-ink file:px-3 file:py-2 file:text-[10px] file:font-semibold file:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  />
+                </label>
+                <p className="mt-2 text-[10px] leading-relaxed text-ink-mute">
+                  Pilih export chat/channel Telegram Desktop berformat JSON (maks. 50 MiB). Pemilahan pesan dilakukan di browser; hanya teks dan penanda jenis media yang dikirim untuk disimpan. File media tidak diunggah. Pesan yang pengirimnya tidak dapat dicocokkan dengan akun admin atau bot akan dilewati.
+                </p>
+                {telegramBotUid === null && (
+                  <p className="mt-2 text-[10px] leading-relaxed text-amber-800">
+                    Identitas bot belum tersedia dari konfigurasi server; pesan admin masih bisa diimpor, tetapi balasan bot tidak akan ikut terpilih.
+                  </p>
+                )}
+                {telegramHistoryProgress && (
+                  <p role="status" className="mt-3 text-[11px] font-medium text-violet-700">
+                    {telegramHistoryProgress}
+                  </p>
+                )}
+              </div>
+            </SettingsSection>
+          )}
 
           <p className="px-3 text-[10.5px] leading-relaxed text-ink-mute">
             Revoke the token on GitHub at any time. Disconnecting here deletes

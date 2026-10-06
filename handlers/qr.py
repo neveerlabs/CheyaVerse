@@ -16,7 +16,7 @@ from aiogram.types import (
 )
 from PIL import Image, ImageDraw
 import storage
-from config import MEDIA_TTL_DAYS, PUBLIC_URL, TELEGRAM_STORAGE_CHAT_ID
+from config import MEDIA_TTL_DAYS, PUBLIC_URL, TELEGRAM_BOT_API_URL
 from logger import logger
 
 router = Router(name="qr")
@@ -34,7 +34,8 @@ QR_BOX_SIZE = 14
 QR_BORDER = 4
 QR_DOT_RATIO = 0.90
 LOGO_SCALE = 0.20
-MAX_FILE_BYTES = 15 * 1024 * 1024
+MAX_FILE_BYTES = 50 * 1024 * 1024
+TELEGRAM_CLOUD_DOWNLOAD_LIMIT_BYTES = 20 * 1024 * 1024
 OUTPUT_FILENAME = "barcode.jpg"
 USAGE_TEXT = "Usage: /qr <text> or send a photo/video with caption /qr"
 COPY_BUTTON_LABEL = "Copy URL"
@@ -42,6 +43,14 @@ COPY_BUTTON_LABEL = "Copy URL"
 _GROUP_CACHE: dict[str, list[Message]] = {}
 _GROUP_TASKS: dict[str, asyncio.Task] = {}
 _GROUP_DELAY = 1.5
+
+
+class _LimitedBytesIO(io.BytesIO):
+    def write(self, data: bytes) -> int:
+        if self.tell() + len(data) > MAX_FILE_BYTES:
+            raise ValueError(f"File too large: more than {MAX_FILE_BYTES} bytes")
+        return super().write(data)
+
 
 def required_assets() -> list[Path]:
     return [BACKGROUND_PATH, LOGO_PATH]
@@ -270,6 +279,31 @@ async def _handle_media(message: Message, file_id: str, kind: str, ext: str) -> 
     label = user.username or user.full_name or str(user.id)
     owner_id = user.id
 
+    telegram_file_size = (
+        message.video.file_size
+        if message.video
+        else message.photo[-1].file_size
+        if message.photo
+        else None
+    )
+    if (
+        not TELEGRAM_BOT_API_URL
+        and telegram_file_size is not None
+        and telegram_file_size > TELEGRAM_CLOUD_DOWNLOAD_LIMIT_BYTES
+    ):
+        try:
+            await message.answer(
+                "Telegram's hosted Bot API can download files up to 20 MiB. "
+                "Configure TELEGRAM_BOT_API_URL with a local Bot API server to use "
+                "the 50 MiB per-file limit.",
+                parse_mode=None,
+                reply_parameters=ReplyParameters(message_id=message.message_id),
+            )
+        except Exception as exc:
+            logger.error(f"Failed to explain Telegram download limit: {exc}")
+        return
+
+    object_path: str | None = None
     try:
         tg_file = await message.bot.get_file(file_id)
         if tg_file.file_size and tg_file.file_size > MAX_FILE_BYTES:
@@ -277,41 +311,34 @@ async def _handle_media(message: Message, file_id: str, kind: str, ext: str) -> 
         if not tg_file.file_path:
             raise ValueError("Telegram returned empty file_path")
 
-        if not TELEGRAM_STORAGE_CHAT_ID:
-            raise ValueError("TELEGRAM_STORAGE_CHAT_ID is not configured")
-
-        if kind == "photo":
-            sent = await message.bot.send_photo(
-                chat_id=TELEGRAM_STORAGE_CHAT_ID,
-                photo=file_id,
-            )
-            if not sent.photo:
-                raise ValueError("Telegram returned empty photo")
-            storage_file_id = sent.photo[-1].file_id
-        elif kind == "video":
-            sent = await message.bot.send_video(
-                chat_id=TELEGRAM_STORAGE_CHAT_ID,
-                video=file_id,
-            )
-            if not sent.video:
-                raise ValueError("Telegram returned empty video")
-            storage_file_id = sent.video.file_id
-        else:
+        if kind not in {"photo", "video"}:
             raise ValueError(f"Unsupported media kind: {kind}")
+
+        downloaded = _LimitedBytesIO()
+        await message.bot.download_file(tg_file.file_path, destination=downloaded)
+        content = downloaded.getvalue()
+        if len(content) > MAX_FILE_BYTES:
+            raise ValueError(f"File too large: {len(content)} bytes")
 
         filename = _derive_filename(message, kind, ext)
         content_type = _content_type_for(kind, ext)
-
         media_id = await storage.generate_unique_id()
+        object_path = await storage.upload_media_object(
+            owner_id,
+            media_id,
+            filename,
+            content,
+            content_type,
+        )
 
         row = {
             "id": media_id,
             "owner_id": owner_id,
             "filename": filename,
-            "storage_path": storage_file_id,
-            "storage_message_id": sent.message_id,
+            "storage_path": object_path,
+            "storage_message_id": None,
             "content_type": content_type,
-            "file_size": tg_file.file_size or 0,
+            "file_size": len(content),
             "expires_at": _expires_at_iso(),
         }
 
@@ -319,13 +346,23 @@ async def _handle_media(message: Message, file_id: str, kind: str, ext: str) -> 
         qr_payload = _build_viewer_url(media_id)
 
     except ValueError as exc:
+        if object_path:
+            try:
+                await storage.delete_media_object(object_path)
+            except Exception as cleanup_exc:
+                logger.error(f"Failed to clean up rejected media object: {cleanup_exc}")
         logger.error(f"Media ({kind}) validation failed for {label}: {exc}")
         try:
-            await message.answer("File too large. Maximum size is 5 MB.", parse_mode=None, reply_parameters=ReplyParameters(message_id=message.message_id))
+            await message.answer("File too large. Maximum size is 50 MB.", parse_mode=None, reply_parameters=ReplyParameters(message_id=message.message_id))
         except Exception as e:
             logger.error(f"Fallback ({kind}) failed: {e}")
         return
     except Exception as exc:
+        if object_path:
+            try:
+                await storage.delete_media_object(object_path)
+            except Exception as cleanup_exc:
+                logger.error(f"Failed to clean up unregistered media object: {cleanup_exc}")
         logger.error(f"Failed to upload {kind} for {label}: {exc}")
         try:
             await message.answer("Unable to upload this file, please try again later.", parse_mode=None, reply_parameters=ReplyParameters(message_id=message.message_id))

@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { getUserSession, hasValidSameOrigin } from "@/lib/auth-request";
 import { getLibraryNode, setLibraryThumbnailStorage } from "@/lib/library";
 import {
-  deleteTelegramMessage,
-  fetchTelegramFile,
-  uploadDocumentToStorage,
-} from "@/lib/telegram";
+  deleteUserMediaObject,
+  fetchUserMediaObject,
+  isUserMediaPath,
+  uploadUserMediaObject,
+} from "@/lib/supabase-storage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,17 +29,22 @@ export async function GET(
     return new NextResponse(null, { status: 404 });
   }
   if (node.thumbnail_file_id) {
-    const upstream = await fetchTelegramFile(node.thumbnail_file_id);
-    if (!upstream?.body) {
+    try {
+      const upstream = await fetchUserMediaObject(uid, node.thumbnail_file_id);
+      if (!upstream.ok || !upstream.body) {
+        return NextResponse.json({ error: "Thumbnail is temporarily unavailable." }, { status: 502 });
+      }
+      return new NextResponse(upstream.body, {
+        headers: {
+          "Content-Type": "image/jpeg",
+          "Cache-Control": "private, max-age=3600",
+          "X-Content-Type-Options": "nosniff",
+        },
+      });
+    } catch (error) {
+      console.error("[library/thumbnail] Thumbnail fetch failed:", error);
       return NextResponse.json({ error: "Thumbnail is temporarily unavailable." }, { status: 502 });
     }
-    return new NextResponse(upstream.body, {
-      headers: {
-        "Content-Type": "image/jpeg",
-        "Cache-Control": "private, max-age=3600",
-        "X-Content-Type-Options": "nosniff",
-      },
-    });
   }
   if (!node.thumbnail_content) return new NextResponse(null, { status: 404 });
   const bytes = Buffer.from(node.thumbnail_content, "base64");
@@ -82,33 +88,43 @@ export async function PUT(
   if (bytes.length === 0 || bytes.length > MAX_THUMBNAIL_BYTES) {
     return NextResponse.json({ error: "Thumbnail is too large." }, { status: 413 });
   }
-  const uploaded = await uploadDocumentToStorage(
-    new Blob([bytes], { type: "image/jpeg" }),
-    `${node.id}-thumbnail.jpg`,
-  );
-  if (!uploaded) {
+  let storagePath: string;
+  try {
+    storagePath = await uploadUserMediaObject(
+      uid,
+      "library-thumbnails",
+      new Blob([bytes], { type: "image/jpeg" }),
+      `${node.id}-thumbnail.jpg`,
+      "image/jpeg",
+    );
+  } catch (error) {
+    console.error("[library/thumbnail] Supabase Storage upload failed:", error);
     return NextResponse.json({ error: "Thumbnail could not be saved." }, { status: 503 });
   }
   try {
     const saved = await setLibraryThumbnailStorage(
       uid,
       params.id,
-      uploaded.file_id,
-      uploaded.message_id,
+      storagePath,
+      null,
     );
     if (!saved) {
-      await deleteTelegramMessage(uploaded.message_id);
+      await deleteUserMediaObject(uid, storagePath).catch((error) => {
+        console.error("[library/thumbnail] Storage rollback failed:", error);
+      });
       return NextResponse.json({ error: "Thumbnail could not be saved." }, { status: 500 });
+    }
+    if (node.thumbnail_file_id && isUserMediaPath(uid, node.thumbnail_file_id)) {
+      await deleteUserMediaObject(uid, node.thumbnail_file_id).catch((error) => {
+        console.error("[library/thumbnail] Previous thumbnail cleanup failed:", error);
+      });
     }
     return NextResponse.json({ ok: true });
   } catch (error) {
-    const cleanedUp = await deleteTelegramMessage(uploaded.message_id);
-    if (!cleanedUp) {
-      console.error(
-        `[library/thumbnail] Telegram storage message ${uploaded.message_id} could not be cleaned up after metadata save failed.`,
-      );
-    }
-    console.error("[library/thumbnail] Could not save Telegram thumbnail metadata:", error);
+    await deleteUserMediaObject(uid, storagePath).catch((cleanupError) => {
+      console.error("[library/thumbnail] Storage object cleanup failed:", cleanupError);
+    });
+    console.error("[library/thumbnail] Could not save thumbnail metadata:", error);
     return NextResponse.json({ error: "Thumbnail could not be saved." }, { status: 500 });
   }
 }

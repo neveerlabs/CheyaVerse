@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Trash2, X } from "lucide-react";
+import { useBackDismiss } from "@/lib/back-dismiss";
 
 type Props = {
   open: boolean;
@@ -25,6 +26,7 @@ export function ClearChatsDialog({
   onConfirm,
 }: Props) {
   const [forEveryone, setForEveryone] = useState(false);
+  useBackDismiss(open, onClose, "clear-chats");
 
   useEffect(() => {
     if (open) setForEveryone(false);

@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { hasValidSameOrigin } from "@/lib/auth-request";
 import {
   SESSION_COOKIE_NAME,
+  readSessionToken,
 } from "@/lib/session-token";
+import { setDeviceAccountState } from "@/lib/storage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,6 +12,19 @@ export const dynamic = "force-dynamic";
 export async function POST(request: NextRequest) {
   if (!hasValidSameOrigin(request)) {
     return NextResponse.json({ ok: false, error: "invalid_origin" }, { status: 403 });
+  }
+  const session = readSessionToken(
+    request.cookies.get(SESSION_COOKIE_NAME)?.value,
+  );
+  if (session?.deviceId) {
+    try {
+      await setDeviceAccountState(session.deviceId, null);
+    } catch (error) {
+      console.error(
+        `[session/logout] could not mark DeviceID ${session.deviceId} as signed out:`,
+        error,
+      );
+    }
   }
   const response = NextResponse.json({ ok: true });
   response.cookies.set(SESSION_COOKIE_NAME, "", {

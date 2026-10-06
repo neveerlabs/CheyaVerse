@@ -156,16 +156,17 @@ function playSynthReceive() {
   else void c.resume().then(play).catch(() => {});
 }
 
-type SoundKey = "sent" | "received" | "notification";
+type SoundKey = "sent" | "received";
 
 const SOUND_URLS: Record<SoundKey, string> = {
   sent: "/sounds/sent.mp3",
   received: "/sounds/received.mp3",
-  notification: "/sounds/notification.mp3",
 };
 
 const audioCache = new Map<SoundKey, HTMLAudioElement>();
 const failedSounds = new Set<SoundKey>();
+const playedSystemSoundIds = new Set<string>();
+const systemSoundCorrelationTimes = new Map<string, number>();
 
 function preloadSounds() {
   if (typeof window === "undefined") return;
@@ -220,7 +221,25 @@ export function playReceiveSound() {
   playSynthReceive();
 }
 
-export function playReceiveSoundOutside() {
-  if (tryPlayAudio("notification", playSynthReceive)) return;
-  playSynthReceive();
+export function playSystemReceiveSoundOnce(
+  id: string,
+  correlationKey?: string,
+): void {
+  if (!id || playedSystemSoundIds.has(id)) return;
+  playedSystemSoundIds.add(id);
+  if (playedSystemSoundIds.size > 200) {
+    const oldestId = playedSystemSoundIds.values().next().value;
+    if (oldestId) playedSystemSoundIds.delete(oldestId);
+  }
+  if (correlationKey) {
+    const now = Date.now();
+    const previousTime = systemSoundCorrelationTimes.get(correlationKey);
+    systemSoundCorrelationTimes.set(correlationKey, now);
+    if (systemSoundCorrelationTimes.size > 200) {
+      const oldestKey = systemSoundCorrelationTimes.keys().next().value;
+      if (oldestKey) systemSoundCorrelationTimes.delete(oldestKey);
+    }
+    if (previousTime !== undefined && now - previousTime < 2_000) return;
+  }
+  playReceiveSound();
 }

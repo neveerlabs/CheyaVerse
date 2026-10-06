@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { getTurso } from "@/lib/turso";
+import { getDatabase } from "@/lib/database";
 
 export const LIBRARY_MEDIA_LIMIT = 4 * 1024 * 1024;
 
@@ -45,7 +45,7 @@ function mapNode(row: Record<string, unknown>): LibraryNode {
 }
 
 async function ensureLibraryTable(): Promise<void> {
-  await getTurso().execute(`
+  await getDatabase().execute(`
     CREATE TABLE IF NOT EXISTS library_nodes (
       id TEXT PRIMARY KEY,
       owner_uid INTEGER NOT NULL,
@@ -64,7 +64,7 @@ async function ensureLibraryTable(): Promise<void> {
       updated_at INTEGER NOT NULL
     )
   `);
-  const columns = await getTurso().execute("PRAGMA table_info(library_nodes)");
+  const columns = await getDatabase().execute("PRAGMA table_info(library_nodes)");
   const existingColumns = new Set(
     columns.rows.map((row) => String(row.name ?? "")),
   );
@@ -76,16 +76,16 @@ async function ensureLibraryTable(): Promise<void> {
     ["storage_message_id", "INTEGER"],
   ] as const) {
     if (!existingColumns.has(name)) {
-      await getTurso().execute(
+      await getDatabase().execute(
         `ALTER TABLE library_nodes ADD COLUMN ${name} ${definition}`,
       );
     }
   }
-  await getTurso().execute(
+  await getDatabase().execute(
     "CREATE INDEX IF NOT EXISTS library_nodes_owner_parent ON library_nodes(owner_uid, parent_id)",
   );
-  await getTurso().execute(
-    "CREATE UNIQUE INDEX IF NOT EXISTS library_nodes_unique_location ON library_nodes(owner_uid, COALESCE(parent_id, ''), name COLLATE NOCASE)",
+  await getDatabase().execute(
+    "CREATE UNIQUE INDEX IF NOT EXISTS library_nodes_unique_location ON library_nodes(owner_uid, COALESCE(parent_id, ''), lower(name))",
   );
 }
 
@@ -94,7 +94,7 @@ async function assertParentFolder(
   parentId: string | null,
 ): Promise<void> {
   if (parentId === null) return;
-  const result = await getTurso().execute({
+  const result = await getDatabase().execute({
     sql: "SELECT id FROM library_nodes WHERE id = ? AND owner_uid = ? AND kind = 'folder' LIMIT 1",
     args: [parentId, ownerUid],
   });
@@ -107,9 +107,9 @@ async function assertUniqueName(
   name: string,
   exceptId?: string,
 ): Promise<void> {
-  const result = await getTurso().execute({
+  const result = await getDatabase().execute({
     sql: `SELECT id FROM library_nodes
-          WHERE owner_uid = ? AND parent_id IS ? AND name = ? COLLATE NOCASE AND id != ?
+          WHERE owner_uid = ? AND parent_id IS NOT DISTINCT FROM ? AND lower(name) = lower(?) AND id != ?
           LIMIT 1`,
     args: [ownerUid, parentId, name, exceptId ?? ""],
   });
@@ -132,11 +132,11 @@ export async function listLibraryNodes(
 ): Promise<LibraryNode[]> {
   await ensureLibraryTable();
   if (parentId !== null) await assertParentFolder(ownerUid, parentId);
-  const result = await getTurso().execute({
+  const result = await getDatabase().execute({
     sql: `SELECT id, parent_id, kind, name, content_type, file_size, created_at, updated_at
           FROM library_nodes
           WHERE owner_uid = ? AND parent_id IS ?
-          ORDER BY CASE kind WHEN 'folder' THEN 0 ELSE 1 END, name COLLATE NOCASE`,
+          ORDER BY CASE kind WHEN 'folder' THEN 0 ELSE 1 END, lower(name)`,
     args: [ownerUid, parentId],
   });
   return result.rows.map((row) =>
@@ -149,7 +149,7 @@ export async function getLibraryNode(
   id: string,
 ): Promise<LibraryNode | null> {
   await ensureLibraryTable();
-  const result = await getTurso().execute({
+  const result = await getDatabase().execute({
     sql: "SELECT * FROM library_nodes WHERE id = ? AND owner_uid = ? LIMIT 1",
     args: [id, ownerUid],
   });
@@ -176,7 +176,7 @@ export async function createLibraryNode(input: {
   await assertUniqueName(input.ownerUid, input.parentId, input.name);
   const id = input.id ?? randomUUID();
   const now = Date.now();
-  await getTurso().execute({
+  await getDatabase().execute({
     sql: `INSERT INTO library_nodes
           (id, owner_uid, parent_id, kind, name, content, content_type,
            storage_file_id, storage_message_id, file_size, created_at, updated_at)
@@ -205,10 +205,10 @@ export async function setLibraryThumbnailStorage(
   ownerUid: number,
   id: string,
   thumbnailFileId: string,
-  thumbnailMessageId: number,
+  thumbnailMessageId: number | null = null,
 ): Promise<boolean> {
   await ensureLibraryTable();
-  const result = await getTurso().execute({
+  const result = await getDatabase().execute({
     sql: `UPDATE library_nodes
           SET thumbnail_file_id = ?, thumbnail_message_id = ?, updated_at = ?
           WHERE id = ? AND owner_uid = ? AND kind = 'media'`,
@@ -217,24 +217,24 @@ export async function setLibraryThumbnailStorage(
   return result.rowsAffected === 1;
 }
 
-export async function listLibraryTelegramMessageIds(
+export async function listLibraryStoragePaths(
   ownerUid: number,
-): Promise<number[]> {
+): Promise<string[]> {
   await ensureLibraryTable();
-  const result = await getTurso().execute({
-    sql: `SELECT storage_message_id, thumbnail_message_id FROM library_nodes
+  const result = await getDatabase().execute({
+    sql: `SELECT storage_file_id, thumbnail_file_id FROM library_nodes
           WHERE owner_uid = ?
-            AND (storage_message_id IS NOT NULL OR thumbnail_message_id IS NOT NULL)`,
+            AND (storage_file_id IS NOT NULL OR thumbnail_file_id IS NOT NULL)`,
     args: [ownerUid],
   });
   return Array.from(
     new Set(
       result.rows
         .flatMap((row) => [
-          Number(row.storage_message_id),
-          Number(row.thumbnail_message_id),
+          String(row.storage_file_id ?? ""),
+          String(row.thumbnail_file_id ?? ""),
         ])
-        .filter((id) => Number.isSafeInteger(id) && id > 0),
+        .filter(Boolean),
     ),
   );
 }
@@ -255,7 +255,7 @@ export async function updateLibraryNode(
     input.parentId === undefined ? existing.parent_id : input.parentId;
   await assertParentFolder(ownerUid, parentId);
   if (existing.kind === "folder" && parentId !== existing.parent_id) {
-    const result = await getTurso().execute({
+    const result = await getDatabase().execute({
       sql: `WITH RECURSIVE descendants(id) AS (
               SELECT id FROM library_nodes WHERE id = ? AND owner_uid = ?
               UNION ALL
@@ -269,7 +269,7 @@ export async function updateLibraryNode(
     if (result.rows.length > 0) throw new Error("INVALID_MOVE");
   }
   await assertUniqueName(ownerUid, parentId, name, id);
-  await getTurso().execute({
+  await getDatabase().execute({
     sql: `UPDATE library_nodes
           SET name = ?, parent_id = ?, content = ?, file_size = ?, updated_at = ?
           WHERE id = ? AND owner_uid = ?`,
@@ -291,10 +291,10 @@ export async function deleteLibraryNode(
   id: string,
 ): Promise<{
   deleted: boolean;
-  storageMessageIds: number[];
+  storagePaths: string[];
 }> {
   await ensureLibraryTable();
-  const descendants = await getTurso().execute({
+  const descendants = await getDatabase().execute({
     sql: `WITH RECURSIVE descendants(id) AS (
             SELECT id FROM library_nodes WHERE id = ? AND owner_uid = ?
             UNION ALL
@@ -302,13 +302,13 @@ export async function deleteLibraryNode(
             JOIN descendants parent ON child.parent_id = parent.id
             WHERE child.owner_uid = ?
           )
-          SELECT node.storage_message_id, node.thumbnail_message_id
+          SELECT node.storage_file_id, node.thumbnail_file_id
           FROM library_nodes node
           JOIN descendants ON descendants.id = node.id
           WHERE node.owner_uid = ?`,
     args: [id, ownerUid, ownerUid, ownerUid],
   });
-  const result = await getTurso().execute({
+  const result = await getDatabase().execute({
     sql: `WITH RECURSIVE descendants(id) AS (
             SELECT id FROM library_nodes WHERE id = ? AND owner_uid = ?
             UNION ALL
@@ -322,14 +322,14 @@ export async function deleteLibraryNode(
   });
   return {
     deleted: result.rowsAffected > 0,
-    storageMessageIds: Array.from(
+    storagePaths: Array.from(
       new Set(
         descendants.rows
           .flatMap((row) => [
-            Number(row.storage_message_id),
-            Number(row.thumbnail_message_id),
+            String(row.storage_file_id ?? ""),
+            String(row.thumbnail_file_id ?? ""),
           ])
-          .filter((messageId) => Number.isSafeInteger(messageId) && messageId > 0),
+          .filter(Boolean),
       ),
     ),
   };

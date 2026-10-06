@@ -10,6 +10,7 @@ import {
   Share2,
   X,
 } from "lucide-react";
+import { useBackDismiss } from "@/lib/back-dismiss";
 
 type Contact = {
   uid: string;
@@ -186,6 +187,7 @@ export function ContactQrModal({
     [contact.first_name, contact.last_name].filter(Boolean).join(" ") ||
     contact.username ||
     "Contact";
+  useBackDismiss(true, onClose, "contact-qr");
 
   useEffect(() => {
     setOrigin(window.location.origin);

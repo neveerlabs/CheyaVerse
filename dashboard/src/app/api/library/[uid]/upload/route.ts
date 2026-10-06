@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserSession, hasValidSameOrigin } from "@/lib/auth-request";
-import { config } from "@/lib/config";
 import {
   createLibraryNode,
   getLibraryNode,
   LIBRARY_MEDIA_LIMIT,
   validateLibraryDestination,
 } from "@/lib/library";
-import { deleteTelegramMessage, uploadDocumentToStorage } from "@/lib/telegram";
+import {
+  deleteUserMediaObject,
+  uploadUserMediaObject,
+} from "@/lib/supabase-storage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -80,12 +82,6 @@ export async function POST(
   if (!hasValidSameOrigin(request)) {
     return NextResponse.json({ error: "Invalid request origin." }, { status: 403 });
   }
-  if (!config.telegram.botToken || !config.telegram.storageChatId) {
-    return NextResponse.json(
-      { error: "Media storage is not configured. Set TELEGRAM_BOT_TOKEN and TELEGRAM_STORAGE_CHAT_ID." },
-      { status: 503 },
-    );
-  }
   const contentType = request.headers.get("content-type") ?? "";
   if (!contentType.toLowerCase().startsWith("multipart/form-data;")) {
     return NextResponse.json({ error: "Invalid upload details." }, { status: 400 });
@@ -120,10 +116,13 @@ export async function POST(
     }
     await validateLibraryDestination(uid, upload.parentId, upload.name);
 
-    const uploaded = await uploadDocumentToStorage(upload.file, upload.name);
-    if (!uploaded) {
-      return NextResponse.json({ error: "Media upload failed. Please retry." }, { status: 503 });
-    }
+    const storagePath = await uploadUserMediaObject(
+      uid,
+      "library",
+      upload.file,
+      upload.name,
+      upload.file.type,
+    );
 
     try {
       const node = await createLibraryNode({
@@ -133,18 +132,15 @@ export async function POST(
         kind: "media",
         name: upload.name,
         contentType: upload.file.type,
-        storageFileId: uploaded.file_id,
-        storageMessageId: uploaded.message_id,
+        storageFileId: storagePath,
+        storageMessageId: null,
         fileSize: upload.file.size,
       });
       return NextResponse.json({ node }, { status: 201 });
     } catch (error) {
-      const cleanedUp = await deleteTelegramMessage(uploaded.message_id);
-      if (!cleanedUp) {
-        console.error(
-          `[library/upload] Telegram storage message ${uploaded.message_id} could not be cleaned up after metadata save failed.`,
-        );
-      }
+      await deleteUserMediaObject(uid, storagePath).catch((cleanupError) => {
+        console.error("[library/upload] Storage object cleanup failed:", cleanupError);
+      });
       throw error;
     }
   } catch (error) {
@@ -158,7 +154,7 @@ export async function POST(
         { status: 409 },
       );
     }
-    console.error("[library/upload] Telegram upload failed:", error);
+    console.error("[library/upload] Supabase Storage upload failed:", error);
     return NextResponse.json({ error: "Media upload failed. Please retry." }, { status: 503 });
   }
 }

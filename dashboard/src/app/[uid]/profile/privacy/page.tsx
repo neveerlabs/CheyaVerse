@@ -10,11 +10,11 @@ const SECTIONS: { title: string; body: string }[] = [
   },
   {
     title: "Cara data digunakan",
-    body: "Data digunakan untuk menyediakan dashboard, media, percakapan, notifikasi, keamanan sesi, dan fitur Projects. Data repositori, branch, commit, release, deployment, Actions, dan statistik diminta dari GitHub saat halaman atau fitur yang memerlukannya digunakan. Home menampilkan repo neveerlabs/CheyaVerse di kartu unggulan dan daftar repositori populer dari akun GitHub yang tersambung di grid berikutnya. Nilai repository tersebut bersumber dari GitHub dan bukan arsip lengkap aktivitas terpisah di CheyaVerse.",
+    body: "Data digunakan untuk menyediakan dashboard, media, percakapan, notifikasi, keamanan sesi, dan fitur Projects. Data repositori, branch, commit, release, deployment, Actions, dan statistik diminta dari GitHub saat halaman atau fitur yang memerlukannya digunakan. Home menampilkan repo neveerlabs/CheyaVerse di kartu unggulan dan daftar repositori populer dari akun GitHub yang tersambung di grid berikutnya. Nilai repository tersebut bersumber dari GitHub dan bukan arsip lengkap aktivitas terpisah di CheyaVerse. AI tidak merekam rangkaian tindakan pengguna dan tidak dapat memblokir atau mencabut sesi; keputusan tersebut tetap dilakukan admin.",
   },
   {
     title: "Layanan pihak ketiga",
-    body: "CheyaVerse tidak menjual data pengguna. Telegram digunakan untuk autentikasi dan fitur bot/media; GitHub menerima permintaan data yang diminta pengguna melalui dashboard. Jika pengguna mengaktifkan AI chat, teks permintaan, instruksi sistem, hingga 50 pesan chat terakhir yang tersedia (cuplikan isi dibatasi server), metadata identitas/perangkat/role akun, dan konteks GitHub terpilih untuk pertanyaan repositori dikirim ke penyedia AI yang dikonfigurasi. Konteks GitHub dibatasi ke satu repo pilihan per permintaan; jika tidak ada repo yang dipilih, AI dapat menerima daftar ringkas repositori milik akun untuk membantu memilih. Token GitHub, kunci API AI, gambar, dan file media chat tidak disertakan dalam prompt. Layanan verifikasi serta browser/penyedia push dapat memproses data yang dibutuhkan fitur terkait.",
+    body: "CheyaVerse tidak menjual data pengguna. Telegram digunakan untuk autentikasi dan fitur bot/media; GitHub menerima permintaan data yang diminta pengguna melalui dashboard. Saat AI chat digunakan, teks permintaan dan instruksi sistem dikirim ke provider AI akun. Server juga mengambil hingga 500 pesan non-terhapus terbaru untuk pencarian konteks, tetapi hanya meneruskan maksimal 10 pesan terbaru dan 8 pesan lama yang relevan, dalam batas 14.000 karakter. Detail akun/role dan hingga 25 DeviceID dengan data browser, perangkat, layar, serta WebGL hanya ditambahkan saat pertanyaan memang terkait akun atau perangkat; fingerprint mentah dan string user-agent mentah tidak dikirim. Untuk pertanyaan tentang lokasi pengguna saat ini, alamat IP publik permintaan dikirim ke layanan geolokasi IP (ipapi.co/ipwho.is) dan perkiraan kota/wilayah/negara/kode pos dapat diteruskan ke provider AI. Lokasi IP bukan GPS dan tidak dapat diandalkan untuk menentukan kecamatan. Alamat IP mentah hanya disertakan dalam prompt AI bila pengguna secara khusus menanyakan IP-nya. Untuk pertanyaan repo/kode, server menggunakan token GitHub terenkripsi dan mengambil satu repo milik akun, memilih repo yang disebutkan atau repo milik akun yang paling baru didorong. Jika tree repo lengkap dan maksimal 400 file teks/source masing-masing paling besar 1 MiB dengan total 8 MiB, semua file yang memenuhi filter dibaca untuk satu permintaan lalu cuplikan relevan (maksimal 14 file/55.000 karakter; file yang disebut langsung maksimal 30.000 karakter) dikirim ke AI; repo yang lebih besar atau tree terpotong dibatasi hingga 80 file kandidat. Pola kredensial umum disamarkan, tetapi pengguna tetap sebaiknya meninjau source sebelum menghubungkan repo. CheyaVerse tidak menyimpan snapshot repo dari fitur ini. Token GitHub dan kunci API AI tidak dimasukkan ke prompt; gambar dan file media chat juga tidak disertakan. Layanan verifikasi serta browser/penyedia push dapat memproses data yang dibutuhkan fitur terkait.",
   },
   {
     title: "Keamanan akun",
@@ -26,7 +26,7 @@ const SECTIONS: { title: string; body: string }[] = [
   },
   {
     title: "Pilihan dan penghapusan",
-    body: "Pengguna dapat mengganti nama tampilan CheyaVerse tanpa mengubah profil Telegram, menghapus media yang dikelola melalui layanan, memutus koneksi GitHub, mencabut sesi perangkat, atau menghapus akun web. Penghapusan akun web tidak menghapus informasi yang masih berada di Telegram atau GitHub.",
+    body: "Pengguna dapat mengganti nama tampilan CheyaVerse tanpa mengubah profil Telegram, memilih untuk tidak meminta Cheya mengambil konteks akun/perangkat/lokasi/repo, menghapus media yang dikelola melalui layanan, memutus koneksi GitHub, mencabut sesi perangkat, atau menghapus akun web. Konteks AI diambil hanya saat relevan dengan pertanyaan dan tidak disimpan sebagai profil baru; salinan yang telah dikirim ke Telegram, GitHub, layanan geolokasi, atau penyedia AI mengikuti kebijakan penyedia terkait.",
   },
   {
     title: "Pertanyaan privasi",
@@ -46,7 +46,7 @@ export default function PrivacyPage({
     <>
       <SubPageHeader
         title="Privacy Policy"
-        subtitle="Last updated: October 5, 2026"
+        subtitle="Last updated: October 6, 2026"
         backHref={`/${params.uid}/profile`}
         cornerLabel="PRIVACY POLICY"
       />

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import QRCode from "qrcode";
 import { Check, Copy, Download, Palette, RefreshCw, X } from "lucide-react";
+import { useBackDismiss } from "@/lib/back-dismiss";
 
 type QrStyle = {
   name: string;
@@ -180,6 +181,7 @@ export function MediaQrModal({
     () => (matrix && origin ? buildSvg(matrix, appearance, origin) : ""),
     [matrix, appearance, origin],
   );
+  useBackDismiss(true, onClose, "media-qr");
 
   useEffect(() => {
     setOrigin(window.location.origin);

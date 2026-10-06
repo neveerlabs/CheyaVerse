@@ -15,6 +15,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { readApiJson } from "@/lib/read-api-json";
 import { acquirePageModalLock } from "@/lib/page-modal-lock";
+import { useBackDismiss } from "@/lib/back-dismiss";
 
 type CapturedIssue = {
   message: string;
@@ -353,6 +354,8 @@ export function FeedbackReporter() {
   const [attachments, setAttachments] = useState<ReportAttachment[]>([]);
   const [minimized, setMinimized] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const expandedRef = useRef(expanded);
+  expandedRef.current = expanded;
   const [shakeEnabled, setShakeEnabled] = useState(false);
   const [captureActive, setCaptureActive] = useState(false);
   const [shakeNotice, setShakeNotice] = useState("");
@@ -368,8 +371,6 @@ export function FeedbackReporter() {
   const panelRef = useRef<HTMLElement | null>(null);
   const modalRef = useRef(modal);
   modalRef.current = modal;
-  const modalHistoryOpenRef = useRef(false);
-  const previousHistoryStateRef = useRef<unknown>(null);
   const lastShakeAtRef = useRef(0);
   const recentIssueRef = useRef(new Map<string, number>());
   const motionBaselineRef = useRef<{ x: number; y: number; z: number } | null>(null);
@@ -381,6 +382,10 @@ export function FeedbackReporter() {
     pointerId: number;
     startY: number;
     startHeight: number;
+    startedExpanded: boolean;
+    lastY: number;
+    lastAt: number;
+    velocityY: number;
   } | null>(null);
   const apiFailureWindowRef = useRef<number[]>([]);
   const serverFailureWindowsRef = useRef(new Map<string, number[]>());
@@ -461,6 +466,16 @@ export function FeedbackReporter() {
     setMinimized(false);
     setExpanded(false);
   }, [attachments.length, description]);
+  const closeReport = useCallback(() => {
+    modalRef.current = null;
+    setModal(null);
+    setExpanded(false);
+    setMinimized(false);
+    window.dispatchEvent(
+      new CustomEvent("cheya:feedback-modal-state", { detail: { open: false } }),
+    );
+  }, []);
+  useBackDismiss(Boolean(modal), closeReport, "feedback-report");
 
   useEffect(() => {
     const onOpenReport = () => openReport();
@@ -470,20 +485,6 @@ export function FeedbackReporter() {
 
   useEffect(() => {
     if (modal) {
-      if (!modalHistoryOpenRef.current) {
-        const previousState = window.history.state;
-        const preservedState =
-          previousState && typeof previousState === "object"
-            ? previousState
-            : {};
-        previousHistoryStateRef.current = previousState;
-        window.history.pushState(
-          { ...preservedState, cheyaFeedbackModal: true },
-          "",
-          window.location.href,
-        );
-        modalHistoryOpenRef.current = true;
-      }
       window.dispatchEvent(
         new CustomEvent("cheya:feedback-modal-state", { detail: { open: true } }),
       );
@@ -498,44 +499,6 @@ export function FeedbackReporter() {
     if (!modal || minimized) return;
     return acquirePageModalLock();
   }, [modal, minimized]);
-
-  useEffect(() => {
-    const onPopState = (event: PopStateEvent) => {
-      if (!modalRef.current) return;
-      modalHistoryOpenRef.current = false;
-      previousHistoryStateRef.current = null;
-      modalRef.current = null;
-      setModal(null);
-      setExpanded(false);
-      setMinimized(false);
-      window.dispatchEvent(
-        new CustomEvent("cheya:feedback-modal-state", { detail: { open: false } }),
-      );
-      event.stopImmediatePropagation();
-    };
-    window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
-  }, []);
-
-  function closeReport() {
-    const shouldReturnHistory = modalHistoryOpenRef.current;
-    modalHistoryOpenRef.current = false;
-    if (shouldReturnHistory) {
-      window.history.replaceState(
-        previousHistoryStateRef.current,
-        "",
-        window.location.href,
-      );
-    }
-    previousHistoryStateRef.current = null;
-    modalRef.current = null;
-    setModal(null);
-    setExpanded(false);
-    setMinimized(false);
-    window.dispatchEvent(
-      new CustomEvent("cheya:feedback-modal-state", { detail: { open: false } }),
-    );
-  }
 
   useEffect(() => {
     let dialogResizeObserver: ResizeObserver | null = null;
@@ -1000,7 +963,6 @@ export function FeedbackReporter() {
           apiPath &&
           apiPath !== "/api/feedback/report" &&
           apiPath !== "/api/feedback/incident" &&
-          apiPath !== "/api/events/poll" &&
           response.status >= 500
         ) {
           trackApiFailure(
@@ -1016,7 +978,6 @@ export function FeedbackReporter() {
           apiPath &&
           apiPath !== "/api/feedback/report" &&
           apiPath !== "/api/feedback/incident" &&
-          apiPath !== "/api/events/poll" &&
           error instanceof TypeError
         ) {
           trackApiFailure(
@@ -1066,10 +1027,17 @@ export function FeedbackReporter() {
   }, [showNotice]);
 
   function startPanelDrag(event: React.PointerEvent<HTMLDivElement>) {
+    if (sending) return;
+    event.preventDefault();
+    const now = performance.now();
     panelDragRef.current = {
       pointerId: event.pointerId,
       startY: event.clientY,
       startHeight: panelRef.current?.getBoundingClientRect().height ?? 0,
+      startedExpanded: expandedRef.current,
+      lastY: event.clientY,
+      lastAt: now,
+      velocityY: 0,
     };
     if (panelRef.current) {
       panelRef.current.style.transition = "none";
@@ -1081,15 +1049,21 @@ export function FeedbackReporter() {
   function movePanelDrag(event: React.PointerEvent<HTMLDivElement>) {
     const drag = panelDragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
-    const distance = Math.max(
-      -window.innerHeight,
-      Math.min(drag.startHeight - 180, event.clientY - drag.startY),
-    );
+    const now = performance.now();
+    const deltaTime = Math.max(1, now - drag.lastAt);
+    drag.velocityY = (event.clientY - drag.lastY) / deltaTime;
+    drag.lastY = event.clientY;
+    drag.lastAt = now;
+    const distance = event.clientY - drag.startY;
+    const maxDownward = Math.max(0, drag.startHeight - 180);
     const panel = panelRef.current;
     if (!panel) return;
+    const resistedDistance = distance > maxDownward
+      ? maxDownward + (distance - maxDownward) * 0.18
+      : distance;
     panel.style.height = `${Math.min(
       window.innerHeight,
-      Math.max(180, drag.startHeight - distance),
+      Math.max(180, drag.startHeight - resistedDistance),
     )}px`;
   }
 
@@ -1108,10 +1082,19 @@ export function FeedbackReporter() {
     if (!drag || drag.pointerId !== event.pointerId) return;
     panelDragRef.current = null;
     const distance = event.clientY - drag.startY;
+    const dismissThreshold = Math.max(150, drag.startHeight * 0.32);
+    const quickIntentionalDismiss =
+      distance > 72 && drag.velocityY > 0.8;
+    const shouldDismiss =
+      !drag.startedExpanded &&
+      (distance > dismissThreshold ||
+        (quickIntentionalDismiss && distance > 110));
     clearPanelDragStyles();
-    if (distance > 70) {
+    if (shouldDismiss) {
       closeReport();
-    } else if (distance < -55) {
+    } else if (drag.startedExpanded && distance > 90) {
+      setExpanded(false);
+    } else if (distance < -60) {
       setExpanded(true);
     }
   }

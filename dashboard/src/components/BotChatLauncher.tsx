@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useRealtime } from "@/lib/use-realtime";
 import { acquirePageModalLock } from "@/lib/page-modal-lock";
+import { useBackDismiss } from "@/lib/back-dismiss";
 import { TelegramAvatar } from "@/components/TelegramAvatar";
 import { readApiJson } from "@/lib/read-api-json";
 
@@ -56,6 +57,18 @@ type KeyboardViewport = {
   offsetTop: number;
 };
 
+function normalizeSystemMessage(value: string): string {
+  return value
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLocaleLowerCase();
+}
+
+function realtimeEventId(value: unknown): string | null {
+  return typeof value === "string" && value ? value : null;
+}
+
 export function BotChatLauncher({
   uid,
   hideLauncher = false,
@@ -80,6 +93,9 @@ export function BotChatLauncher({
   const badgeRefreshQueuedRef = useRef(false);
   const dataRequestRef = useRef(false);
   const pointerStartedInDialogRef = useRef(false);
+  const seenRealtimeIdsRef = useRef(new Set<string>());
+  const recentSystemMessagesRef = useRef(new Map<string, number>());
+  const badgeReconcileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const launcherUnavailable =
     pathname.startsWith(`/${uid}/profile/settings`) ||
     pathname === `/${uid}/profile/privacy` ||
@@ -142,17 +158,36 @@ export function BotChatLauncher({
       }
       const unreadMessages = messageData.items.filter(
         (message) =>
-          (message.sender === "bot" || message.sender_role === "admin") &&
+          (message.sender === "bot" ||
+            message.sender_role === "admin" ||
+            message.sender_role === "ai") &&
           message.read_at === null &&
           message.deleted_at === null,
       );
-      const unreadMessageIds = new Set(unreadMessages.map((message) => message.id));
-      const duplicatedUnread = notificationData.items.filter(
-        (notification) =>
-          notification.read === 0 && unreadMessageIds.has(notification.id),
+      const unreadSystemMessageContents = new Map<string, number>();
+      for (const message of unreadMessages) {
+        if (message.sender_role !== "admin") continue;
+        const content = normalizeSystemMessage(message.content);
+        unreadSystemMessageContents.set(
+          content,
+          (unreadSystemMessageContents.get(content) ?? 0) + 1,
+        );
+      }
+      const duplicatedUnreadNotifications = notificationData.items.filter(
+        (notification) => {
+          if (notification.read !== 0) return false;
+          const content = normalizeSystemMessage(notification.message);
+          const matchingMessages = unreadSystemMessageContents.get(content) ?? 0;
+          if (matchingMessages === 0) return false;
+          unreadSystemMessageContents.set(content, matchingMessages - 1);
+          return true;
+        },
       ).length;
       setUnread(
-        Math.max(0, notificationUnread + unreadMessages.length - duplicatedUnread),
+        Math.max(
+          0,
+          notificationUnread + unreadMessages.length - duplicatedUnreadNotifications,
+        ),
       );
     } catch (cause) {
       console.error("[bot-chat] failed to refresh unread count:", cause);
@@ -227,6 +262,7 @@ export function BotChatLauncher({
     refreshDraft();
     void refreshBadge();
   }, [refreshBadge, refreshDraft]);
+  useBackDismiss(open, closeChat, "bot-chat");
 
   useEffect(() => {
     void refreshBadge();
@@ -322,13 +358,100 @@ export function BotChatLauncher({
   }, []);
 
   useRealtime(uid, (event) => {
-    if (
-      event.type.startsWith("notification:") ||
-      event.type.startsWith("message:")
+    if (event.type === "realtime:connected") {
+      void refreshBadge();
+      return;
+    }
+
+    if (event.type === "message:new") {
+      const message = event.message as
+        | { id?: unknown; sender?: unknown; sender_role?: unknown; content?: unknown }
+        | undefined;
+      if (
+        !message ||
+        (message.sender !== "bot" &&
+          message.sender_role !== "admin" &&
+          message.sender_role !== "ai")
+      ) {
+        return;
+      }
+
+      const id = realtimeEventId(message.id);
+      if (!id || seenRealtimeIdsRef.current.has(`message:${id}`)) return;
+      seenRealtimeIdsRef.current.add(`message:${id}`);
+
+      const isAdminMessage = message.sender_role === "admin";
+      const contentKey =
+        isAdminMessage && typeof message.content === "string"
+          ? normalizeSystemMessage(message.content)
+          : "";
+      const now = Date.now();
+      for (const [key, timestamp] of recentSystemMessagesRef.current) {
+        if (now - timestamp > 2_000) recentSystemMessagesRef.current.delete(key);
+      }
+      const pairedNotificationSeen =
+        contentKey.length > 0 &&
+        recentSystemMessagesRef.current.has(contentKey);
+      if (pairedNotificationSeen) recentSystemMessagesRef.current.delete(contentKey);
+      else if (contentKey) recentSystemMessagesRef.current.set(contentKey, now);
+      if (!pairedNotificationSeen) {
+        setUnread((current) => current + 1);
+      }
+    } else if (event.type === "notification:new") {
+      const id = realtimeEventId(event.notificationId);
+      if (!id || seenRealtimeIdsRef.current.has(`notification:${id}`)) return;
+      seenRealtimeIdsRef.current.add(`notification:${id}`);
+
+      const contentKey =
+        String(event.title ?? "") === "CheyaVerse · Admin" &&
+        typeof event.body === "string"
+          ? normalizeSystemMessage(event.body)
+          : "";
+      const now = Date.now();
+      for (const [key, timestamp] of recentSystemMessagesRef.current) {
+        if (now - timestamp > 2_000) recentSystemMessagesRef.current.delete(key);
+      }
+      const pairedMessageSeen =
+        contentKey.length > 0 &&
+        recentSystemMessagesRef.current.has(contentKey);
+      if (pairedMessageSeen) recentSystemMessagesRef.current.delete(contentKey);
+      else if (contentKey) recentSystemMessagesRef.current.set(contentKey, now);
+      if (!pairedMessageSeen) {
+        setUnread((current) => current + 1);
+      }
+    } else if (
+      event.type === "message:read" ||
+      event.type === "notification:read" ||
+      event.type === "message:deleted" ||
+      event.type === "notification:deleted"
     ) {
       void refreshBadge();
+      return;
+    }
+
+    if (event.type === "message:new" || event.type === "notification:new") {
+      if (seenRealtimeIdsRef.current.size > 300) {
+        const oldestId = seenRealtimeIdsRef.current.values().next().value;
+        if (oldestId) seenRealtimeIdsRef.current.delete(oldestId);
+      }
+      if (badgeReconcileTimerRef.current) {
+        clearTimeout(badgeReconcileTimerRef.current);
+      }
+      badgeReconcileTimerRef.current = setTimeout(() => {
+        badgeReconcileTimerRef.current = null;
+        void refreshBadge();
+      }, 250);
     }
   });
+
+  useEffect(
+    () => () => {
+      if (badgeReconcileTimerRef.current) {
+        clearTimeout(badgeReconcileTimerRef.current);
+      }
+    },
+    [],
+  );
 
   return (
     <>
@@ -483,6 +606,7 @@ export function BotChatLauncher({
                 user={null}
                 isModal
                 keyboardCompact={keyboardViewport.open}
+                compactBubbles
                 onClose={closeChat}
               />
             )}

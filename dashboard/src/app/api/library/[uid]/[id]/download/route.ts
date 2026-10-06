@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserSession } from "@/lib/auth-request";
 import { getLibraryNode } from "@/lib/library";
-import { fetchTelegramFile } from "@/lib/telegram";
+import { fetchUserMediaObject } from "@/lib/supabase-storage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,8 +24,13 @@ export async function GET(
   const safeName = node.name.replace(/["\\\r\n]/g, "_");
   if (node.storage_file_id) {
     try {
-      const upstream = await fetchTelegramFile(node.storage_file_id);
-      if (!upstream?.body) {
+      const upstream = await fetchUserMediaObject(
+        uid,
+        node.storage_file_id,
+        undefined,
+        safeName,
+      );
+      if (!upstream.ok || !upstream.body) {
         return NextResponse.json(
           { error: "Media is temporarily unavailable." },
           { status: 502 },
@@ -41,7 +46,7 @@ export async function GET(
         },
       });
     } catch (error) {
-      console.error("[library/download] Telegram download failed:", error);
+      console.error("[library/download] Supabase Storage download failed:", error);
       return NextResponse.json(
         { error: "Media is temporarily unavailable." },
         { status: 502 },

@@ -37,8 +37,8 @@ async def cmd_web(message: Message) -> None:
     uid = user.id
 
     text = (
-        "Login ke Webapp CheyaVerse\n"
-        "──────────────────────────\n"
+        "Login to Webapp CheyaVerse\n"
+        "────────────────────────\n"
         "1\\. Tekan tombol *Login / Register* di bawah\\.\n"
         "2\\. Buka bot CheyaVerse dan setujui permintaan login\\.\n\n"
         "ID Telegram terverifikasi akan menjadi akun web kamu\\. "

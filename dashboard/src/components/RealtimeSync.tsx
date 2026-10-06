@@ -3,7 +3,19 @@
 import { useCallback, useEffect, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { reconnectRealtime, useRealtime } from "@/lib/use-realtime";
-import { playReceiveSoundOutside } from "@/lib/chat-sounds";
+import { playSystemReceiveSoundOnce } from "@/lib/chat-sounds";
+import { wasOverlayBackDismissed } from "@/lib/back-dismiss";
+
+function systemSoundCorrelationKey(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value
+    .replace(/<[^>]*>/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 200)
+    .toLocaleLowerCase();
+  return normalized ? `admin:${normalized}` : undefined;
+}
 
 export function RealtimeSync({ uid }: { uid: string }) {
   const router = useRouter();
@@ -11,19 +23,7 @@ export function RealtimeSync({ uid }: { uid: string }) {
   const pathnameRef = useRef(pathname);
   const lastPathnameRef = useRef(pathname);
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const playedSoundIdsRef = useRef(new Set<string>());
-  const lastSystemSoundAtRef = useRef(0);
   const botChatOpenRef = useRef(false);
-
-  const playOutsideOnce = (id: string) => {
-    if (playedSoundIdsRef.current.has(id)) return;
-    playedSoundIdsRef.current.add(id);
-    if (playedSoundIdsRef.current.size > 100) {
-      const oldestId = playedSoundIdsRef.current.values().next().value;
-      if (oldestId) playedSoundIdsRef.current.delete(oldestId);
-    }
-    playReceiveSoundOutside();
-  };
 
   const scheduleRefresh = useCallback(
     (delay = 80) => {
@@ -41,9 +41,49 @@ export function RealtimeSync({ uid }: { uid: string }) {
   }, [pathname]);
 
   useEffect(() => {
+    let stopped = false;
+    let inFlight = false;
+    const heartbeat = async () => {
+      if (
+        stopped ||
+        inFlight ||
+        document.visibilityState !== "visible"
+      ) return;
+      inFlight = true;
+      try {
+        const response = await fetch("/api/presence/heartbeat", {
+          method: "POST",
+          cache: "no-store",
+        });
+        if (!response.ok) {
+          if (response.status === 401) stopped = true;
+          console.warn(
+            `[presence] heartbeat was rejected (${response.status}).`,
+          );
+        }
+      } catch (error) {
+        console.warn("[presence] heartbeat could not reach the server:", error);
+      } finally {
+        inFlight = false;
+      }
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") void heartbeat();
+    };
+
+    void heartbeat();
+    const timer = window.setInterval(() => void heartbeat(), 20_000);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [uid]);
+
+  useEffect(() => {
     if (lastPathnameRef.current === pathname) return;
     lastPathnameRef.current = pathname;
-    reconnectRealtime(uid);
     scheduleRefresh(0);
   }, [pathname, scheduleRefresh, uid]);
 
@@ -62,8 +102,8 @@ export function RealtimeSync({ uid }: { uid: string }) {
       reconnectRealtime(uid, event.persisted);
       scheduleRefresh(event.persisted ? 0 : 80);
     };
-    const onPopState = () => {
-      reconnectRealtime(uid);
+    const onPopState = (event: PopStateEvent) => {
+      if (wasOverlayBackDismissed(event)) return;
       scheduleRefresh(0);
     };
     const onVisibilityChange = () => {
@@ -101,30 +141,50 @@ export function RealtimeSync({ uid }: { uid: string }) {
       scheduleRefresh(40);
     }
 
-    if (event.type === "message:new" && !botChatOpenRef.current) {
+    if (event.type === "message:new") {
       const message = event.message as
-        | { uid?: number; sender?: string; sender_role?: string }
+        | { uid?: number | string; sender?: string; sender_role?: string }
         | undefined;
       if (
-        message?.uid === Number(uid) &&
-        (message.sender === "bot" || message.sender_role === "admin")
+        message &&
+        Number(message.uid) === Number(uid) &&
+        (message.sender === "bot" ||
+          message.sender_role === "admin" ||
+          message.sender_role === "ai")
       ) {
-        lastSystemSoundAtRef.current = Date.now();
         const messageId =
           "id" in message && typeof message.id === "string"
             ? message.id
             : `${message.sender}:${String(message.sender_role)}`;
-        playOutsideOnce(`system-message:${messageId}`);
+        const correlationKey =
+          message.sender_role === "admin"
+            ? systemSoundCorrelationKey(
+                "content" in message ? message.content : undefined,
+              )
+            : undefined;
+        const roomIsOpen =
+          botChatOpenRef.current ||
+          /^\/\d+\/chat\/[^/]+\/?$/.test(pathname);
+        if (roomIsOpen) {
+          playSystemReceiveSoundOnce(messageId, correlationKey);
+        }
       }
     }
 
-    if (event.type === "notification:new" && !botChatOpenRef.current) {
-      if (Date.now() - lastSystemSoundAtRef.current > 1_000) {
-        const notificationId =
-          typeof event.notificationId === "string"
-            ? event.notificationId
-            : `${String(event.title ?? "")}:${String(event.body ?? "")}:${Math.floor(Date.now() / 2_000)}`;
-        playOutsideOnce(`notification:${notificationId}`);
+    if (event.type === "notification:new") {
+      const notificationId =
+        typeof event.notificationId === "string"
+          ? event.notificationId
+          : `${String(event.title ?? "")}:${String(event.body ?? "")}:${Math.floor(Date.now() / 2_000)}`;
+      const roomIsOpen =
+        botChatOpenRef.current ||
+        /^\/\d+\/chat\/[^/]+\/?$/.test(pathname);
+      const correlationKey =
+        String(event.title ?? "") === "CheyaVerse · Admin"
+          ? systemSoundCorrelationKey(event.body)
+          : undefined;
+      if (roomIsOpen) {
+        playSystemReceiveSoundOnce(notificationId, correlationKey);
       }
     }
   });

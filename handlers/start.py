@@ -4,12 +4,10 @@ import json
 
 from aiogram import F, Router
 from aiogram.types import BufferedInputFile
-from aiogram.dispatcher.event.bases import SkipHandler
 from aiogram.enums import ParseMode
 from aiogram.filters import CommandStart
 from aiogram.types import (
     CallbackQuery,
-    ForceReply,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     Message,
@@ -19,11 +17,8 @@ from aiogram.types import (
 
 from logger import logger
 from storage import (
-    attach_chat_reply_prompt,
     is_telegram_login_challenge_pending,
-    respond_to_chat_notification,
     respond_to_telegram_login_challenge,
-    send_telegram_chat_reply,
 )
 
 router = Router(name="start")
@@ -32,7 +27,7 @@ START_TEXT = (
     "```\n"
     "Name      : CheyaVerse\n"
     "Developer : M. Syalman Al Farizi\n"
-    "Version   : v1.7.3-release\n"
+    "Version   : v2.6.3-release\n"
     "Platform  : Telegram\n"
     "Purpose   : Virtual assistant\n"
     "Status    : Running\n"
@@ -231,88 +226,3 @@ async def handle_forwarded_update(message: Message, event_update: Update) -> Non
             )
         except Exception as fallback_exc:
             logger.error(f"Failed to notify about forwarded update for {label}: {fallback_exc}")
-
-
-@router.callback_query(F.data.startswith("dm:"))
-async def handle_chat_notification_callback(callback: CallbackQuery) -> None:
-    data = callback.data or ""
-    parts = data.split(":", maxsplit=2)
-    if len(parts) != 3 or parts[1] not in {"read", "reply"}:
-        await callback.answer("Aksi tidak valid!", show_alert=True)
-        return
-    if not isinstance(callback.message, Message) or callback.message.chat.type != "private":
-        await callback.answer("Aksi ini hanya tersedia di chat pribadi!", show_alert=True)
-        return
-
-    notification_message = callback.message
-    action = parts[1]
-    user = callback.from_user
-    label = user.username or user.full_name or str(user.id)
-
-    try:
-        peer_uid = int(parts[2])
-        if peer_uid <= 0 or peer_uid == user.id:
-            raise ValueError("invalid peer")
-        completed = await respond_to_chat_notification(
-            user.id,
-            peer_uid,
-            action,
-        )
-    except Exception as exc:
-        logger.error(f"Telegram chat notification action failed for {label}: {exc}")
-        await callback.answer("Aksi gagal diproses.", show_alert=True)
-        return
-    if not completed:
-        await callback.answer("Aksi tidak valid!", show_alert=True)
-        return
-
-    try:
-        await notification_message.delete()
-    except Exception as exc:
-        logger.warning(f"Failed to delete notification message for {label}: {exc}")
-
-    if action == "read":
-        await callback.answer("Pesan ditandai dibaca.")
-        return
-
-    await callback.answer("Kirim balasan pesan berikutnya.")
-    try:
-        prompt = await callback.bot.send_message(
-            chat_id=user.id,
-            text=(
-                "Ketik balasan untuk melanjutkan percakapan."
-                "Permintaan ini berlaku 10 menit."
-            ),
-            parse_mode=None,
-            reply_markup=ForceReply(selective=True),
-        )
-        await attach_chat_reply_prompt(user.id, prompt.message_id)
-    except Exception as exc:
-        logger.error(f"Failed to send reply prompt to {label}: {exc}")
-
-
-@router.message(F.text & ~F.text.startswith("/"))
-async def handle_telegram_chat_reply(message: Message) -> None:
-    if message.chat.type != "private" or not message.from_user or not message.text:
-        raise SkipHandler
-    label = message.from_user.username or message.from_user.full_name or str(message.from_user.id)
-    try:
-        result = await send_telegram_chat_reply(message.from_user.id, message.text)
-    except Exception as exc:
-        logger.error(f"Failed to store Telegram chat reply for {label}: {exc}")
-        await message.answer("Balasan gagal dikirim. Coba lagi nanti!", parse_mode=None)
-        return
-    if result is None:
-        raise SkipHandler
-
-    prompt_message_id = result.get("prompt_message_id")
-    if prompt_message_id:
-        try:
-            await message.bot.delete_message(
-                chat_id=message.from_user.id,
-                message_id=int(prompt_message_id),
-            )
-        except Exception as exc:
-            logger.warning(f"Failed to delete reply prompt for {label}: {exc}")
-
-    await message.answer("Balasan terkirim", parse_mode=None)

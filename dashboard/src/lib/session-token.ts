@@ -12,9 +12,20 @@ export type UserSession = {
 };
 
 function sessionSecret(): string {
-  const secret = process.env.TELEGRAM_BOT_TOKEN?.trim();
-  if (!secret) throw new Error("TELEGRAM_BOT_TOKEN is required for sessions.");
+  const secret =
+    process.env.SESSION_SECRET?.trim() ||
+    process.env.TELEGRAM_BOT_TOKEN?.trim();
+  if (!secret) {
+    throw new Error("SESSION_SECRET or TELEGRAM_BOT_TOKEN is required for sessions.");
+  }
   return secret;
+}
+
+function legacySessionSecret(): string | null {
+  const secret = process.env.TELEGRAM_BOT_TOKEN?.trim();
+  return secret && secret !== process.env.SESSION_SECRET?.trim()
+    ? secret
+    : null;
 }
 
 function encode(value: string): string {
@@ -49,9 +60,18 @@ export function readSessionToken(token: string | undefined): UserSession | null 
   try {
     const [payload, suppliedSignature, ...extra] = token.split(".");
     if (!payload || !suppliedSignature || extra.length) return null;
-    const expected = Buffer.from(signature(payload));
     const supplied = Buffer.from(suppliedSignature);
-    if (expected.length !== supplied.length || !timingSafeEqual(expected, supplied)) {
+    const validSignature = [sessionSecret(), legacySessionSecret()]
+      .filter((secret): secret is string => Boolean(secret))
+      .some((secret) => {
+        const expected = createHmac("sha256", secret)
+          .update(payload)
+          .digest("base64url");
+        const expectedBuffer = Buffer.from(expected);
+        return expectedBuffer.length === supplied.length &&
+          timingSafeEqual(expectedBuffer, supplied);
+      });
+    if (!validSignature) {
       return null;
     }
     const session = JSON.parse(

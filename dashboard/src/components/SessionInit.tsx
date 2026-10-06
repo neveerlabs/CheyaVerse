@@ -188,9 +188,6 @@ export function SessionInit({ uid }: { uid: string }) {
             return;
           }
           if (res.status === 401) {
-            try {
-              window.localStorage.removeItem(DEVICE_ID_KEY);
-            } catch {}
             window.location.replace("/login");
             return;
           }

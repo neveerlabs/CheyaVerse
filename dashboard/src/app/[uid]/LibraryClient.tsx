@@ -26,6 +26,7 @@ import {
   X,
 } from "lucide-react";
 import Image from "next/image";
+import { useBackDismiss } from "@/lib/back-dismiss";
 
 type LibraryNode = {
   id: string;
@@ -71,6 +72,14 @@ export function LibraryClient({ uid, username }: { uid: string; username: string
   const basePath = `/home/${username}`;
   const editorLineCount = editor ? editor.content.split("\n").length : 1;
   const editorLanguage = editor ? languageFromFilename(editor.name) : "Text";
+
+  useBackDismiss(Boolean(previewMedia), () => setPreviewMedia(null), "library-preview");
+  useBackDismiss(Boolean(editor), () => setEditor(null), "library-editor");
+  useBackDismiss(Boolean(movingNode), () => {
+    setMovingNode(null);
+    setMovePath([]);
+    setMoveFolders([]);
+  }, "library-move");
 
   const refresh = useCallback(async () => {
     setLoading(true);

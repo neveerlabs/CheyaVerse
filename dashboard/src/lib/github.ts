@@ -5,7 +5,7 @@ import {
   createDecipheriv,
   randomBytes,
 } from "node:crypto";
-import { getTurso } from "@/lib/turso";
+import { getDatabase } from "@/lib/database";
 
 const GITHUB_API = "https://api.github.com";
 const GITHUB_TIMEOUT_MS = 12_000;
@@ -132,7 +132,7 @@ function readGitHubCredentialCookie(
 
 async function ensureGitHubCredentialsTable(): Promise<void> {
   if (!githubCredentialsReady) {
-    githubCredentialsReady = getTurso()
+    githubCredentialsReady = getDatabase()
       .execute(`CREATE TABLE IF NOT EXISTS github_credentials (
         uid INTEGER PRIMARY KEY,
         encrypted_token TEXT NOT NULL,
@@ -160,7 +160,7 @@ export async function getGitHubCredential(
   uid: number,
 ): Promise<{ status: GitHubCredentialStatus; token: string | null }> {
   await ensureGitHubCredentialsTable();
-  const result = await getTurso().execute({
+  const result = await getDatabase().execute({
     sql: "SELECT encrypted_token, github_login, scopes, updated_at FROM github_credentials WHERE uid = ? LIMIT 1",
     args: [uid],
   });
@@ -209,7 +209,7 @@ export async function saveGitHubCredential(
 ): Promise<void> {
   await ensureGitHubCredentialsTable();
   const now = new Date().toISOString();
-  await getTurso().execute({
+  await getDatabase().execute({
     sql: `INSERT INTO github_credentials (uid, encrypted_token, github_login, scopes, updated_at)
           VALUES (?, ?, ?, ?, ?)
           ON CONFLICT(uid) DO UPDATE SET
@@ -223,7 +223,7 @@ export async function saveGitHubCredential(
 
 export async function removeGitHubCredential(uid: number): Promise<void> {
   await ensureGitHubCredentialsTable();
-  await getTurso().execute({
+  await getDatabase().execute({
     sql: "DELETE FROM github_credentials WHERE uid = ?",
     args: [uid],
   });

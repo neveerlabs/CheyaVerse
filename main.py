@@ -1,21 +1,34 @@
 import asyncio
 import sys
+from urllib.parse import urlsplit
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
+from aiogram.client.session.aiohttp import AiohttpSession
+from aiogram.client.telegram import TelegramAPIServer
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramAPIError
 from aiogram.types import ErrorEvent, Update
 from aiogram.dispatcher.middlewares.base import BaseMiddleware
 import storage
-from config import ADMIN_TELEGRAM_IDS, BOT_TOKEN, BROADCAST_WEB_SECRET, PUBLIC_URL
+from config import (
+    ADMIN_TELEGRAM_IDS,
+    BOT_TOKEN,
+    BROADCAST_WEB_SECRET,
+    PUBLIC_URL,
+    TELEGRAM_BOT_API_URL,
+)
 from handlers import announcement as announcement_handler
 from handlers import help as help_handler
+from handlers import group_ai as group_ai_handler
 from handlers import qr as qr_handler
 from handlers import start
+from handlers import unblock as unblock_handler
 from logger import logger
 from handlers import web as web_handler
+from telegram_retry import with_telegram_retry
 
 CLEANUP_INTERVAL_SECONDS = 6 * 3600
+TELEGRAM_REQUEST_TIMEOUT_SECONDS = 20
 
 
 class TelegramUserRegistryMiddleware(BaseMiddleware):
@@ -47,7 +60,11 @@ class TelegramUserRegistryMiddleware(BaseMiddleware):
         user = getattr(interaction, "from_user", None)
         if user and not user.is_bot:
             try:
-                await storage.record_telegram_bot_user_id(user.id)
+                await with_telegram_retry(
+                    lambda: storage.record_telegram_bot_user_id(user.id),
+                    label="user registry database write",
+                    logger=logger,
+                )
             except Exception as exc:
                 logger.error(
                     f"Failed to record Telegram user ID {user.id}: {exc}"
@@ -73,7 +90,11 @@ def _verify_assets() -> bool:
 
 async def _verify_bot(bot: Bot) -> bool:
     try:
-        me = await bot.get_me()
+        me = await with_telegram_retry(
+            bot.get_me,
+            label="bot verification",
+            logger=logger,
+        )
         logger.info(f"Bot active: @{me.username} | {me.full_name} | ID: {me.id}")
         return True
     except TelegramAPIError as exc:
@@ -112,21 +133,51 @@ async def _run() -> int:
     if not BOT_TOKEN:
         logger.error("BOT_TOKEN not found. Please populate the .env file first.")
         return 1
+    if TELEGRAM_BOT_API_URL:
+        api_url = urlsplit(TELEGRAM_BOT_API_URL)
+        if api_url.scheme not in {"http", "https"} or not api_url.netloc:
+            logger.error(
+                "TELEGRAM_BOT_API_URL must be an HTTP(S) base URL for a Local Bot API Server."
+            )
+            return 1
 
     try:
+        session = (
+            AiohttpSession(
+                timeout=TELEGRAM_REQUEST_TIMEOUT_SECONDS,
+                api=TelegramAPIServer.from_base(
+                    TELEGRAM_BOT_API_URL,
+                    is_local=True,
+                ),
+            )
+            if TELEGRAM_BOT_API_URL
+            else AiohttpSession(timeout=TELEGRAM_REQUEST_TIMEOUT_SECONDS)
+        )
         bot = Bot(
             token=BOT_TOKEN,
             default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN_V2),
+            session=session,
         )
     except Exception as exc:
         logger.error(f"Failed to initialize bot: {exc}")
         return 1
+    if TELEGRAM_BOT_API_URL:
+        logger.info(
+            "Local Telegram Bot API configured; barcode uploads up to 50 MiB are available."
+        )
+    else:
+        logger.warning(
+            "Using Telegram's hosted Bot API. Media downloads above 20 MiB require "
+            "a local Bot API server; the QR feature otherwise caps files at 20 MiB."
+        )
 
     dp = Dispatcher()
     dp.update.outer_middleware(TelegramUserRegistryMiddleware())
     dp.include_router(announcement_handler.router)
     dp.include_router(start.router)
     dp.include_router(help_handler.router)
+    dp.include_router(group_ai_handler.router)
+    dp.include_router(unblock_handler.router)
     dp.include_router(qr_handler.router)
     dp.include_router(web_handler.router)
 
@@ -166,10 +217,15 @@ async def _run() -> int:
         )
 
     try:
-        await storage.ensure_telegram_bot_user_ids_table()
+        await with_telegram_retry(
+            storage.ensure_telegram_bot_user_ids_table,
+            label="user registry database initialization",
+            logger=logger,
+        )
     except Exception as exc:
         logger.error(f"Telegram user registry initialization failed: {exc}")
         await bot.session.close()
+        await storage.close_db_pool()
         return 1
 
     await _run_cleanup_once(bot)
@@ -180,13 +236,18 @@ async def _run() -> int:
             await bot.session.close()
         except Exception:
             pass
+        await storage.close_db_pool()
         return 1
 
     cleanup_task = asyncio.create_task(_cleanup_loop(bot))
 
     exit_code = 0
     try:
-        await bot.delete_webhook(drop_pending_updates=True)
+        await with_telegram_retry(
+            lambda: bot.delete_webhook(drop_pending_updates=True),
+            label="webhook cleanup",
+            logger=logger,
+        )
         logger.info("Polling engaged. Press CTRL+C to stop.")
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     except TelegramAPIError as exc:
@@ -205,6 +266,10 @@ async def _run() -> int:
             await bot.session.close()
         except Exception as exc:
             logger.error(f"Session cleanup failed: {exc}")
+        try:
+            await storage.close_db_pool()
+        except Exception as exc:
+            logger.error(f"Turso session cleanup failed: {exc}")
         logger.info("CheyaVerse bot has shut down.")
 
     return exit_code

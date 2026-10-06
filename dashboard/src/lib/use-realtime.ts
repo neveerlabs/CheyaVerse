@@ -1,90 +1,42 @@
 "use client";
 
+import {
+  createClient,
+  type RealtimeChannel,
+  type SupabaseClient,
+} from "@supabase/supabase-js";
 import { useEffect, useRef } from "react";
 import type { RealtimeEvent } from "./realtime";
 
-type MsgPayload = {
-  id: string;
-  uid: number;
-  sender: "user" | "bot";
-  sender_role: string;
-  title: string | null;
-  content: string;
-  created_at: string;
-  delivered_at: string | null;
-  read_at: string | null;
-};
-
-type Snapshot = {
-  unread: number;
-  notifLastId: string | null;
-  notifLastAt: string | null;
-  mediaCount: number;
-  mediaLastId: string | null;
-  msgLast: MsgPayload | null;
-};
-
 type Listener = (event: RealtimeEvent) => void;
+type ChangePayload = {
+  eventType: string;
+  new: Record<string, unknown>;
+  old: Record<string, unknown>;
+};
 
-const POLL_VISIBLE_MS = 5000;
-const POLL_HIDDEN_MS = 60000;
-const BACKOFF_BASE_MS = 4000;
-const BACKOFF_MAX_MS = 30000;
-const MAX_ERR_LEVEL = 6;
+const TOKEN_REFRESH_MS = 45 * 60 * 1000;
+const RECONNECT_BASE_MS = 2_000;
+const RECONNECT_MAX_MS = 30_000;
 
-class RealtimeConnection {
+class SupabaseRealtimeConnection {
   private readonly listeners = new Set<Listener>();
-  private readonly recentEventKeys = new Set<string>();
-  private timer: ReturnType<typeof setTimeout> | null = null;
-  private inflight: AbortController | null = null;
-  private source: EventSource | null = null;
-  private previous: Snapshot | null = null;
-  private errCount = 0;
-  private streamConnected = false;
-  private realtimeUnavailable = false;
-  private realtimeStatusTimer: ReturnType<typeof setTimeout> | null = null;
-  private refreshRequested = false;
-  private forcePollRequested = false;
-  private started = false;
+  private client: SupabaseClient | null = null;
+  private channel: RealtimeChannel | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private tokenRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconnectAttempts = 0;
+  private connecting = false;
   private stopped = false;
 
   constructor(private readonly uid: string) {}
 
   addListener(listener: Listener): void {
     this.listeners.add(listener);
-    this.kick();
   }
 
   removeListener(listener: Listener): void {
     this.listeners.delete(listener);
-  }
-
-  reconnect(): void {
-    if (this.stopped) return;
-    if (this.timer) {
-      clearTimeout(this.timer);
-      this.timer = null;
-    }
-    this.source?.close();
-    this.streamConnected = false;
-    if (this.inflight) {
-      this.refreshRequested = true;
-      this.forcePollRequested = true;
-      this.inflight.abort();
-    }
-    this.connectStream();
-    this.kick(true);
-  }
-
-  reconcile(): void {
-    if (this.stopped) return;
-    if (
-      typeof EventSource !== "undefined" &&
-      this.source?.readyState === EventSource.CLOSED
-    ) {
-      this.connectStream();
-    }
-    this.kick(true);
   }
 
   get listenerCount(): number {
@@ -92,245 +44,365 @@ class RealtimeConnection {
   }
 
   start(): void {
-    if (this.started || this.stopped) return;
-    this.started = true;
-
-    this.connectStream();
-    this.kick();
+    this.stopped = false;
+    void this.connect();
   }
 
   stop(): void {
-    if (this.stopped) return;
     this.stopped = true;
-    if (this.timer) clearTimeout(this.timer);
-    if (this.realtimeStatusTimer) clearTimeout(this.realtimeStatusTimer);
-    this.source?.close();
-    this.inflight?.abort();
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    if (this.tokenRefreshTimer) clearTimeout(this.tokenRefreshTimer);
+    this.reconnectTimer = null;
+    this.tokenRefreshTimer = null;
+    const client = this.client;
+    const channel = this.channel;
+    this.client = null;
+    this.channel = null;
+    if (client && channel) {
+      void client.removeChannel(channel);
+    }
+    if (client) {
+      void client.realtime.disconnect();
+    }
   }
 
-  private connectStream(): void {
-    if (this.stopped || typeof EventSource === "undefined") return;
-    this.source?.close();
-    this.streamConnected = false;
-    this.source = new EventSource(
-      `/api/events?uid=${encodeURIComponent(this.uid)}`,
+  reconnect(): void {
+    if (this.stopped) return;
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    if (this.tokenRefreshTimer) clearTimeout(this.tokenRefreshTimer);
+    this.reconnectTimer = null;
+    this.tokenRefreshTimer = null;
+    const client = this.client;
+    const channel = this.channel;
+    this.channel = null;
+    if (client && channel) void client.removeChannel(channel);
+    if (client) void client.realtime.disconnect();
+    this.client = null;
+    void this.connect();
+  }
+
+  reconcile(): void {
+    if (this.stopped || this.channel || this.connecting) return;
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    void this.connect();
+  }
+
+  private async getAccessToken(): Promise<string> {
+    const response = await fetch(
+      `/api/realtime/token?uid=${encodeURIComponent(this.uid)}`,
+      { cache: "no-store" },
     );
-    this.source.onopen = () => {
-      this.errCount = 0;
-    };
-    this.source.onmessage = (message) => {
-      try {
-        const event = JSON.parse(message.data) as RealtimeEvent;
-        if (event.type === "ready") {
-          this.streamConnected = true;
-          this.errCount = 0;
-          this.setRealtimeUnavailable(false);
-          this.kick(true);
-        } else if (typeof event.type === "string") {
-          this.emit(event);
-        }
-      } catch {}
-    };
-    this.source.onerror = () => {
-      this.streamConnected = false;
-      this.kick();
-    };
+    if (!response.ok) {
+      throw new Error(`Realtime token request failed (${response.status}).`);
+    }
+    const result = (await response.json()) as { token?: unknown };
+    if (typeof result.token !== "string" || !result.token) {
+      throw new Error("Realtime token response was invalid.");
+    }
+    return result.token;
   }
 
-  private setRealtimeUnavailable(unavailable: boolean, message?: string): void {
-    if (!unavailable) {
-      if (this.realtimeStatusTimer) clearTimeout(this.realtimeStatusTimer);
-      this.realtimeStatusTimer = null;
-      if (!this.realtimeUnavailable) return;
-      this.realtimeUnavailable = false;
-      window.dispatchEvent(
-        new CustomEvent("cheya:realtime-status", {
-          detail: { connected: true },
-        }),
+  private async connect(): Promise<void> {
+    if (this.stopped || this.connecting || this.channel) return;
+    this.connecting = true;
+    try {
+      const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+      if (!url || !anonKey) {
+        throw new Error("Supabase Realtime is not configured.");
+      }
+
+      let accessToken = await this.getAccessToken();
+      if (this.stopped) return;
+
+      const client = createClient(url, anonKey, {
+        auth: {
+          autoRefreshToken: false,
+          detectSessionInUrl: false,
+          persistSession: false,
+        },
+        accessToken: async () => accessToken,
+        realtime: { params: { eventsPerSecond: 20 } },
+      });
+      this.client = client;
+      await client.realtime.setAuth(accessToken);
+
+      const channel = client
+        .channel(`cheyaverse-user-${this.uid}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "messages",
+            filter: `uid=eq.${this.uid}`,
+          },
+          (payload) => this.handleMessageChange(payload as ChangePayload),
+        )
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "notifications",
+            filter: `uid=eq.${this.uid}`,
+          },
+          (payload) => this.handleNotificationChange(payload as ChangePayload),
+        )
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "chat_message_hides",
+            filter: `uid=eq.${this.uid}`,
+          },
+          (payload) => {
+            const change = payload as ChangePayload;
+            const messageId = String(
+              (change.new.message_id ?? change.old.message_id ?? ""),
+            );
+            if (messageId && change.eventType === "INSERT") {
+              this.emit({ type: "message:hidden", messageId });
+            } else if (messageId && change.eventType === "DELETE") {
+              this.emit({ type: "message:unhidden", messageId });
+            }
+          },
+        )
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "chat_message_pins",
+            filter: `uid=eq.${this.uid}`,
+          },
+          (payload) => {
+            const change = payload as ChangePayload;
+            const messageId = String(
+              change.new.message_id ?? change.old.message_id ?? "",
+            );
+            if (messageId) {
+              this.emit({
+                type: "message:pinned",
+                messageId,
+                pinned: change.eventType !== "DELETE",
+              });
+            }
+          },
+        )
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "chat_notification_pins",
+            filter: `uid=eq.${this.uid}`,
+          },
+          (payload) => {
+            const change = payload as ChangePayload;
+            const notificationId = String(
+              change.new.notification_id ?? change.old.notification_id ?? "",
+            );
+            if (notificationId) {
+              this.emit({
+                type: "notification:pinned",
+                notificationId,
+                pinned: change.eventType !== "DELETE",
+              });
+            }
+          },
+        )
+        .on(
+          "postgres_changes",
+          {
+            event: "INSERT",
+            schema: "public",
+            table: "session_blacklist",
+            filter: `uid=eq.${this.uid}`,
+          },
+          (payload) => {
+            const change = payload as ChangePayload;
+            const deviceId = change.new.device_id;
+            if (typeof deviceId === "string") {
+              this.emit({ type: "session:blocked", deviceId });
+            }
+          },
+        )
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "library_nodes",
+            filter: `owner_uid=eq.${this.uid}`,
+          },
+          () => this.emit({ type: "library:changed" }),
+        )
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "media",
+            filter: `owner_id=eq.${this.uid}`,
+          },
+          () => this.emit({ type: "media:changed" }),
+        )
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "user_covers",
+            filter: `uid=eq.${this.uid}`,
+          },
+          () => this.emit({ type: "cover:changed" }),
+        );
+      this.channel = channel;
+      channel.subscribe((status, error) => {
+        if (this.channel !== channel) return;
+        if (status === "SUBSCRIBED") {
+          this.reconnectAttempts = 0;
+          if (this.tokenRefreshTimer) clearTimeout(this.tokenRefreshTimer);
+          this.tokenRefreshTimer = setTimeout(
+            () => void this.refreshToken(),
+            TOKEN_REFRESH_MS,
+          );
+          this.emit({ type: "realtime:connected" });
+          return;
+        }
+        if (
+          status === "CHANNEL_ERROR" ||
+          status === "TIMED_OUT" ||
+          status === "CLOSED"
+        ) {
+          if (error) {
+            console.error("[realtime] Supabase channel disconnected:", error);
+          }
+          this.scheduleReconnect();
+        }
+      });
+    } catch (error) {
+      if (!this.stopped) {
+        console.error("[realtime] Supabase WebSocket connection failed:", error);
+        this.scheduleReconnect();
+      }
+    } finally {
+      this.connecting = false;
+    }
+  }
+
+  private async refreshToken(): Promise<void> {
+    if (this.stopped || !this.client) return;
+    try {
+      const token = await this.getAccessToken();
+      if (this.stopped || !this.client) return;
+      await this.client.realtime.setAuth(token);
+      this.tokenRefreshTimer = setTimeout(
+        () => void this.refreshToken(),
+        TOKEN_REFRESH_MS,
       );
+    } catch (error) {
+      console.error("[realtime] Supabase token refresh failed:", error);
+      this.scheduleReconnect();
+    }
+  }
+
+  private scheduleReconnect(): void {
+    if (this.stopped || this.reconnectTimer) return;
+    if (this.tokenRefreshTimer) clearTimeout(this.tokenRefreshTimer);
+    this.tokenRefreshTimer = null;
+    const client = this.client;
+    const channel = this.channel;
+    this.client = null;
+    this.channel = null;
+    if (client && channel) void client.removeChannel(channel);
+    if (client) void client.realtime.disconnect();
+
+    const delay = Math.min(
+      RECONNECT_MAX_MS,
+      RECONNECT_BASE_MS * 2 ** Math.min(this.reconnectAttempts, 4),
+    );
+    this.reconnectAttempts += 1;
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      void this.connect();
+    }, delay);
+  }
+
+  private handleMessageChange(payload: ChangePayload): void {
+    if (payload.eventType === "INSERT") {
+      this.emit({ type: "message:new", message: payload.new });
       return;
     }
-    if (this.realtimeUnavailable || this.realtimeStatusTimer) return;
-    this.realtimeStatusTimer = setTimeout(() => {
-      this.realtimeStatusTimer = null;
-      if (this.stopped || this.streamConnected) return;
-      this.realtimeUnavailable = true;
-      window.dispatchEvent(
-        new CustomEvent("cheya:realtime-status", {
-          detail: {
-            connected: false,
-            ...(message ? { message } : {}),
-          },
-        }),
-      );
-    }, 5_000);
+    if (payload.eventType === "DELETE") {
+      this.emit({
+        type: "message:deleted",
+        messageId: String(payload.old.id ?? ""),
+      });
+      return;
+    }
+
+    const previous = payload.old;
+    const message = payload.new;
+    if (previous.read_at !== message.read_at && message.read_at) {
+      this.emit({
+        type: "message:read",
+        messageId: String(message.id ?? ""),
+        read_at: message.read_at,
+      });
+    } else if (previous.delivered_at !== message.delivered_at && message.delivered_at) {
+      this.emit({
+        type: "message:delivered",
+        messageId: String(message.id ?? ""),
+        delivered_at: message.delivered_at,
+      });
+    } else {
+      this.emit({ type: "message:updated", message });
+    }
+  }
+
+  private handleNotificationChange(payload: ChangePayload): void {
+    if (payload.eventType === "INSERT") {
+      this.emit({
+        type: "notification:new",
+        notificationId: String(payload.new.id ?? ""),
+        title: String(payload.new.title ?? "CheyaVerse"),
+        body: String(payload.new.message ?? ""),
+      });
+      return;
+    }
+    if (payload.eventType === "DELETE") {
+      this.emit({
+        type: "notification:deleted",
+        notificationId: String(payload.old.id ?? ""),
+      });
+      return;
+    }
+    if (payload.old.read !== payload.new.read && Number(payload.new.read) === 1) {
+      this.emit({ type: "notification:read" });
+    }
   }
 
   private emit(event: RealtimeEvent): void {
-    if (event.type === "notification:new") {
-      const notificationId =
-        typeof event.notificationId === "string" ? event.notificationId : null;
-      if (notificationId && !this.rememberEvent(`notification:${notificationId}`)) {
-        return;
-      }
-    }
-    if (event.type === "message:new") {
-      const message = event.message as { id?: unknown } | undefined;
-      if (
-        typeof message?.id === "string" &&
-        !this.rememberEvent(`message:${message.id}`)
-      ) {
-        return;
-      }
-    }
     for (const listener of this.listeners) {
       try {
         listener(event);
-      } catch {}
+      } catch (error) {
+        console.error("[realtime] subscriber callback failed:", error);
+      }
     }
   }
-
-  private rememberEvent(key: string): boolean {
-    if (this.recentEventKeys.has(key)) return false;
-    this.recentEventKeys.add(key);
-    if (this.recentEventKeys.size > 200) {
-      const oldestKey = this.recentEventKeys.values().next().value;
-      if (oldestKey) this.recentEventKeys.delete(oldestKey);
-    }
-    return true;
-  }
-
-  private nextInterval(): number {
-    if (this.errCount > 0) {
-      return Math.min(
-        BACKOFF_MAX_MS,
-        BACKOFF_BASE_MS * Math.min(this.errCount, MAX_ERR_LEVEL),
-      );
-    }
-    return document.visibilityState === "visible"
-      ? POLL_VISIBLE_MS
-      : POLL_HIDDEN_MS;
-  }
-
-  private tick = async (force = false): Promise<void> => {
-    if (this.stopped || this.inflight) return;
-
-    const controller = new AbortController();
-    this.inflight = controller;
-
-    try {
-      const response = await fetch(
-        `/api/events/poll?uid=${encodeURIComponent(this.uid)}`,
-        { cache: "no-store", signal: controller.signal },
-      );
-      if (!response.ok) {
-        this.errCount++;
-        if (response.status >= 500) {
-          this.setRealtimeUnavailable(
-            true,
-            `Realtime server returned HTTP ${response.status}; it will retry automatically.`,
-          );
-        }
-        return;
-      }
-
-      const result = await response.json().catch(() => null);
-      if (!result || result.ok !== true || !result.snapshot) {
-        this.errCount++;
-        return;
-      }
-
-      this.errCount = 0;
-      this.setRealtimeUnavailable(false);
-      const current = result.snapshot as Snapshot;
-
-      if (this.previous) {
-        const unreadChanged = current.unread !== this.previous.unread;
-        const notificationAdded =
-          current.notifLastId !== this.previous.notifLastId;
-        const currentNotificationTime = Date.parse(current.notifLastAt ?? "");
-        const previousNotificationTime = Date.parse(
-          this.previous.notifLastAt ?? "",
-        );
-        const isNewNotification =
-          notificationAdded &&
-          Number.isFinite(currentNotificationTime) &&
-          currentNotificationTime >= previousNotificationTime;
-        if (
-          current.unread > this.previous.unread ||
-          isNewNotification
-        ) {
-          this.emit({
-            type: "notification:new",
-            notificationId: current.notifLastId,
-          });
-        }
-        if (unreadChanged && current.unread < this.previous.unread) {
-          this.emit({ type: "notification:read" });
-        }
-
-        const currentMessageId = current.msgLast?.id ?? "";
-        const previousMessageId = this.previous.msgLast?.id ?? "";
-        if (currentMessageId && currentMessageId !== previousMessageId) {
-          this.emit({ type: "message:new", message: current.msgLast });
-        }
-
-        if (
-          current.mediaCount !== this.previous.mediaCount ||
-          current.mediaLastId !== this.previous.mediaLastId
-        ) {
-          this.emit({ type: "media:changed" });
-        }
-      }
-
-      this.previous = current;
-    } catch (error) {
-      if ((error as { name?: string })?.name !== "AbortError") {
-        this.errCount++;
-        this.setRealtimeUnavailable(
-          true,
-          "Realtime polling could not reach the server; it will retry automatically.",
-        );
-      }
-    } finally {
-      if (this.inflight === controller) this.inflight = null;
-      const forceNextPoll = this.forcePollRequested;
-      this.forcePollRequested = false;
-      if (!this.stopped) {
-        const delay = this.refreshRequested || forceNextPoll ? 0 : this.nextInterval();
-        this.refreshRequested = false;
-        this.timer = setTimeout(() => {
-          this.timer = null;
-          void this.tick(forceNextPoll);
-        }, delay);
-      } else {
-        this.refreshRequested = false;
-      }
-    }
-  };
-
-  private kick = (force = false): void => {
-    if (this.stopped) return;
-    if (this.inflight) {
-      this.refreshRequested = true;
-      this.forcePollRequested ||= force;
-      return;
-    }
-    if (this.timer) clearTimeout(this.timer);
-    this.timer = setTimeout(() => {
-      this.timer = null;
-      void this.tick(force);
-    }, 0);
-  };
-
 }
 
-const connections = new Map<string, RealtimeConnection>();
+const connections = new Map<string, SupabaseRealtimeConnection>();
 
 function subscribe(uid: string, listener: Listener): () => void {
   let connection = connections.get(uid);
   if (!connection) {
-    connection = new RealtimeConnection(uid);
+    connection = new SupabaseRealtimeConnection(uid);
     connections.set(uid, connection);
   }
 
@@ -358,12 +430,12 @@ export function reconnectRealtime(
 export function useRealtime(
   uid: string | number | null | undefined,
   onEvent: (event: RealtimeEvent) => void,
-) {
-  const cbRef = useRef(onEvent);
-  cbRef.current = onEvent;
+): void {
+  const callbackRef = useRef(onEvent);
+  callbackRef.current = onEvent;
 
   useEffect(() => {
     if (uid === null || uid === undefined || uid === "") return;
-    return subscribe(String(uid), (event) => cbRef.current(event));
+    return subscribe(String(uid), (event) => callbackRef.current(event));
   }, [uid]);
 }

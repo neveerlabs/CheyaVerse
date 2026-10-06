@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { SubPageHeader } from "@/components/SubPageHeader";
+import { config } from "@/lib/config";
 import { SettingsClient } from "./SettingsClient";
 
 export const dynamic = "force-dynamic";
@@ -42,7 +43,11 @@ export default function SettingsPage({
             : `/${params.uid}/profile/settings`
         }
       />
-      <SettingsClient uid={params.uid} initialTab={tab} />
+      <SettingsClient
+        uid={params.uid}
+        initialTab={tab}
+        isConfiguredAdmin={config.adminTelegramIds.has(uid)}
+      />
     </div>
   );
 }

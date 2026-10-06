@@ -17,16 +17,22 @@ export default async function LandingPage() {
     cookies().get(SESSION_COOKIE_NAME)?.value,
   );
   if (session) {
-    const sessionVersion = await getAccountSessionVersion(session.uid);
+    let sessionVersion: number;
+    let account: Awaited<ReturnType<typeof getTelegramUser>>;
+    let blocked: boolean;
+    try {
+      [sessionVersion, account, blocked] = await Promise.all([
+        getAccountSessionVersion(session.uid),
+        getTelegramUser(session.uid),
+        session.deviceId
+          ? isDeviceBlacklisted(session.deviceId, session.uid)
+          : Promise.resolve(false),
+      ]);
+    } catch (error) {
+      console.error("[landing] session verification is unavailable:", error);
+      return <SessionVerificationUnavailable />;
+    }
     if (session.sessionVersion !== sessionVersion) redirect("/login");
-
-    const [account, blocked] = await Promise.all([
-      getTelegramUser(session.uid),
-      session.deviceId
-        ? isDeviceBlacklisted(session.deviceId, session.uid)
-        : Promise.resolve(false),
-    ]);
-
     if (blocked) redirect("/blocked");
     if (account && account.role !== "deleted") redirect(`/${session.uid}`);
   }
@@ -73,6 +79,31 @@ export default async function LandingPage() {
         </code>{" "}
         ke bot untuk mendapatkan tautan dashboard personal Anda.
       </p>
+    </main>
+  );
+}
+
+function SessionVerificationUnavailable() {
+  return (
+    <main className="mx-auto flex min-h-screen max-w-[600px] items-center justify-center px-5">
+      <section
+        role="alert"
+        className="w-full max-w-[440px] rounded-3xl border border-amber-200 bg-white p-7 text-center shadow-sm"
+      >
+        <h1 className="text-[18px] font-bold text-ink">
+          Sesi belum dapat diverifikasi
+        </h1>
+        <p className="mt-2 text-[13px] leading-relaxed text-ink-soft">
+          Database sedang tidak terjangkau. Sesi tidak dihapus; coba muat ulang
+          halaman setelah koneksi pulih.
+        </p>
+        <a
+          href="/"
+          className="mt-5 inline-flex min-h-11 w-full items-center justify-center rounded-xl bg-ink px-4 text-[13px] font-semibold text-white"
+        >
+          Coba lagi
+        </a>
+      </section>
     </main>
   );
 }

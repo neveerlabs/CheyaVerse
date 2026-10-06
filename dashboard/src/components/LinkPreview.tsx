@@ -2,19 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { ExternalLink, Link2, Play } from "lucide-react";
-
-type OgData = {
-  url: string;
-  title: string | null;
-  description: string | null;
-  image: string | null;
-  video: string | null;
-  videoType: string | null;
-  siteName: string | null;
-  favicon: string | null;
-};
-
-const cache = new Map<string, OgData | null>();
+import {
+  getCachedLinkPreview,
+  loadLinkPreview,
+  type LinkPreviewData,
+} from "@/lib/link-preview";
 
 function hostFromUrl(url: string): string {
   try {
@@ -45,41 +37,20 @@ export function LinkPreview({
   url: string;
   tone?: "incoming" | "outgoing";
 }) {
-  const [data, setData] = useState<OgData | null | undefined>(() => {
-    if (cache.has(url)) return cache.get(url) ?? null;
-    return undefined;
-  });
+  const [data, setData] = useState<LinkPreviewData | null | undefined>(
+    () => getCachedLinkPreview(url),
+  );
   const [imageFailed, setImageFailed] = useState(false);
   const [faviconFailed, setFaviconFailed] = useState(false);
 
   useEffect(() => {
     setImageFailed(false);
     setFaviconFailed(false);
-    if (cache.has(url)) {
-      setData(cache.get(url) ?? null);
-      return;
-    }
     let cancelled = false;
-    setData(undefined);
-    fetch(`/api/link-preview?url=${encodeURIComponent(url)}`, {
-      cache: "no-store",
-    })
-      .then((res) => res.json())
-      .then((json) => {
-        if (cancelled) return;
-        if (json?.ok === true && json.data) {
-          cache.set(url, json.data);
-          setData(json.data);
-        } else {
-          cache.set(url, null);
-          setData(null);
-        }
-      })
-      .catch(() => {
-        if (cancelled) return;
-        cache.set(url, null);
-        setData(null);
-      });
+    setData(getCachedLinkPreview(url));
+    void loadLinkPreview(url).then((preview) => {
+      if (!cancelled) setData(preview);
+    });
     return () => {
       cancelled = true;
     };
@@ -99,6 +70,12 @@ export function LinkPreview({
   }
 
   if (data === null) {
+    let fallbackFavicon: string | null = null;
+    try {
+      fallbackFavicon = `${new URL(url).origin}/favicon.ico`;
+    } catch {
+      fallbackFavicon = null;
+    }
     return (
       <a
         href={url}
@@ -111,14 +88,30 @@ export function LinkPreview({
             : "border-ink/40 bg-black/[.04] text-ink-soft active:bg-black/[.09]"
         }`}
       >
-        <Link2 size={13} className="flex-shrink-0 opacity-70" />
-        <span className="truncate font-medium">{hostFromUrl(url)}</span>
-        <ExternalLink size={12} className="ml-auto flex-shrink-0 opacity-60" />
+        {fallbackFavicon && !faviconFailed ? (
+          <span className="relative block w-full overflow-hidden rounded-t-md bg-gradient-to-br from-white via-[#f4f5f7] to-[#e7e9ee]">
+            <span className="block w-full" style={{ aspectRatio: "1.91 / 1" }} />
+            <img
+              src={fallbackFavicon}
+              alt=""
+              loading="lazy"
+              decoding="async"
+              onError={() => setFaviconFailed(true)}
+              className="absolute inset-0 h-full w-full object-contain p-[12%]"
+            />
+          </span>
+        ) : null}
+        <span className="flex items-center gap-2 px-2 py-1.5 text-[12px]">
+          <Link2 size={13} className="flex-shrink-0 opacity-70" />
+          <span className="truncate font-medium">{hostFromUrl(url)}</span>
+          <ExternalLink size={12} className="ml-auto flex-shrink-0 opacity-60" />
+        </span>
       </a>
     );
   }
 
   const showImage = Boolean(data.image) && !imageFailed;
+  const showFaviconHero = !showImage && Boolean(data.favicon) && !faviconFailed;
   const showVideoOverlay = Boolean(data.video);
   const directVideo = isDirectVideo(data.videoType, data.video);
   const siteLabel = data.siteName || hostFromUrl(data.url);
@@ -149,16 +142,23 @@ export function LinkPreview({
           />
         </span>
       )}
-      {!directVideo && showImage && (
+      {!directVideo && (showImage || showFaviconHero) && (
         <span className="relative block w-full overflow-hidden bg-black/5">
           <span className="block w-full" style={{ aspectRatio: "1.91 / 1" }} />
           <img
-            src={data.image as string}
+            src={showImage ? data.image ?? "" : data.favicon ?? ""}
             alt=""
             loading="lazy"
             decoding="async"
-            onError={() => setImageFailed(true)}
-            className="absolute inset-0 h-full w-full object-cover"
+            onError={() => {
+              if (showImage) setImageFailed(true);
+              else setFaviconFailed(true);
+            }}
+            className={`absolute inset-0 h-full w-full ${
+              showImage
+                ? "object-cover"
+                : "bg-gradient-to-br from-white via-[#f4f5f7] to-[#e7e9ee] object-contain p-[12%]"
+            }`}
           />
           {showVideoOverlay && (
             <>

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchMedia } from "@/lib/storage";
-import { fetchTelegramFile } from "@/lib/telegram";
 import { verifyRecaptcha } from "@/lib/recaptcha";
+import { fetchUserMediaObject } from "@/lib/supabase-storage";
 
 const MEDIA_ID_RE = /^\d{7}$/;
 
@@ -24,13 +24,20 @@ export async function GET(
     return new NextResponse("Media not found.", { status: 404 });
   }
 
-  const upstream = await fetchTelegramFile(meta.storage_path);
-  if (!upstream || !upstream.body) {
-    return new NextResponse("Media not available.", { status: 502 });
-  }
-
   const safeName =
     (meta.filename || params.id).replace(/["\\\r\n]/g, "").slice(0, 200) || "file";
+  const upstream = await fetchUserMediaObject(
+    meta.owner_id,
+    meta.storage_path,
+    undefined,
+    safeName,
+  ).catch((error) => {
+    console.error(`[download] Supabase download failed for ${params.id}:`, error);
+    return null;
+  });
+  if (!upstream?.ok || !upstream.body) {
+    return new NextResponse("Media not available.", { status: 502 });
+  }
 
   return new NextResponse(upstream.body, {
     status: 200,

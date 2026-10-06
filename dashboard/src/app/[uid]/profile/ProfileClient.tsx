@@ -20,6 +20,7 @@ import {
   Copy,
   Download,
   Smartphone,
+  ArrowRightLeft,
 } from "lucide-react";
 import { VideoThumbnail } from "@/components/VideoThumbnail";
 import { TelegramAvatar } from "@/components/TelegramAvatar";
@@ -27,6 +28,7 @@ import { config } from "@/lib/config";
 import { CoverIcon } from "@/lib/cover-icons";
 import type { CoverConfig } from "@/lib/storage";
 import { VerifiedName } from "@/components/VerifiedName";
+import { useBackDismiss } from "@/lib/back-dismiss";
 
 type Info = {
   id: number;
@@ -37,6 +39,13 @@ type Info = {
 } | null;
 
 type Stats = { total: number; active: number; expired: number };
+
+type DeviceAccount = {
+  uid: number;
+  username: string | null;
+  firstName: string | null;
+  lastName: string | null;
+};
 
 type MediaItem = {
   id: string;
@@ -92,6 +101,13 @@ export function ProfileClient({
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [logoutDialog, setLogoutDialog] = useState(false);
   const [logoutError, setLogoutError] = useState("");
+  const [deviceAccounts, setDeviceAccounts] = useState<DeviceAccount[]>([]);
+  const [deviceAccountsStatus, setDeviceAccountsStatus] = useState<
+    "idle" | "loading" | "ready" | "error"
+  >("idle");
+  const [deviceAccountsError, setDeviceAccountsError] = useState("");
+  const [switchingAccount, setSwitchingAccount] = useState<number | null>(null);
+  const [accountRefresh, setAccountRefresh] = useState(0);
   const [mounted, setMounted] = useState(false);
   const [headerVisible, setHeaderVisible] = useState(false);
 
@@ -116,6 +132,17 @@ export function ProfileClient({
   const lpTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lpTriggered = useRef(false);
   const recaptchaRef = useRef<ReCAPTCHA>(null);
+
+  useBackDismiss(menuOpen, closeMenu, "profile-menu");
+  useBackDismiss(avatarOpen, () => setAvatarOpen(false), "profile-avatar");
+  useBackDismiss(Boolean(menuItem), closeMediaMenu, "profile-media-menu");
+  useBackDismiss(Boolean(deleteItem), () => setDeleteItem(null), "profile-media-delete");
+  useBackDismiss(Boolean(captchaItem), () => {
+    setCaptchaItem(null);
+    setCaptchaToken(null);
+    recaptchaRef.current?.reset();
+  }, "profile-media-captcha");
+  useBackDismiss(logoutDialog, () => setLogoutDialog(false), "profile-logout");
 
   useEffect(() => {
     setMounted(true);
@@ -195,6 +222,44 @@ export function ProfileClient({
       document.removeEventListener("scroll", onScroll, true);
     };
   }, [menuOpen]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    let active = true;
+    setDeviceAccountsStatus("loading");
+    setDeviceAccountsError("");
+    fetch("/api/session/accounts", { cache: "no-store" })
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || data?.ok !== true) {
+          throw new Error(
+            data?.error === "device_not_linked"
+              ? "This browser is no longer linked to the current account."
+              : data?.error === "unauthorized"
+                ? "Your session expired. Reload this page to sign in again."
+              : "Accounts on this device could not be loaded. Try again.",
+          );
+        }
+        if (active) {
+          setDeviceAccounts(
+            Array.isArray(data.accounts) ? data.accounts : [],
+          );
+          setDeviceAccountsStatus("ready");
+        }
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        setDeviceAccountsError(
+          error instanceof Error
+            ? error.message
+            : "Accounts on this device could not be loaded. Try again.",
+        );
+        setDeviceAccountsStatus("error");
+      });
+    return () => {
+      active = false;
+    };
+  }, [menuOpen, accountRefresh]);
 
   useEffect(() => {
     if (!menuItem) return;
@@ -412,7 +477,7 @@ export function ProfileClient({
     if (anchorEl) {
       const rect = anchorEl.getBoundingClientRect();
       const menuWidth = 240;
-      const menuHeight = 360;
+      const menuHeight = 480;
       let left = rect.right - menuWidth;
       if (left < 12) left = 12;
       let top = rect.bottom + 8;
@@ -473,15 +538,47 @@ export function ProfileClient({
       if (!response.ok) {
         throw new Error(`Sesi tidak dapat diakhiri (${response.status}).`);
       }
-      try {
-        window.localStorage.removeItem(DEVICE_ID_KEY);
-      } catch {}
       window.location.replace("/login");
     } catch (cause) {
       setLogoutError(
         cause instanceof Error ? cause.message : "Sesi tidak dapat diakhiri.",
       );
       setLoggingOut(false);
+    }
+  }
+
+  async function switchAccount(targetUid: number) {
+    if (switchingAccount !== null) return;
+    setSwitchingAccount(targetUid);
+    setDeviceAccountsError("");
+    try {
+      const response = await fetch("/api/session/accounts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({ uid: targetUid }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data?.ok !== true) {
+        const message =
+          data?.error === "account_not_available_on_device"
+            ? "That account is no longer linked to this device."
+            : data?.error === "device_not_linked"
+              ? "This browser is no longer linked to the current account."
+              : data?.error === "unauthorized" ||
+                  data?.error === "session_revoked"
+                ? "Your session expired. Reload this page to sign in again."
+              : "Could not switch accounts. Please try again.";
+        throw new Error(message);
+      }
+      window.location.replace(`/${targetUid}`);
+    } catch (error) {
+      setDeviceAccountsError(
+        error instanceof Error
+          ? error.message
+          : "Could not switch accounts. Please try again.",
+      );
+      setSwitchingAccount(null);
     }
   }
 
@@ -1194,8 +1291,74 @@ export function ProfileClient({
         <div
           data-profile-menu
           style={{ top: menuAnchor.y, left: menuAnchor.x, width: 240 }}
-          className="fixed z-[100] bg-white border border-line rounded-2xl shadow-[0_12px_48px_-8px_rgba(0,0,0,.2),0_2px_8px_-2px_rgba(0,0,0,.08)] overflow-hidden animate-fade-up p-1.5"
+          className="fixed z-[100] max-h-[min(70dvh,520px)] overflow-y-auto bg-white border border-line rounded-2xl shadow-[0_12px_48px_-8px_rgba(0,0,0,.2),0_2px_8px_-2px_rgba(0,0,0,.08)] animate-fade-up p-1.5"
         >
+          <div className="px-2.5 py-2">
+            <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-mute">
+              Switch account
+            </p>
+            <div
+              aria-label="Accounts linked to this device"
+              className="max-h-[28dvh] space-y-0.5 overflow-y-auto overscroll-contain"
+            >
+              {deviceAccountsStatus === "loading" && (
+                <p className="py-1 text-[12px] text-ink-mute">Checking linked accounts…</p>
+              )}
+              {deviceAccountsStatus === "ready" &&
+                deviceAccounts.filter((account) => account.uid !== Number(uid)).length === 0 && (
+                  <p className="py-1 text-[12px] text-ink-mute">
+                    No other accounts linked to this device.
+                  </p>
+                )}
+              {deviceAccountsStatus === "ready" &&
+                deviceAccounts
+                  .filter((account) => account.uid !== Number(uid))
+                  .map((account) => {
+                    const name =
+                      [account.firstName, account.lastName]
+                        .filter(Boolean)
+                        .join(" ") ||
+                      (account.username ? `@${account.username}` : `Account ${account.uid}`);
+                    return (
+                      <button
+                        key={account.uid}
+                        type="button"
+                        disabled={switchingAccount !== null}
+                        onClick={() => void switchAccount(account.uid)}
+                        className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left text-[12.5px] font-medium text-ink transition-colors hover:bg-[#f5f5f5] disabled:opacity-60"
+                      >
+                        <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-[#f0f0f0] text-ink-soft">
+                          <ArrowRightLeft size={14} strokeWidth={1.8} />
+                        </span>
+                        <span className="min-w-0 flex-1 truncate">{name}</span>
+                        {switchingAccount === account.uid && (
+                          <span className="text-[10px] text-ink-mute">Switching…</span>
+                        )}
+                      </button>
+                    );
+                  })}
+              {deviceAccountsStatus === "error" && (
+                <div className="py-1">
+                  <p role="alert" className="text-[11px] leading-relaxed text-danger">
+                    {deviceAccountsError}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setAccountRefresh((refresh) => refresh + 1)}
+                    className="mt-1 text-[11px] font-semibold text-ink underline underline-offset-2"
+                  >
+                    Try again
+                  </button>
+                </div>
+              )}
+              {deviceAccountsError && deviceAccountsStatus === "ready" && (
+                <p role="alert" className="mt-1 text-[11px] leading-relaxed text-danger">
+                  {deviceAccountsError}
+                </p>
+              )}
+            </div>
+          </div>
+          <div className="my-1.5 border-t border-line" />
           {MENU.map(({ href, label, icon }) => (
             <Link
               key={href}

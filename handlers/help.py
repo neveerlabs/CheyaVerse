@@ -23,10 +23,14 @@ HELP_TEXT = (
     "Available commands and quick actions\n"
     "──────────────────────────\n"
     "```\n"
-    "• /start — Start Cheya\n"
+    "• /start — Start CheyaVerse\n"
     "• /help — Command help\n"
     "• /qr <text> — Generate QR code from text\n"
-    "• /web — Dapatkan URL dashboard personal\n"
+    "• /unblock — Review and unblock your blocked devices\n"
+    "• /web — URL dashboard personal\n"
+    "• AI grup/channel — Mendengarkan pesan admin dan merangkum memori\n"
+    "• /send — Izinkan AI membalas sesekali di grup/channel\n"
+    "• /up — Cabut izin balasan AI; AI kembali diam\n"
     "```\n"
 )
 
@@ -39,10 +43,10 @@ def _web_url(uid: int) -> str:
 
 def _web_text(uid: int) -> str:
     return (
-        "Webapp CheyaVerse kamu\n"
+        "Redirecting to webapp CheyaVerse\n"
         "──────────────────────────\n"
-        f"```\n{_web_url(uid)}\n```\n"
-        "_Buka link di atas untuk melihat dashboard personalmu\\._"
+        f"```\n{PUBLIC_URL}/\n```\n"
+        "_Akses dashboardmu dengan link di atas\\._"
     )
 
 
@@ -54,7 +58,7 @@ def _web_keyboard(uid: int) -> Optional[InlineKeyboardMarkup]:
             [
                 InlineKeyboardButton(
                     text="Visit site",
-                    url=f"{PUBLIC_URL}/{uid}",
+                    url=f"{PUBLIC_URL}/",
                 ),
             ],
         ]

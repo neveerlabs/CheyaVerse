@@ -14,6 +14,62 @@ const FILE_URL_TTL_MS = 45 * 60 * 1000;
 const fileUrlCache = new Map<string, { url: string; expiresAt: number }>();
 const pendingFileUrlLookups = new Map<string, Promise<string | null>>();
 
+function telegramApiBaseUrl(): string {
+  const configured = config.telegram.apiBaseUrl.trim().replace(/\/+$/, "");
+  let endpoint: URL;
+  try {
+    endpoint = new URL(configured);
+  } catch {
+    throw new Error("TELEGRAM_BOT_API_URL must be a valid HTTP(S) base URL.");
+  }
+  const isLoopback =
+    endpoint.hostname === "localhost" ||
+    endpoint.hostname === "127.0.0.1" ||
+    endpoint.hostname === "[::1]";
+  if (
+    (endpoint.protocol !== "https:" &&
+      !(endpoint.protocol === "http:" && isLoopback)) ||
+    endpoint.username ||
+    endpoint.password ||
+    endpoint.search ||
+    endpoint.hash
+  ) {
+    throw new Error(
+      "TELEGRAM_BOT_API_URL must use HTTPS; plain HTTP is allowed only for localhost.",
+    );
+  }
+  return endpoint.toString().replace(/\/+$/, "");
+}
+
+function telegramMethodUrl(method: string): string {
+  return `${telegramApiBaseUrl()}/bot${config.telegram.botToken}/${method}`;
+}
+
+function getErrorCode(error: unknown): string {
+  const pending: unknown[] = [error];
+  const seen = new Set<object>();
+  let fallback = "unknown";
+  while (pending.length > 0) {
+    const current = pending.shift();
+    if (!(current instanceof Error) && (typeof current !== "object" || current === null)) {
+      continue;
+    }
+    if (seen.has(current)) continue;
+    seen.add(current);
+    if (current instanceof Error && fallback === "unknown") {
+      fallback = current.name;
+    }
+    if ("code" in current && typeof current.code === "string" && current.code) {
+      return current.code;
+    }
+    if ("cause" in current) pending.push(current.cause);
+    if ("errors" in current && Array.isArray(current.errors)) {
+      pending.push(...current.errors);
+    }
+  }
+  return fallback;
+}
+
 type FetchRetryOptions = {
   maxAttempts?: number;
   timeoutMs?: number;
@@ -42,12 +98,15 @@ async function fetchWithRetry(
       }
     }
   }
-  console.error("Telegram fetch failed after retries:", lastErr);
+  const code = getErrorCode(lastErr);
+  console.error(
+    `[telegram] request failed after ${maxAttempts} attempts (${code}). Check outbound connectivity to the configured Bot API endpoint.`,
+  );
   return null;
 }
 
 const FAST_LOOKUP_OPTIONS: FetchRetryOptions = {
-  maxAttempts: 1,
+  maxAttempts: 3,
   timeoutMs: 8_000,
 };
 
@@ -64,14 +123,14 @@ export async function getTelegramFileUrl(fileId: string): Promise<string | null>
   const lookup = (async (): Promise<string | null> => {
     try {
     const res = await fetchWithRetry(
-      `https://api.telegram.org/bot${config.telegram.botToken}/getFile?file_id=${encodeURIComponent(fileId)}`,
+      `${telegramMethodUrl("getFile")}?file_id=${encodeURIComponent(fileId)}`,
       { cache: "no-store" },
       FAST_LOOKUP_OPTIONS,
     );
     if (!res || !res.ok) return null;
     const data = await res.json();
     if (!data?.ok || !data?.result?.file_path) return null;
-      const url = `https://api.telegram.org/file/bot${config.telegram.botToken}/${data.result.file_path}`;
+      const url = `${telegramApiBaseUrl()}/file/bot${config.telegram.botToken}/${data.result.file_path}`;
       fileUrlCache.set(fileId, { url, expiresAt: Date.now() + FILE_URL_TTL_MS });
       if (fileUrlCache.size > 500) {
         const oldestKey = fileUrlCache.keys().next().value;
@@ -126,7 +185,7 @@ export async function deleteTelegramMessage(
   }
   try {
     const res = await fetchWithRetry(
-      `https://api.telegram.org/bot${config.telegram.botToken}/deleteMessage`,
+      telegramMethodUrl("deleteMessage"),
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -152,7 +211,7 @@ export async function getTelegramChatInfo(
   if (!config.telegram.botToken) return null;
   try {
     const res = await fetchWithRetry(
-      `https://api.telegram.org/bot${config.telegram.botToken}/getChat?chat_id=${encodeURIComponent(String(userId))}`,
+      `${telegramMethodUrl("getChat")}?chat_id=${encodeURIComponent(String(userId))}`,
       { cache: "no-store" },
     );
     if (!res || !res.ok) return null;
@@ -177,7 +236,7 @@ export async function getTelegramAvatarFileId(
   if (!config.telegram.botToken) return null;
   try {
     const res = await fetchWithRetry(
-      `https://api.telegram.org/bot${config.telegram.botToken}/getUserProfilePhotos?user_id=${encodeURIComponent(String(userId))}&limit=1`,
+      `${telegramMethodUrl("getUserProfilePhotos")}?user_id=${encodeURIComponent(String(userId))}&limit=1`,
       { cache: "no-store" },
       FAST_LOOKUP_OPTIONS,
     );
@@ -213,7 +272,7 @@ export async function uploadPhotoToStorage(
     form.append("chat_id", config.telegram.storageChatId);
     form.append("photo", file, filename);
     const res = await fetchWithRetry(
-      `https://api.telegram.org/bot${config.telegram.botToken}/sendPhoto`,
+      telegramMethodUrl("sendPhoto"),
       { method: "POST", body: form, cache: "no-store" },
     );
     if (!res || !res.ok) return null;
@@ -246,7 +305,7 @@ export async function uploadAudioToStorage(
     form.append("chat_id", config.telegram.storageChatId);
     form.append("document", file, filename);
     const response = await fetchWithRetry(
-      `https://api.telegram.org/bot${config.telegram.botToken}/sendDocument`,
+      telegramMethodUrl("sendDocument"),
       { method: "POST", body: form, cache: "no-store" },
     );
     if (!response) {
@@ -288,7 +347,7 @@ export async function uploadDocumentToStorage(
     form.append("chat_id", config.telegram.storageChatId);
     form.append("document", file, filename);
     const response = await fetchWithRetry(
-      `https://api.telegram.org/bot${config.telegram.botToken}/sendDocument`,
+      telegramMethodUrl("sendDocument"),
       { method: "POST", body: form, cache: "no-store" },
     );
     if (!response) {
@@ -341,7 +400,7 @@ export async function sendTelegramMessage(
     if (options?.replyMarkup) payload.reply_markup = options.replyMarkup;
 
     const res = await fetchWithRetry(
-      `https://api.telegram.org/bot${config.telegram.botToken}/sendMessage`,
+      telegramMethodUrl("sendMessage"),
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -395,7 +454,7 @@ export async function sendTelegramPhoto(
     if (parseMode) form.set("parse_mode", parseMode);
     form.set("photo", photo, photo.type === "image/png" ? "bug-report.png" : "bug-report.jpg");
     const response = await fetchWithRetry(
-      `https://api.telegram.org/bot${config.telegram.botToken}/sendPhoto`,
+      telegramMethodUrl("sendPhoto"),
       { method: "POST", body: form, cache: "no-store" },
       retry,
     );
@@ -441,7 +500,7 @@ export async function sendTelegramMediaGroup(
     });
 
     const response = await fetchWithRetry(
-      `https://api.telegram.org/bot${config.telegram.botToken}/sendMediaGroup`,
+      telegramMethodUrl("sendMediaGroup"),
       { method: "POST", body: form, cache: "no-store" },
       retry,
     );
@@ -480,7 +539,7 @@ export async function sendTelegramDocument(
     form.set("caption", caption.slice(0, 1024));
     form.set("document", document, filename);
     const response = await fetchWithRetry(
-      `https://api.telegram.org/bot${config.telegram.botToken}/sendDocument`,
+      telegramMethodUrl("sendDocument"),
       { method: "POST", body: form, cache: "no-store" },
       retry,
     );

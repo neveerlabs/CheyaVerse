@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCover } from "@/lib/storage";
-import { fetchTelegramFile } from "@/lib/telegram";
 import { getUserSession } from "@/lib/auth-request";
+import { fetchUserMediaObject } from "@/lib/supabase-storage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,8 +36,11 @@ export async function GET(
     });
   }
 
-  const upstream = await fetchTelegramFile(cover.storage_path);
-  if (!upstream || !upstream.body) {
+  const upstream = await fetchUserMediaObject(uid, cover.storage_path).catch((error) => {
+    console.error(`[cover/image] Supabase Storage fetch failed for account ${uid}:`, error);
+    return null;
+  });
+  if (!upstream?.ok || !upstream.body) {
     return new NextResponse("Cover unavailable", {
       status: 502,
       headers: { "Cache-Control": "no-store" },

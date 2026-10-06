@@ -22,13 +22,34 @@ export async function POST(req: NextRequest) {
   if (!Number.isInteger(uid) || uid !== session.uid) {
     return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
   }
-  if (!endpoint || !p256dh || !auth) {
-    return NextResponse.json({ ok: false, error: "missing_fields" }, { status: 400 });
+  let parsedEndpoint: URL | null = null;
+  try {
+    parsedEndpoint = new URL(endpoint);
+  } catch {}
+  if (
+    !parsedEndpoint ||
+    parsedEndpoint.protocol !== "https:" ||
+    endpoint.length > 2048 ||
+    !/^[A-Za-z0-9_-]{80,256}$/.test(p256dh) ||
+    !/^[A-Za-z0-9_-]{16,128}$/.test(auth)
+  ) {
+    return NextResponse.json(
+      { ok: false, error: "invalid_subscription" },
+      { status: 400 },
+    );
   }
 
   const deviceId = DEVICE_ID_RE.test(rawDeviceId) ? rawDeviceId : null;
 
-  await upsertPushSubscription({ endpoint, uid, deviceId, p256dh, auth });
+  try {
+    await upsertPushSubscription({ endpoint, uid, deviceId, p256dh, auth });
+  } catch (error) {
+    console.error("[push/subscribe] failed to persist browser subscription:", error);
+    return NextResponse.json(
+      { ok: false, error: "subscription_storage_failed" },
+      { status: 500 },
+    );
+  }
 
   return NextResponse.json({ ok: true });
 }

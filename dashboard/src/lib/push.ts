@@ -3,13 +3,20 @@ import { config } from "./config";
 import { listPushSubscriptions, deletePushSubscription } from "./storage";
 
 let configured = false;
+let configurationWarningLogged = false;
 
 const MAX_BODY_LENGTH = 180;
 const TRUNCATE_SUFFIX = "…";
 
 function ensureConfigured(): boolean {
   if (configured) return true;
-  if (!config.vapid.publicKey || !config.vapid.privateKey) return false;
+  if (!config.vapid.publicKey || !config.vapid.privateKey) {
+    if (!configurationWarningLogged) {
+      console.error("[push] VAPID public/private keys are not configured.");
+      configurationWarningLogged = true;
+    }
+    return false;
+  }
   try {
     webpush.setVapidDetails(
       config.vapid.subject,
@@ -18,7 +25,8 @@ function ensureConfigured(): boolean {
     );
     configured = true;
     return true;
-  } catch {
+  } catch (error) {
+    console.error("[push] VAPID configuration is invalid:", error);
     return false;
   }
 }
@@ -113,6 +121,8 @@ export function buildPushNotification(opts: BuildPushOptions): PushPayload {
       contactId: opts.contact.id,
       notifId: opts.notifId ?? null,
       msgId: opts.msgId ?? null,
+      source: "bot-message",
+      senderRole: "admin",
     },
     actions: opts.actions ?? DEFAULT_PUSH_ACTIONS,
   };
@@ -146,6 +156,14 @@ export function buildSystemPush(
 }
 
 export async function sendPushToUid(uid: number, payload: PushPayload): Promise<number> {
+  if (
+    payload.data?.source !== "bot-message" ||
+    payload.data.senderRole === "ai" ||
+    payload.data.senderRole !== "admin"
+  ) {
+    console.error("[push] rejected payload that is not a non-AI bot message.");
+    return 0;
+  }
   if (!ensureConfigured()) return 0;
 
   const subs = await listPushSubscriptions(uid);
@@ -166,10 +184,19 @@ export async function sendPushToUid(uid: number, payload: PushPayload): Promise<
           { TTL: 60 * 60 * 24 },
         );
         sent++;
-      } catch (err) {
-        const status = (err as { statusCode?: number })?.statusCode;
+      } catch (error) {
+        const status = (error as { statusCode?: number })?.statusCode;
         if (status === 404 || status === 410) {
-          await deletePushSubscription(sub.endpoint, uid).catch(() => {});
+          try {
+            await deletePushSubscription(sub.endpoint, uid);
+          } catch (deleteError) {
+            console.error("[push] failed to remove expired subscription:", deleteError);
+          }
+        } else {
+          console.error(
+            `[push] delivery failed for account ${uid} (HTTP ${status ?? "unknown"}):`,
+            error,
+          );
         }
       }
     }),

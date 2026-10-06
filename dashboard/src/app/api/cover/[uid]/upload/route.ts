@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCover, upsertCover } from "@/lib/storage";
-import { uploadPhotoToStorage, deleteTelegramMessage } from "@/lib/telegram";
 import { broadcastToUid } from "@/lib/realtime";
 import { getUserSession } from "@/lib/auth-request";
+import {
+  deleteUserMediaObject,
+  isUserMediaPath,
+  uploadUserMediaObject,
+} from "@/lib/supabase-storage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -43,23 +47,25 @@ export async function POST(
     (form.get("filename") as string | null)?.slice(0, 120) ||
     `cover-${uid}-${Date.now()}.jpg`;
 
-  const uploaded = await uploadPhotoToStorage(file, filename);
-  if (!uploaded) {
+  let storagePath: string;
+  try {
+    storagePath = await uploadUserMediaObject(
+      uid,
+      "covers",
+      file,
+      filename,
+      contentType,
+    );
+  } catch (error) {
+    console.error("[cover/upload] Supabase Storage upload failed:", error);
     return NextResponse.json({ ok: false, error: "upload_failed" }, { status: 502 });
   }
 
   const prev = await getCover(uid);
-  if (
-    prev?.storage_message_id &&
-    prev.storage_message_id !== uploaded.message_id
-  ) {
-    await deleteTelegramMessage(prev.storage_message_id).catch(() => {});
-  }
-
   const res = await upsertCover(uid, {
     type: "upload",
-    storage_path: uploaded.file_id,
-    storage_message_id: uploaded.message_id,
+    storage_path: storagePath,
+    storage_message_id: null,
     content_type: contentType,
     color1: prev?.color1 ?? null,
     color2: prev?.color2 ?? null,
@@ -70,10 +76,17 @@ export async function POST(
   });
 
   if (!res.ok) {
-    await deleteTelegramMessage(uploaded.message_id).catch(() => {});
+    await deleteUserMediaObject(uid, storagePath).catch((error) => {
+      console.error("[cover/upload] Storage object rollback failed:", error);
+    });
     return NextResponse.json({ ok: false, error: res.reason }, { status: 500 });
   }
 
+  if (prev?.storage_path && isUserMediaPath(uid, prev.storage_path)) {
+    await deleteUserMediaObject(uid, prev.storage_path).catch((error) => {
+      console.error("[cover/upload] Previous cover cleanup failed:", error);
+    });
+  }
   const cover = await getCover(uid);
   await broadcastToUid(uid, { type: "cover:changed" });
   return NextResponse.json({ ok: true, cover });

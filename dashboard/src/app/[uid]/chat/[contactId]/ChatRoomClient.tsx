@@ -13,8 +13,10 @@ import {
   Copy,
   Bell,
   BellOff,
+  LoaderCircle,
   Pin,
   Reply,
+  Sparkles,
   Trash2,
   Pencil,
 } from "lucide-react";
@@ -23,7 +25,11 @@ import { ChatComposer } from "@/components/ChatComposer";
 import { ChatMessageBubble, chatMessageTime } from "@/components/ChatMessageBubble";
 import { TelegramAvatar } from "@/components/TelegramAvatar";
 import { VerifiedName } from "@/components/VerifiedName";
-import { playReceiveSound, playSendSound } from "@/lib/chat-sounds";
+import {
+  playSendSound,
+  playSystemReceiveSoundOnce,
+} from "@/lib/chat-sounds";
+import { useBackDismiss } from "@/lib/back-dismiss";
 import { chatPreviewText } from "@/lib/chat-preview";
 import { acquirePageModalLock } from "@/lib/page-modal-lock";
 import { readApiJson } from "@/lib/read-api-json";
@@ -93,7 +99,7 @@ type ChatItem = {
   _pending: boolean;
 };
 
-const MARK_READ_THROTTLE_MS = 400;
+const MARK_READ_DWELL_MS = 1_500;
 const SWIPE_TRIGGER = 55;
 const SWIPE_MAX = 88;
 const SELECT_GRACE_MS = 500;
@@ -173,12 +179,12 @@ const clampStyle: React.CSSProperties = {
   wordBreak: "break-word",
 };
 
-function pushChatHistoryMarker(marker: "chatRoom" | "chatReport") {
+function pushChatHistoryMarker() {
   const currentState = window.history.state;
   const preservedState =
     currentState && typeof currentState === "object" ? currentState : {};
   window.history.pushState(
-    { ...preservedState, [marker]: true },
+    { ...preservedState, chatRoom: true },
     "",
     window.location.href,
   );
@@ -191,6 +197,7 @@ export function ChatRoomClient({
   user,
   isModal = false,
   keyboardCompact = false,
+  compactBubbles = false,
   onClose,
 }: {
   uid: string;
@@ -199,6 +206,7 @@ export function ChatRoomClient({
   user: TelegramUser | null;
   isModal?: boolean;
   keyboardCompact?: boolean;
+  compactBubbles?: boolean;
   onClose?: () => void;
 }) {
   const messageBoxRef = useRef<HTMLDivElement | null>(null);
@@ -212,13 +220,11 @@ export function ChatRoomClient({
   const aiTypingTimerRef = useRef<number | null>(null);
   const highlightTimerRef = useRef<number | null>(null);
   const initialMessagesRef = useRef(initialMessages);
-  const receivedSoundIdsRef = useRef(new Set<string>());
-  const notificationSoundIdsRef = useRef(new Set<string>());
-  const lastSystemSoundAtRef = useRef(0);
   const markReadRef = useRef<(() => void) | null>(null);
-  const lastMarkReadAtRef = useRef(0);
   const markReadInflightRef = useRef(false);
   const hasScrolledRef = useRef(false);
+  const nearBottomRef = useRef(true);
+  const followAiOutputRef = useRef(true);
   const router = useRouter();
   const DRAFT_KEY = `cheya-draft:${uid}:system`;
   const BROWSER_NOTIFICATIONS_MUTED_KEY = `cheya-browser-notifications-muted:${uid}`;
@@ -248,6 +254,7 @@ export function ChatRoomClient({
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [aiProcessing, setAiProcessing] = useState(false);
+  const [aiProgress, setAiProgress] = useState<string[]>([]);
   const [typedAiMessage, setTypedAiMessage] = useState<{
     messageId: string;
     content: string;
@@ -260,9 +267,6 @@ export function ChatRoomClient({
   const [reportOtherDescription, setReportOtherDescription] = useState("");
   const [reportSending, setReportSending] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
-  const reportCategoryOpenRef = useRef(false);
-  const closingReportWithBackRef = useRef(false);
-  const feedbackModalOpenRef = useRef(false);
   const [browserNotificationsMuted, setBrowserNotificationsMuted] = useState(false);
   const [replyingTo, setReplyingTo] = useState<ChatItem | null>(null);
   const [toast, setToast] = useState("");
@@ -278,6 +282,8 @@ export function ChatRoomClient({
     keyboardInset: 0,
   });
   const [vvOffset, setVvOffset] = useState(0);
+  useBackDismiss(selectMode, exitSelectMode, "chat-selection");
+  useBackDismiss(reportCategoryOpen, closeMessageReport, "chat-report-category");
 
   function showToast(message: string) {
     setToast(message.replace(/[.!?…]+$/, ""));
@@ -316,24 +322,9 @@ export function ChatRoomClient({
   }, []);
 
   useEffect(() => {
-    reportCategoryOpenRef.current = reportCategoryOpen;
-  }, [reportCategoryOpen]);
-
-  useEffect(() => {
     if (!reportCategoryOpen || isModal) return;
     return acquirePageModalLock();
   }, [isModal, reportCategoryOpen]);
-
-  useEffect(() => {
-    const onFeedbackModalState = (event: Event) => {
-      feedbackModalOpenRef.current =
-        (event as CustomEvent<{ open?: boolean }>).detail?.open === true;
-    };
-    window.addEventListener("cheya:feedback-modal-state", onFeedbackModalState);
-    return () => {
-      window.removeEventListener("cheya:feedback-modal-state", onFeedbackModalState);
-    };
-  }, []);
 
   useEffect(() => {
     try {
@@ -662,12 +653,14 @@ export function ChatRoomClient({
     const el = messageBoxRef.current;
     if (!el) return;
     el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    nearBottomRef.current = true;
   };
 
   const scrollToLatestImmediately = () => {
     const el = messageBoxRef.current;
     if (!el) return;
     el.scrollTo({ top: el.scrollHeight, behavior: "auto" });
+    nearBottomRef.current = true;
   };
 
   function animateAiMessage(message: ChatMessage): Promise<void> {
@@ -677,42 +670,48 @@ export function ChatRoomClient({
     }
     setTypedAiMessage({ messageId: message.id, content: "" });
     const fullContent = message.content;
-    const chunkSize = Math.max(1, Math.ceil(fullContent.length / 90));
-    let visibleLength = 0;
+    const parts = fullContent.split(/( +)/).filter(Boolean);
+    let partIndex = 0;
+    let visibleContent = "";
 
     return new Promise((resolve) => {
-      const revealNextChunk = () => {
-        visibleLength = Math.min(fullContent.length, visibleLength + chunkSize);
+      const revealNextPart = () => {
+        while (partIndex < parts.length) {
+          const part = parts[partIndex++];
+          visibleContent += part;
+          if (/^ +$/.test(part)) break;
+        }
         setTypedAiMessage({
           messageId: message.id,
-          content: fullContent.slice(0, visibleLength),
+          content: visibleContent,
         });
-        window.requestAnimationFrame(scrollToLatestImmediately);
-        if (visibleLength >= fullContent.length) {
+        if (followAiOutputRef.current && nearBottomRef.current) {
+          window.requestAnimationFrame(scrollToLatestImmediately);
+        }
+        if (partIndex >= parts.length) {
           aiTypingTimerRef.current = null;
           setTypedAiMessage(null);
           resolve();
           return;
         }
-        aiTypingTimerRef.current = window.setTimeout(revealNextChunk, 22);
+        aiTypingTimerRef.current = window.setTimeout(revealNextPart, 24);
       };
-      revealNextChunk();
+      revealNextPart();
     });
   }
 
   function playMessageReceiveSound(messageId: string) {
-    if (receivedSoundIdsRef.current.has(messageId)) return;
-    receivedSoundIdsRef.current.add(messageId);
-    if (receivedSoundIdsRef.current.size > 100) {
-      const oldestId = receivedSoundIdsRef.current.values().next().value;
-      if (oldestId) receivedSoundIdsRef.current.delete(oldestId);
-    }
-    lastSystemSoundAtRef.current = Date.now();
-    playReceiveSound();
+    playSystemReceiveSoundOnce(messageId);
   }
 
   async function requestAiReply(sourceMessage: ChatMessage) {
+    const messageBox = messageBoxRef.current;
+    const distanceFromBottom = messageBox
+      ? messageBox.scrollHeight - messageBox.scrollTop - messageBox.clientHeight
+      : 0;
+    followAiOutputRef.current = distanceFromBottom <= 200;
     setAiProcessing(true);
+    setAiProgress([]);
     try {
       const response = await fetch("/api/ai/chat", {
         method: "POST",
@@ -720,15 +719,55 @@ export function ChatRoomClient({
         body: JSON.stringify({ replyToId: sourceMessage.id }),
         cache: "no-store",
       });
-      const result = (await response.json().catch(() => ({}))) as {
+      if (!response.ok) {
+        const errorResult = (await response.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        throw new Error(errorResult.error || "AI tidak dapat memproses pesan saat ini.");
+      }
+      if (!response.body) {
+        throw new Error("Server tidak mengirim status proses AI.");
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      const resultRef: { current: {
         ok?: boolean;
         error?: string;
         message?: ChatMessage;
-      };
-      if (!response.ok || !result.ok || !result.message) {
-        throw new Error(
-          result.error || "AI tidak dapat memproses pesan saat ini.",
-        );
+      } | null } = { current: null };
+      let streamError: string | null = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        buffer += decoder.decode(value, { stream: !done });
+        const frames = buffer.split(/\r?\n\r?\n/);
+        buffer = frames.pop() ?? "";
+
+        for (const frame of frames) {
+          const dataLine = frame.split(/\r?\n/).find((line) => line.startsWith("data:"));
+          if (!dataLine) continue;
+          const event = JSON.parse(dataLine.slice(5).trim()) as {
+            type?: string;
+            activity?: string;
+            result?: typeof result;
+            error?: string;
+          };
+          if (event.type === "progress" && event.activity) {
+            setAiProgress((current) => [...current, event.activity!].slice(-7));
+          } else if (event.type === "result" && event.result) {
+            resultRef.current = event.result;
+          } else if (event.type === "error") {
+            streamError = event.error || "AI tidak dapat memproses pesan saat ini.";
+          }
+        }
+        if (done) break;
+      }
+      if (streamError) throw new Error(streamError);
+      const result = resultRef.current;
+      if (!result?.ok || !result.message) {
+        throw new Error(result?.error || "AI tidak dapat memproses pesan saat ini.");
       }
       setMessages((previous) => {
         const existingIndex = previous.findIndex(
@@ -740,6 +779,7 @@ export function ChatRoomClient({
         );
       });
       setAiProcessing(false);
+      setAiProgress([]);
       playMessageReceiveSound(result.message.id);
       await animateAiMessage(result.message);
     } catch (error) {
@@ -768,6 +808,8 @@ export function ChatRoomClient({
       await animateAiMessage(failureMessage);
     } finally {
       setAiProcessing(false);
+      setAiProgress([]);
+      followAiOutputRef.current = false;
     }
   }
 
@@ -775,6 +817,7 @@ export function ChatRoomClient({
     const el = messageBoxRef.current;
     if (!el) return;
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    nearBottomRef.current = distanceFromBottom <= 200;
     setShowScrollButton(distanceFromBottom > 200);
   };
 
@@ -902,9 +945,16 @@ export function ChatRoomClient({
   useEffect(() => {
     if (typeof window === "undefined") return;
     let cancelled = false;
+    let dwellTimer: ReturnType<typeof setTimeout> | null = null;
+    let scheduleMarkRead: () => void = () => {};
 
     const doMarkRead = async () => {
       if (cancelled) return;
+      if (
+        !mounted ||
+        document.visibilityState !== "visible" ||
+        !messageBoxRef.current
+      ) return;
       if (markReadInflightRef.current) return;
       markReadInflightRef.current = true;
       try {
@@ -912,60 +962,69 @@ export function ChatRoomClient({
           `/api/notifications/${encodeURIComponent(uid)}`,
           { method: "POST", cache: "no-store" },
         );
-        if (!res.ok) return;
+        if (!res.ok) {
+          console.error(
+            `[chat/system] failed to mark notifications read (${res.status}).`,
+          );
+          return;
+        }
         if (!cancelled) router.refresh();
-      } catch {
+      } catch (error) {
+        console.error("[chat/system] failed to mark notifications read:", error);
       } finally {
         markReadInflightRef.current = false;
       }
     };
 
-    const throttled = () => {
-      const now = Date.now();
-      if (now - lastMarkReadAtRef.current < MARK_READ_THROTTLE_MS) return;
-      lastMarkReadAtRef.current = now;
-      void doMarkRead();
+    const clearDwellTimer = () => {
+      if (dwellTimer !== null) {
+        clearTimeout(dwellTimer);
+        dwellTimer = null;
+      }
     };
 
-    markReadRef.current = throttled;
-    void doMarkRead();
+    scheduleMarkRead = () => {
+      clearDwellTimer();
+      if (
+        cancelled ||
+        !mounted ||
+        document.visibilityState !== "visible" ||
+        !messageBoxRef.current
+      ) {
+        return;
+      }
+      dwellTimer = setTimeout(() => {
+        dwellTimer = null;
+        void doMarkRead();
+      }, MARK_READ_DWELL_MS);
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") scheduleMarkRead();
+      else clearDwellTimer();
+    };
+
+    markReadRef.current = scheduleMarkRead;
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    scheduleMarkRead();
 
     return () => {
       cancelled = true;
+      clearDwellTimer();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       markReadRef.current = null;
     };
-  }, [uid, router]);
+  }, [mounted, uid, router]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    pushChatHistoryMarker("chatRoom");
-    const onPopState = (event: PopStateEvent) => {
-      if (closingReportWithBackRef.current) {
-        closingReportWithBackRef.current = false;
-        return;
-      }
-      if (feedbackModalOpenRef.current) return;
-      if (reportCategoryOpenRef.current) {
-        setReportCategoryOpen(false);
-        setReportCategory("");
-        setReportOtherDescription("");
-        reportCategoryOpenRef.current = false;
-        event?.stopImmediatePropagation?.();
-        return;
-      }
-      if (selectModeRef.current) {
-        setSelectMode(false);
-        setSelectedIds(new Set());
-        selectModeRef.current = false;
-        justEnteredSelectRef.current = false;
-        pushChatHistoryMarker("chatRoom");
-        return;
-      }
+    pushChatHistoryMarker();
+    const onPopState = () => {
       if (isModal) {
         onClose?.();
         return;
       }
-      router.replace(`/${uid}/chat`);
+      router.back();
     };
     window.addEventListener("popstate", onPopState);
     return () => {
@@ -1076,6 +1135,10 @@ export function ChatRoomClient({
       }
       return;
     }
+    if (event.type === "message:unhidden") {
+      router.refresh();
+      return;
+    }
     if (event.type === "message:pinned") {
       const messageId = typeof event.messageId === "string" ? event.messageId : "";
       const pinned = event.pinned === true;
@@ -1135,23 +1198,13 @@ export function ChatRoomClient({
         typeof event.notificationId === "string"
           ? event.notificationId
         : `${String(event.title ?? "")}:${String(event.body ?? "")}:${Math.floor(Date.now() / 2_000)}`;
-      if (
-        !notificationSoundIdsRef.current.has(notificationId) &&
-        Date.now() - lastSystemSoundAtRef.current > 1_000
-      ) {
-        notificationSoundIdsRef.current.add(notificationId);
-        if (notificationSoundIdsRef.current.size > 100) {
-          const oldestId = notificationSoundIdsRef.current.values().next().value;
-          if (oldestId) notificationSoundIdsRef.current.delete(oldestId);
-        }
-        playReceiveSound();
-      }
+      playSystemReceiveSoundOnce(notificationId);
       markReadRef.current?.();
       router.refresh();
       return;
     }
     if (event.type === "notification:read") {
-      markReadRef.current?.();
+      router.refresh();
       return;
     }
   });
@@ -1203,6 +1256,7 @@ export function ChatRoomClient({
 
   useEffect(() => {
     if (!messageBoxRef.current) return;
+    if (hasScrolledRef.current && !nearBottomRef.current) return;
     const behavior: ScrollBehavior = hasScrolledRef.current ? "smooth" : "auto";
     const frame = window.requestAnimationFrame(() => {
       const messageBox = messageBoxRef.current;
@@ -1218,12 +1272,6 @@ export function ChatRoomClient({
     const frame = window.requestAnimationFrame(scrollToLatestImmediately);
     return () => window.cancelAnimationFrame(frame);
   }, [viewport.keyboard, viewport.height]);
-
-  useEffect(() => {
-    if (!aiProcessing && !typedAiMessage) return;
-    const frame = window.requestAnimationFrame(scrollToLatestImmediately);
-    return () => window.cancelAnimationFrame(frame);
-  }, [aiProcessing, typedAiMessage]);
 
   function autoGrow(e: React.FormEvent<HTMLTextAreaElement>) {
     const t = e.currentTarget;
@@ -1475,19 +1523,15 @@ export function ChatRoomClient({
   }
 
   function closeMessageReport() {
-    const wasOpen = reportCategoryOpenRef.current;
     setReportCategoryOpen(false);
     setReportCategory("");
     setReportOtherDescription("");
-    if (wasOpen) {
-      reportCategoryOpenRef.current = false;
-      closingReportWithBackRef.current = true;
-      window.history.back();
-    }
   }
 
   async function submitMessageReport() {
-    const selected = selectedItemsList.filter((item) => !item.deleted_at);
+    const selected = selectedItemsList.filter(
+      (item) => !item.deleted_at && item.content.trim(),
+    );
     if (
       !reportCategory ||
       (reportCategory === "Lainnya" && !reportOtherDescription.trim()) ||
@@ -1506,6 +1550,7 @@ export function ChatRoomClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           reportType: "chat_violation",
+          description: "Chat message violation report",
           category: reportCategory,
           otherDescription:
             reportCategory === "Lainnya" ? reportOtherDescription.trim() : "",
@@ -1624,9 +1669,7 @@ export function ChatRoomClient({
                 type="button"
                 onClick={() => {
                   if (selectedIds.size > 0) {
-                    reportCategoryOpenRef.current = true;
                     setReportCategoryOpen(true);
-                    pushChatHistoryMarker("chatReport");
                   }
                 }}
                 aria-label="Report selected messages"
@@ -1931,7 +1974,7 @@ export function ChatRoomClient({
                   <div
                     id={item.id}
                     className="relative w-full min-w-0"
-                    style={{ touchAction: "pan-y" }}
+                    style={{ touchAction: "pan-x pan-y" }}
                   >
                     {isSwiping && !selectMode && (
                       <span
@@ -1973,8 +2016,14 @@ export function ChatRoomClient({
                             item.sender_role === "ai") &&
                           !item.deleted_at
                         }
+                        aiSourceLinks={
+                          item.sender === "bot" &&
+                          item.sender_role === "ai" &&
+                          !item.deleted_at
+                        }
                         linkPreview={!item.deleted_at}
                         timestamp={chatMessageTime(item.created_at)}
+                        compact={compactBubbles}
                         status={
                           <StatusIcon
                             pending={item._pending}
@@ -2058,13 +2107,54 @@ export function ChatRoomClient({
             })
           )}
           {aiProcessing && (
-            <p
+            <div
               role="status"
               aria-live="polite"
-              className="px-3 py-1 text-[13px] italic text-ink-mute"
+              className="animate-fade-up mx-2 my-2 max-w-[min(92%,30rem)] rounded-[20px] bg-[linear-gradient(125deg,rgba(237,233,254,.94),rgba(224,231,255,.72),rgba(224,242,254,.76))] px-3.5 py-3 shadow-[0_12px_34px_-22px_rgba(91,72,180,.48)]"
             >
-              Sedang memproses<span className="animate-pulse">...</span>
-            </p>
+              <div>
+                <div className="mb-2.5 flex items-center justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-2 text-[11px] font-semibold text-ink">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-white/80 text-violet-600 shadow-[0_4px_12px_-8px_rgba(91,72,180,.65)]">
+                      <Sparkles size={14} />
+                    </span>
+                    <span>Cheya sedang mengerjakan</span>
+                  </div>
+                  <span className="shrink-0 rounded-full bg-white/75 px-2 py-1 text-[9px] font-semibold text-violet-700">
+                    {aiProgress.length || 1} langkah
+                  </span>
+                </div>
+                {aiProgress.length > 0 ? (
+                  <div className="space-y-1.5 pl-1">
+                    {aiProgress.map((activity, index) => {
+                      const isCurrent = index === aiProgress.length - 1;
+                      return (
+                        <div
+                          key={`${activity}-${index}`}
+                          className={`relative flex min-w-0 items-start gap-2 text-[11px] leading-relaxed ${
+                            isCurrent ? "text-ink-soft" : "text-ink-mute"
+                          }`}
+                        >
+                          <span className="mt-[2px] flex h-3 w-3 shrink-0 items-center justify-center rounded-full bg-white/85">
+                            {isCurrent ? (
+                              <LoaderCircle size={12} className="animate-spin text-violet-500" />
+                            ) : (
+                              <Check size={12} className="text-emerald-500" />
+                            )}
+                          </span>
+                          <span className="min-w-0 break-words">{activity}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 pl-1 text-[11px] text-ink-mute">
+                    <LoaderCircle size={13} className="animate-spin text-violet-500" />
+                    Menyiapkan konteks yang relevan…
+                  </div>
+                )}
+              </div>
+            </div>
           )}
         </div>
       </section>

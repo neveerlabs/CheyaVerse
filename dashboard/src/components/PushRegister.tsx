@@ -27,6 +27,9 @@ async function registerPushSubscription(uid: string, vapidKey: string) {
   const registration = await navigator.serviceWorker.register("/sw.js", {
     scope: "/",
   });
+  void registration.update().catch((error) => {
+    console.error("[push-register] service worker update check failed:", error);
+  });
   await navigator.serviceWorker.ready;
 
   let subscription = await registration.pushManager.getSubscription();
@@ -66,6 +69,7 @@ export function PushRegister({ uid }: { uid: string }) {
   const done = useRef(false);
   const [status, setStatus] = useState("");
   const [canRequestPermission, setCanRequestPermission] = useState(false);
+  const [canRetryRegistration, setCanRetryRegistration] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -92,9 +96,12 @@ export function PushRegister({ uid }: { uid: string }) {
         done.current = true;
         setStatus("");
         setCanRequestPermission(false);
+        setCanRetryRegistration(false);
       } catch (error) {
         if (!cancelled) {
           console.error("[push-register] subscription setup failed:", error);
+          setStatus("Notifikasi belum dapat disiapkan. Coba lagi sebentar.");
+          setCanRetryRegistration(Notification.permission === "granted");
         }
       }
     };
@@ -122,18 +129,42 @@ export function PushRegister({ uid }: { uid: string }) {
 
   async function requestNotifications() {
     if (!canRequestPermission || Notification.permission !== "default") return;
+    let permissionGranted = false;
     try {
       const permission = await Notification.requestPermission();
+      permissionGranted = permission === "granted";
       setCanRequestPermission(false);
       setStatus("");
-      if (permission === "granted") {
+      if (permissionGranted) {
         const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
         if (!vapidKey) return;
         await registerPushSubscription(uid, vapidKey);
         done.current = true;
+        setCanRetryRegistration(false);
+        setStatus("");
       }
     } catch (error) {
       console.error("[push-register] permission request failed:", error);
+      setStatus("Notifikasi belum dapat disiapkan. Coba lagi sebentar.");
+      setCanRetryRegistration(permissionGranted);
+    }
+  }
+
+  async function retryRegistration() {
+    if (!canRetryRegistration || Notification.permission !== "granted") return;
+    const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+    if (!vapidKey) {
+      setStatus("Kunci push notification belum dikonfigurasi di server.");
+      return;
+    }
+    try {
+      await registerPushSubscription(uid, vapidKey);
+      done.current = true;
+      setCanRetryRegistration(false);
+      setStatus("");
+    } catch (error) {
+      console.error("[push-register] subscription retry failed:", error);
+      setStatus("Notifikasi belum dapat disiapkan. Coba lagi sebentar.");
     }
   }
 
@@ -161,6 +192,15 @@ export function PushRegister({ uid }: { uid: string }) {
               className="font-semibold"
             >
               Aktifkan
+            </button>
+          )}
+          {canRetryRegistration && (
+            <button
+              type="button"
+              onClick={() => void retryRegistration()}
+              className="font-semibold"
+            >
+              Coba lagi
             </button>
           )}
           <button type="button" onClick={dismissPrompt} className="font-semibold">

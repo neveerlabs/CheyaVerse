@@ -1,6 +1,6 @@
-import { getTurso } from "./turso";
+import { getDatabase } from "./database";
 import { config } from "./config";
-import { deleteTelegramMessage } from "./telegram";
+import { deleteUserMediaObject, isUserMediaPath } from "./supabase-storage";
 
 export type MediaMeta = {
   id: string;
@@ -28,7 +28,7 @@ function rowToMedia(row: Record<string, unknown>): MediaMeta {
 }
 
 export async function fetchMedia(mediaId: string): Promise<MediaMeta | null> {
-  const result = await getTurso().execute({
+  const result = await getDatabase().execute({
     sql: "SELECT * FROM media WHERE id = ? LIMIT 1",
     args: [mediaId],
   });
@@ -37,7 +37,7 @@ export async function fetchMedia(mediaId: string): Promise<MediaMeta | null> {
 }
 
 export async function listRecentMedia(uid: number, limit = 50): Promise<MediaMeta[]> {
-  const result = await getTurso().execute({
+  const result = await getDatabase().execute({
     sql: "SELECT * FROM media WHERE owner_id = ? ORDER BY expires_at DESC LIMIT ?",
     args: [uid, limit],
   });
@@ -47,11 +47,11 @@ export async function listRecentMedia(uid: number, limit = 50): Promise<MediaMet
 export async function getStats(uid: number) {
   const nowIso = new Date().toISOString();
   const [totalRes, activeRes] = await Promise.all([
-    getTurso().execute({
+    getDatabase().execute({
       sql: "SELECT COUNT(*) as c FROM media WHERE owner_id = ?",
       args: [uid],
     }),
-    getTurso().execute({
+    getDatabase().execute({
       sql: "SELECT COUNT(*) as c FROM media WHERE owner_id = ? AND expires_at >= ?",
       args: [uid, nowIso],
     }),
@@ -70,19 +70,16 @@ export async function deleteMediaById(
   if (meta.owner_id !== ownerId) return { ok: false, reason: "forbidden" };
 
   try {
-    const result = await getTurso().execute({
+    const result = await getDatabase().execute({
       sql: "DELETE FROM media WHERE id = ?",
       args: [mediaId],
     });
     if (result.rowsAffected === 0) return { ok: false, reason: "db_error" };
 
-    if (meta.storage_message_id) {
-      const deleted = await deleteTelegramMessage(meta.storage_message_id);
-      if (!deleted) {
-        console.warn(
-          `Failed to delete Telegram storage message ${meta.storage_message_id} for media ${mediaId}`,
-        );
-      }
+    if (meta.owner_id && isUserMediaPath(meta.owner_id, meta.storage_path)) {
+      await deleteUserMediaObject(meta.owner_id, meta.storage_path).catch((error) => {
+        console.warn(`Failed to delete Supabase Storage object for media ${mediaId}:`, error);
+      });
     }
 
     return { ok: true };
@@ -104,7 +101,7 @@ export async function renameMediaById(
   if (!cleaned) return { ok: false, reason: "invalid_name" };
 
   try {
-    await getTurso().execute({
+    await getDatabase().execute({
       sql: "UPDATE media SET filename = ? WHERE id = ?",
       args: [cleaned, mediaId],
     });
@@ -124,7 +121,7 @@ export async function updateMediaExpiresAt(
   if (meta.owner_id !== ownerId) return { ok: false, reason: "forbidden" };
 
   try {
-    await getTurso().execute({
+    await getDatabase().execute({
       sql: "UPDATE media SET expires_at = ? WHERE id = ?",
       args: [expiresAt, mediaId],
     });
@@ -153,7 +150,7 @@ export type CoverConfig = {
 
 export async function getCover(uid: number): Promise<CoverConfig | null> {
   try {
-    const result = await getTurso().execute({
+    const result = await getDatabase().execute({
       sql: "SELECT * FROM user_covers WHERE uid = ? LIMIT 1",
       args: [uid],
     });
@@ -205,7 +202,7 @@ export async function upsertCover(
     updated_at: new Date().toISOString(),
   };
   try {
-    await getTurso().execute({
+    await getDatabase().execute({
       sql: `INSERT INTO user_covers
               (uid, type, color1, color2, icon, storage_path, storage_message_id, content_type, bg_size, bg_x, bg_y, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -248,13 +245,15 @@ export async function deleteCover(
 ): Promise<{ ok: boolean; reason?: string }> {
   try {
     const existing = await getCover(uid);
-    if (existing?.storage_message_id) {
-      await deleteTelegramMessage(existing.storage_message_id).catch(() => {});
-    }
-    await getTurso().execute({
+    await getDatabase().execute({
       sql: "DELETE FROM user_covers WHERE uid = ?",
       args: [uid],
     });
+    if (existing?.storage_path && isUserMediaPath(uid, existing.storage_path)) {
+      await deleteUserMediaObject(uid, existing.storage_path).catch((error) => {
+        console.warn(`Failed to delete Supabase Storage cover for account ${uid}:`, error);
+      });
+    }
     return { ok: true };
   } catch {
     return { ok: false, reason: "db_error" };
@@ -305,7 +304,7 @@ export async function createNotification(data: {
   const id = genNotificationId();
   const createdAt = new Date().toISOString();
   try {
-    await getTurso().execute({
+    await getDatabase().execute({
       sql: `INSERT INTO notifications
               (id, uid, title, message, ip, location, device, read, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)`,
@@ -357,7 +356,7 @@ export async function ensureWelcomeNotification(
 ): Promise<{ created: boolean; message: string | null }> {
   const id = `welcome-${uid}`;
   try {
-    const existing = await getTurso().execute({
+    const existing = await getDatabase().execute({
       sql: "SELECT id FROM notifications WHERE id = ? LIMIT 1",
       args: [id],
     });
@@ -403,7 +402,7 @@ export async function ensureWelcomeNotification(
 
     const createdAt = new Date().toISOString();
 
-    const result = await getTurso().execute({
+    const result = await getDatabase().execute({
       sql: `INSERT OR IGNORE INTO notifications
               (id, uid, title, message, ip, location, device, read, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)`,
@@ -442,7 +441,7 @@ export async function ensureWelcomeNotification(
 export async function listNotifications(uid: number, limit = 100): Promise<Notification[]> {
   try {
     await ensureChatMessageActions();
-    const result = await getTurso().execute({
+    const result = await getDatabase().execute({
       sql: `SELECT notifications.*,
                    EXISTS (
                      SELECT 1 FROM chat_notification_pins pins
@@ -462,7 +461,7 @@ export async function listNotifications(uid: number, limit = 100): Promise<Notif
 
 export async function countNotifications(uid: number): Promise<number> {
   try {
-    const result = await getTurso().execute({
+    const result = await getDatabase().execute({
       sql: "SELECT COUNT(*) as c FROM notifications WHERE uid = ?",
       args: [uid],
     });
@@ -473,7 +472,7 @@ export async function countNotifications(uid: number): Promise<number> {
 }
 
 export async function countUnreadNotifications(uid: number): Promise<number> {
-  const result = await getTurso().execute({
+  const result = await getDatabase().execute({
     sql: "SELECT COUNT(*) as c FROM notifications WHERE uid = ? AND read = 0",
     args: [uid],
   });
@@ -481,7 +480,7 @@ export async function countUnreadNotifications(uid: number): Promise<number> {
 }
 
 export async function markNotificationsRead(uid: number): Promise<void> {
-  await getTurso().execute({
+  await getDatabase().execute({
     sql: "UPDATE notifications SET read = 1 WHERE uid = ? AND read = 0",
     args: [uid],
   });
@@ -599,7 +598,7 @@ let deviceFingerprintColumnsReady: Promise<void> | null = null;
 async function ensureDeviceFingerprintColumns(): Promise<void> {
   if (!deviceFingerprintColumnsReady) {
     deviceFingerprintColumnsReady = (async () => {
-      const db = getTurso();
+      const db = getDatabase();
       const result = await db.execute("PRAGMA table_info(device_ids)");
       const existing = new Set(
         result.rows.map((row) =>
@@ -658,7 +657,7 @@ export async function getDeviceIdRow(
   uid: number,
 ): Promise<DeviceIdRow | null> {
   await ensureDeviceFingerprintColumns();
-  const result = await getTurso().execute({
+  const result = await getDatabase().execute({
     sql: "SELECT * FROM device_ids WHERE device_id = ? AND uid = ? LIMIT 1",
     args: [deviceId, uid],
   });
@@ -666,11 +665,19 @@ export async function getDeviceIdRow(
   return rowToDeviceId(result.rows[0] as unknown as Record<string, unknown>);
 }
 
-export async function listDeviceIdsForUid(uid: number): Promise<DeviceIdRow[]> {
+export async function listDeviceIdsForUid(
+  uid: number,
+  limit?: number,
+): Promise<DeviceIdRow[]> {
   await ensureDeviceFingerprintColumns();
-  const result = await getTurso().execute({
-    sql: "SELECT * FROM device_ids WHERE uid = ? ORDER BY last_seen DESC",
-    args: [uid],
+  const result = await getDatabase().execute({
+    sql: `SELECT * FROM device_ids
+          WHERE uid = ?
+          ORDER BY last_seen DESC
+          ${limit === undefined ? "" : "LIMIT ?"}`,
+    args: limit === undefined
+      ? [uid]
+      : [uid, Math.max(1, Math.min(100, Math.floor(limit)))],
   });
   return result.rows.map((row) =>
     rowToDeviceId(row as unknown as Record<string, unknown>),
@@ -678,7 +685,7 @@ export async function listDeviceIdsForUid(uid: number): Promise<DeviceIdRow[]> {
 }
 
 export async function listBlacklistedDeviceIds(uid: number): Promise<string[]> {
-  const result = await getTurso().execute({
+  const result = await getDatabase().execute({
     sql: "SELECT device_id FROM session_blacklist WHERE uid = ?",
     args: [uid],
   });
@@ -689,7 +696,7 @@ let accountSessionVersionsReady: Promise<void> | null = null;
 
 async function ensureAccountSessionVersionsTable(): Promise<void> {
   if (!accountSessionVersionsReady) {
-    accountSessionVersionsReady = getTurso()
+    accountSessionVersionsReady = getDatabase()
       .execute(`CREATE TABLE IF NOT EXISTS account_session_versions (
         uid INTEGER PRIMARY KEY,
         session_version INTEGER NOT NULL DEFAULT 0,
@@ -706,7 +713,7 @@ async function ensureAccountSessionVersionsTable(): Promise<void> {
 
 export async function getAccountSessionVersion(uid: number): Promise<number> {
   await ensureAccountSessionVersionsTable();
-  const result = await getTurso().execute({
+  const result = await getDatabase().execute({
     sql: "SELECT session_version FROM account_session_versions WHERE uid = ? LIMIT 1",
     args: [uid],
   });
@@ -715,7 +722,7 @@ export async function getAccountSessionVersion(uid: number): Promise<number> {
 
 export async function incrementAccountSessionVersion(uid: number): Promise<number> {
   await ensureAccountSessionVersionsTable();
-  const result = await getTurso().execute({
+  const result = await getDatabase().execute({
     sql: `INSERT INTO account_session_versions (uid, session_version, updated_at)
           VALUES (?, 1, ?)
           ON CONFLICT(uid) DO UPDATE SET
@@ -731,6 +738,111 @@ export async function incrementAccountSessionVersion(uid: number): Promise<numbe
   return version;
 }
 
+let webPresenceTableReady: Promise<void> | null = null;
+
+async function ensureWebPresenceTable(): Promise<void> {
+  if (!webPresenceTableReady) {
+    webPresenceTableReady = (async () => {
+      const database = getDatabase();
+      await database.execute(`CREATE TABLE IF NOT EXISTS web_presence (
+          uid BIGINT NOT NULL,
+          device_id TEXT NOT NULL,
+          last_seen TEXT NOT NULL,
+          PRIMARY KEY (uid, device_id)
+        )`);
+      await database.execute("ALTER TABLE web_presence ENABLE ROW LEVEL SECURITY");
+      await database.execute(
+        "REVOKE ALL ON web_presence FROM anon, authenticated",
+      );
+    })()
+      .catch((error) => {
+        webPresenceTableReady = null;
+        throw error;
+      });
+  }
+  await webPresenceTableReady;
+}
+
+export async function touchWebPresence(
+  uid: number,
+  deviceId: string,
+): Promise<void> {
+  await ensureWebPresenceTable();
+  const now = new Date().toISOString();
+  await getDatabase().execute({
+    sql: `INSERT INTO web_presence (uid, device_id, last_seen)
+          VALUES (?, ?, ?)
+          ON CONFLICT(uid, device_id) DO UPDATE SET last_seen = excluded.last_seen`,
+    args: [uid, deviceId, now],
+  });
+}
+
+export async function listOnlineWebPresence(
+  uids: number[],
+  withinMs = 55_000,
+): Promise<Set<number>> {
+  const uniqueUids = Array.from(
+    new Set(uids.filter((uid) => Number.isSafeInteger(uid) && uid > 0)),
+  );
+  if (uniqueUids.length === 0) return new Set();
+  await ensureWebPresenceTable();
+  const cutoff = new Date(Date.now() - withinMs).toISOString();
+  const result = await getDatabase().execute({
+    sql: `SELECT DISTINCT uid FROM web_presence
+          WHERE uid IN (${uniqueUids.map(() => "?").join(", ")})
+            AND last_seen >= ?`,
+    args: [...uniqueUids, cutoff],
+  });
+  return new Set(result.rows.map((row) => Number(row.uid)));
+}
+
+export async function getTelegramWebLoginStatus(uid: number): Promise<{
+  telegramId: number;
+  accountFound: boolean;
+  role: string | null;
+  hasLoggedIntoWeb: boolean;
+  activeOnWebNow: boolean;
+  retrievedAt: string;
+}> {
+  await Promise.all([
+    ensureTelegramAccountsTable(),
+    ensureDeviceAccountStateTable(),
+    ensureWebPresenceTable(),
+  ]);
+  const activeCutoff = new Date(Date.now() - 55_000).toISOString();
+  const result = await getDatabase().execute({
+    sql: `SELECT accounts.role,
+                 EXISTS (
+                   SELECT 1 FROM device_ids devices
+                   WHERE devices.uid = accounts.uid
+                 ) AS has_logged_into_web,
+                 EXISTS (
+                   SELECT 1
+                   FROM device_account_state state
+                   INNER JOIN web_presence presence
+                     ON presence.device_id = state.device_id
+                   WHERE state.current_uid = accounts.uid
+                     AND presence.uid = accounts.uid
+                     AND presence.last_seen >= ?
+                 ) AS active_on_web_now
+          FROM "akun-telegram" accounts
+          WHERE accounts.uid = ?
+          LIMIT 1`,
+    args: [activeCutoff, uid],
+  });
+  const row = result.rows[0];
+  const asBoolean = (value: unknown) =>
+    value === true || value === 1 || value === "1" || value === "t";
+  return {
+    telegramId: uid,
+    accountFound: Boolean(row),
+    role: row?.role == null ? null : String(row.role),
+    hasLoggedIntoWeb: asBoolean(row?.has_logged_into_web),
+    activeOnWebNow: asBoolean(row?.active_on_web_now),
+    retrievedAt: new Date().toISOString(),
+  };
+}
+
 export async function getAccountSessionState(
   uid: number,
 ): Promise<{ sessionVersion: number; active: boolean }> {
@@ -738,7 +850,7 @@ export async function getAccountSessionState(
     ensureAccountSessionVersionsTable(),
     ensureTelegramAccountsTable(),
   ]);
-  const result = await getTurso().execute({
+  const result = await getDatabase().execute({
     sql: `SELECT COALESCE(versions.session_version, 0) AS session_version,
                  accounts.role AS role
           FROM "akun-telegram" AS accounts
@@ -753,12 +865,60 @@ export async function getAccountSessionState(
   };
 }
 
+export type DeviceAccount = {
+  uid: number;
+  username: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  photoUrl: string | null;
+  sessionVersion: number;
+};
+
+export async function listActiveAccountsForDevice(
+  deviceId: string,
+  uid?: number,
+): Promise<DeviceAccount[]> {
+  await Promise.all([
+    ensureAccountSessionVersionsTable(),
+    ensureTelegramAccountsTable(),
+  ]);
+  const result = await getDatabase().execute({
+    sql: `SELECT accounts.uid,
+                 accounts.username,
+                 accounts.first_name,
+                 accounts.last_name,
+                 accounts.photo_url,
+                 COALESCE(versions.session_version, 0) AS session_version
+          FROM device_ids AS devices
+          INNER JOIN "akun-telegram" AS accounts ON accounts.uid = devices.uid
+          LEFT JOIN account_session_versions AS versions ON versions.uid = accounts.uid
+          WHERE devices.device_id = ?
+            AND accounts.role <> 'deleted'
+            AND NOT EXISTS (
+              SELECT 1 FROM session_blacklist AS blocked
+              WHERE blocked.device_id = devices.device_id
+                AND blocked.uid = devices.uid
+            )
+            ${uid === undefined ? "" : "AND devices.uid = ?"}
+          ORDER BY devices.last_seen DESC, accounts.uid ASC`,
+    args: uid === undefined ? [deviceId] : [deviceId, uid],
+  });
+  return result.rows.map((row) => ({
+    uid: Number(row.uid),
+    username: row.username == null ? null : String(row.username),
+    firstName: row.first_name == null ? null : String(row.first_name),
+    lastName: row.last_name == null ? null : String(row.last_name),
+    photoUrl: row.photo_url == null ? null : String(row.photo_url),
+    sessionVersion: Number(row.session_version ?? 0),
+  }));
+}
+
 export async function restoreDeletedTelegramAccount(
   uid: number,
 ): Promise<void> {
   await ensureTelegramAccountsTable();
   const now = new Date().toISOString();
-  await getTurso().batch(
+  await getDatabase().batch(
     [
       {
         sql: `UPDATE "akun-telegram"
@@ -783,7 +943,7 @@ export async function findDeviceIdByFingerprint(
 ): Promise<DeviceIdRow | null> {
   await ensureDeviceFingerprintColumns();
   try {
-    const result = await getTurso().execute({
+    const result = await getDatabase().execute({
       sql: "SELECT * FROM device_ids WHERE uid = ? AND fingerprint = ? LIMIT 1",
       args: [uid, fingerprint],
     });
@@ -796,7 +956,7 @@ export async function findDeviceIdByFingerprint(
 
 export async function insertDeviceId(row: DeviceIdRow): Promise<void> {
   await ensureDeviceFingerprintColumns();
-  const result = await getTurso().execute({
+  const result = await getDatabase().execute({
     sql: `INSERT OR IGNORE INTO device_ids
             (device_id, uid, fingerprint, device_type, os, brand, model, browser, cpu_cores, ram_gb, user_agent,
              language, timezone, platform, max_touch, color_depth, webgl_vendor, webgl_renderer, screen_w, screen_h,
@@ -851,11 +1011,58 @@ export async function touchDeviceId(
 ): Promise<void> {
   const now = new Date().toISOString();
   try {
-    await getTurso().execute({
+    await getDatabase().execute({
       sql: "UPDATE device_ids SET last_seen = ? WHERE device_id = ? AND uid = ?",
       args: [now, deviceId, uid],
     });
   } catch {}
+}
+
+let deviceAccountStateReady: Promise<void> | null = null;
+
+async function ensureDeviceAccountStateTable(): Promise<void> {
+  if (!deviceAccountStateReady) {
+    deviceAccountStateReady = (async () => {
+      const database = getDatabase();
+      await database.execute(`CREATE TABLE IF NOT EXISTS device_account_state (
+          device_id TEXT PRIMARY KEY,
+          current_uid BIGINT,
+          updated_at TEXT NOT NULL
+        )`);
+      await database.execute(
+        "ALTER TABLE device_account_state ENABLE ROW LEVEL SECURITY",
+      );
+      await database.execute(
+        "REVOKE ALL ON device_account_state FROM anon, authenticated",
+      );
+    })()
+      .catch((error) => {
+        deviceAccountStateReady = null;
+        throw error;
+      });
+  }
+  await deviceAccountStateReady;
+}
+
+export async function setDeviceAccountState(
+  deviceId: string,
+  uid: number | null,
+): Promise<void> {
+  if (!/^\d{10}$/.test(deviceId)) {
+    throw new Error("Invalid DeviceID.");
+  }
+  if (uid !== null && (!Number.isSafeInteger(uid) || uid <= 0)) {
+    throw new Error("Invalid account ID for DeviceID.");
+  }
+  await ensureDeviceAccountStateTable();
+  await getDatabase().execute({
+    sql: `INSERT INTO device_account_state (device_id, current_uid, updated_at)
+          VALUES (?, ?, ?)
+          ON CONFLICT(device_id) DO UPDATE SET
+            current_uid = excluded.current_uid,
+            updated_at = excluded.updated_at`,
+    args: [deviceId, uid, new Date().toISOString()],
+  });
 }
 
 export async function updateDeviceFingerprint(
@@ -866,7 +1073,7 @@ export async function updateDeviceFingerprint(
 ): Promise<void> {
   await ensureDeviceFingerprintColumns();
   const now = new Date().toISOString();
-  await getTurso().execute({
+  await getDatabase().execute({
     sql: `UPDATE device_ids
           SET fingerprint = ?, last_seen = ?, model = COALESCE(?, model),
               language = ?, timezone = ?, platform = ?,
@@ -907,7 +1114,7 @@ export async function updateDeviceFingerprint(
 }
 
 export async function countDeviceIdsForUid(uid: number): Promise<number> {
-  const result = await getTurso().execute({
+  const result = await getDatabase().execute({
     sql: "SELECT COUNT(*) as c FROM device_ids WHERE uid = ?",
     args: [uid],
   });
@@ -918,7 +1125,7 @@ export async function isDeviceBlacklisted(
   deviceId: string,
   uid: number,
 ): Promise<boolean> {
-  const result = await getTurso().execute({
+  const result = await getDatabase().execute({
     sql: "SELECT device_id FROM session_blacklist WHERE device_id = ? AND uid = ? LIMIT 1",
     args: [deviceId, uid],
   });
@@ -930,7 +1137,7 @@ export async function addDeviceToBlacklist(
   uid: number,
 ): Promise<void> {
   const createdAt = new Date().toISOString();
-  await getTurso().execute({
+  await getDatabase().execute({
     sql: "INSERT OR IGNORE INTO session_blacklist (device_id, uid, created_at) VALUES (?, ?, ?)",
     args: [deviceId, uid, createdAt],
   });
@@ -941,7 +1148,7 @@ export async function removeDeviceFromBlacklist(
   uid: number,
 ): Promise<void> {
   try {
-    await getTurso().execute({
+    await getDatabase().execute({
       sql: "DELETE FROM session_blacklist WHERE device_id = ? AND uid = ?",
       args: [deviceId, uid],
     });
@@ -993,12 +1200,17 @@ let accountPreferencesReady: Promise<void> | null = null;
 
 async function ensureAccountPreferencesTable(): Promise<void> {
   if (!accountPreferencesReady) {
-    accountPreferencesReady = getTurso()
+    accountPreferencesReady = getDatabase()
       .execute(`CREATE TABLE IF NOT EXISTS account_preferences (
-        uid INTEGER PRIMARY KEY,
+        uid BIGINT PRIMARY KEY,
         display_name TEXT,
         updated_at TEXT NOT NULL
       )`)
+      .then(async () => {
+        await getDatabase().execute(
+          "ALTER TABLE account_preferences ALTER COLUMN uid TYPE BIGINT USING uid::BIGINT",
+        );
+      })
       .then(() => undefined)
       .catch((error) => {
         accountPreferencesReady = null;
@@ -1010,7 +1222,7 @@ async function ensureAccountPreferencesTable(): Promise<void> {
 
 export async function getAccountDisplayName(uid: number): Promise<string | null> {
   await ensureAccountPreferencesTable();
-  const result = await getTurso().execute({
+  const result = await getDatabase().execute({
     sql: "SELECT display_name FROM account_preferences WHERE uid = ? LIMIT 1",
     args: [uid],
   });
@@ -1023,7 +1235,7 @@ export async function saveAccountDisplayName(
   displayName: string,
 ): Promise<void> {
   await ensureAccountPreferencesTable();
-  await getTurso().execute({
+  await getDatabase().execute({
     sql: `INSERT INTO account_preferences (uid, display_name, updated_at)
           VALUES (?, ?, ?)
           ON CONFLICT(uid) DO UPDATE SET
@@ -1035,7 +1247,7 @@ export async function saveAccountDisplayName(
 
 export async function clearAccountDisplayName(uid: number): Promise<void> {
   await ensureAccountPreferencesTable();
-  await getTurso().execute({
+  await getDatabase().execute({
     sql: "DELETE FROM account_preferences WHERE uid = ?",
     args: [uid],
   });
@@ -1044,9 +1256,9 @@ export async function clearAccountDisplayName(uid: number): Promise<void> {
 async function ensureTelegramAccountsTable(): Promise<void> {
   if (!telegramAccountsReady) {
     telegramAccountsReady = (async () => {
-      const db = getTurso();
+      const db = getDatabase();
       await db.execute(`CREATE TABLE IF NOT EXISTS "akun-telegram" (
-        uid INTEGER PRIMARY KEY,
+        uid BIGINT PRIMARY KEY,
         username TEXT,
         first_name TEXT,
         last_name TEXT,
@@ -1058,6 +1270,9 @@ async function ensureTelegramAccountsTable(): Promise<void> {
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       )`);
+      await db.execute(
+        'ALTER TABLE "akun-telegram" ALTER COLUMN uid TYPE BIGINT USING uid::BIGINT',
+      );
       await db.execute(
         `CREATE INDEX IF NOT EXISTS idx_akun_telegram_name
          ON "akun-telegram"(first_name, last_name)`,
@@ -1097,7 +1312,7 @@ async function ensureTelegramAccountsTable(): Promise<void> {
 
 async function ensureTelegramLoginChallengesTable(): Promise<void> {
   if (!telegramLoginChallengesReady) {
-    telegramLoginChallengesReady = getTurso()
+    telegramLoginChallengesReady = getDatabase()
       .execute(`CREATE TABLE IF NOT EXISTS telegram_login_challenges (
         challenge_hash TEXT PRIMARY KEY,
         requester_hash TEXT,
@@ -1109,7 +1324,7 @@ async function ensureTelegramLoginChallengesTable(): Promise<void> {
         consumed_at INTEGER
       )`)
       .then(async () => {
-        const columns = await getTurso().execute(
+        const columns = await getDatabase().execute(
           "PRAGMA table_info(telegram_login_challenges)",
         );
         const knownColumns = new Set(
@@ -1118,7 +1333,7 @@ async function ensureTelegramLoginChallengesTable(): Promise<void> {
           ),
         );
         if (!knownColumns.has("requester_hash")) {
-          await getTurso().execute(
+          await getDatabase().execute(
             "ALTER TABLE telegram_login_challenges ADD COLUMN requester_hash TEXT",
           );
         }
@@ -1129,7 +1344,7 @@ async function ensureTelegramLoginChallengesTable(): Promise<void> {
       });
   }
   await telegramLoginChallengesReady;
-  await getTurso().execute(
+  await getDatabase().execute(
     `CREATE INDEX IF NOT EXISTS idx_login_challenges_requester_created
      ON telegram_login_challenges(requester_hash, created_at)`,
   );
@@ -1143,19 +1358,19 @@ export async function createTelegramLoginChallenge(
   await ensureTelegramAccountsTable();
   await ensureTelegramLoginChallengesTable();
   const now = Math.floor(Date.now() / 1000);
-  await getTurso().execute({
+  await getDatabase().execute({
     sql: "DELETE FROM telegram_login_challenges WHERE expires_at <= ?",
     args: [now],
   });
   if (requesterHash) {
-    const recent = await getTurso().execute({
+    const recent = await getDatabase().execute({
       sql: `SELECT COUNT(*) AS count FROM telegram_login_challenges
             WHERE requester_hash = ? AND created_at > ?`,
       args: [requesterHash, now - 60],
     });
     if (Number(recent.rows[0]?.count ?? 0) >= 10) return false;
   }
-  await getTurso().execute({
+  await getDatabase().execute({
     sql: `INSERT INTO telegram_login_challenges
           (challenge_hash, requester_hash, uid, status, created_at, expires_at)
           VALUES (?, ?, NULL, 'pending', ?, ?)`,
@@ -1166,7 +1381,7 @@ export async function createTelegramLoginChallenge(
 
 export async function getChatNotification(uid: number, id: string): Promise<Notification | null> {
   await ensureChatMessageActions();
-  const result = await getTurso().execute({
+  const result = await getDatabase().execute({
     sql: `SELECT notifications.*,
                  EXISTS (
                    SELECT 1 FROM chat_notification_pins pins
@@ -1182,12 +1397,12 @@ export async function getChatNotification(uid: number, id: string): Promise<Noti
 
 export async function deleteChatNotification(uid: number, id: string): Promise<boolean> {
   await ensureChatMessageActions();
-  const result = await getTurso().execute({
+  const result = await getDatabase().execute({
     sql: "DELETE FROM notifications WHERE uid = ? AND id = ?",
     args: [uid, id],
   });
   if (result.rowsAffected > 0) {
-    await getTurso().execute({
+    await getDatabase().execute({
       sql: "DELETE FROM chat_notification_pins WHERE uid = ? AND notification_id = ?",
       args: [uid, id],
     });
@@ -1203,13 +1418,13 @@ export async function toggleChatNotificationPin(
   const notification = await getChatNotification(uid, id);
   if (!notification) return null;
   if (notification.is_pinned) {
-    await getTurso().execute({
+    await getDatabase().execute({
       sql: "DELETE FROM chat_notification_pins WHERE uid = ? AND notification_id = ?",
       args: [uid, id],
     });
     return false;
   }
-  await getTurso().execute({
+  await getDatabase().execute({
     sql: `INSERT OR IGNORE INTO chat_notification_pins (uid, notification_id, created_at)
           VALUES (?, ?, ?)`,
     args: [uid, id, new Date().toISOString()],
@@ -1221,7 +1436,7 @@ export async function getTelegramLoginChallenge(
   challengeHash: string,
 ): Promise<TelegramLoginChallenge | null> {
   await ensureTelegramLoginChallengesTable();
-  const result = await getTurso().execute({
+  const result = await getDatabase().execute({
     sql: `SELECT uid, status, expires_at FROM telegram_login_challenges
           WHERE challenge_hash = ? LIMIT 1`,
     args: [challengeHash],
@@ -1250,7 +1465,7 @@ export async function consumeTelegramLoginChallenge(
   const now = Math.floor(Date.now() / 1000);
   const challenge = await getTelegramLoginChallenge(challengeHash);
   if (!challenge || challenge.status !== "approved" || !challenge.uid) return null;
-  const result = await getTurso().execute({
+  const result = await getDatabase().execute({
     sql: `UPDATE telegram_login_challenges
           SET status = 'consumed', consumed_at = ?
           WHERE challenge_hash = ? AND status = 'approved' AND expires_at > ?`,
@@ -1263,7 +1478,7 @@ export async function consumeTelegramLoginChallenge(
 export async function getTelegramUser(uid: number): Promise<TelegramUser | null> {
   try {
     await ensureTelegramAccountsTable();
-    const result = await getTurso().execute({
+    const result = await getDatabase().execute({
       sql: `SELECT * FROM "akun-telegram" WHERE uid = ? LIMIT 1`,
       args: [uid],
     });
@@ -1272,6 +1487,810 @@ export async function getTelegramUser(uid: number): Promise<TelegramUser | null>
   } catch {
     return null;
   }
+}
+
+let telegramGroupAiTablesReady: Promise<void> | null = null;
+
+async function ensureTelegramGroupAiTables(): Promise<void> {
+  if (!telegramGroupAiTablesReady) {
+    telegramGroupAiTablesReady = (async () => {
+      const database = getDatabase();
+      await database.execute(`CREATE TABLE IF NOT EXISTS telegram_group_ai_settings (
+        group_id BIGINT PRIMARY KEY,
+        owner_uid BIGINT NOT NULL,
+        group_title TEXT NOT NULL DEFAULT '',
+        enabled INTEGER NOT NULL DEFAULT 1,
+        send_enabled INTEGER NOT NULL DEFAULT 0,
+        enabled_by BIGINT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )`);
+      await database.execute(
+        "ALTER TABLE telegram_group_ai_settings ADD COLUMN IF NOT EXISTS send_enabled INTEGER NOT NULL DEFAULT 0",
+      );
+      await database.execute(`CREATE TABLE IF NOT EXISTS telegram_group_ai_consents (
+        group_id BIGINT NOT NULL,
+        telegram_uid BIGINT NOT NULL,
+        display_name TEXT NOT NULL,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        consented_at TEXT NOT NULL,
+        revoked_at TEXT,
+        PRIMARY KEY (group_id, telegram_uid)
+      )`);
+      await database.execute(`CREATE TABLE IF NOT EXISTS telegram_group_ai_messages (
+        id TEXT PRIMARY KEY,
+        group_id BIGINT NOT NULL,
+        telegram_message_id BIGINT NOT NULL,
+        sender_uid BIGINT,
+        sender_name TEXT NOT NULL,
+        sender_kind TEXT NOT NULL,
+        content TEXT NOT NULL,
+        media_types TEXT NOT NULL DEFAULT '',
+        reply_to_message_id BIGINT,
+        created_at TEXT NOT NULL,
+        UNIQUE (group_id, telegram_message_id)
+      )`);
+      await database.execute(`CREATE TABLE IF NOT EXISTS telegram_group_ai_insights (
+        id TEXT PRIMARY KEY,
+        group_id BIGINT NOT NULL,
+        owner_uid BIGINT NOT NULL,
+        telegram_message_id BIGINT NOT NULL,
+        summary TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE (group_id, telegram_message_id)
+      )`);
+      await database.execute(`CREATE INDEX IF NOT EXISTS idx_telegram_group_ai_messages_time
+        ON telegram_group_ai_messages(group_id, created_at DESC)`);
+      await database.execute(`CREATE INDEX IF NOT EXISTS idx_telegram_group_ai_insights_time
+        ON telegram_group_ai_insights(group_id, owner_uid, created_at DESC)`);
+      await database.execute(`CREATE INDEX IF NOT EXISTS idx_telegram_group_ai_insights_search
+        ON telegram_group_ai_insights USING GIN
+        (to_tsvector('simple'::regconfig, summary))`);
+      await database.execute(`WITH ranked_insights AS (
+        SELECT ctid,
+               ROW_NUMBER() OVER (
+                 PARTITION BY group_id, owner_uid,
+                   lower(regexp_replace(btrim(summary), '[[:space:]]+', ' ', 'g'))
+                 ORDER BY created_at DESC, telegram_message_id DESC
+               ) AS duplicate_rank
+        FROM telegram_group_ai_insights
+      )
+      DELETE FROM telegram_group_ai_insights AS insight
+      USING ranked_insights
+      WHERE insight.ctid = ranked_insights.ctid
+        AND ranked_insights.duplicate_rank > 1`);
+      await database.execute(`CREATE UNIQUE INDEX IF NOT EXISTS idx_telegram_group_ai_insights_unique_summary
+        ON telegram_group_ai_insights
+        (group_id, owner_uid,
+         lower(regexp_replace(btrim(summary), '[[:space:]]+', ' ', 'g')))`);
+      await database.execute(`CREATE INDEX IF NOT EXISTS idx_telegram_group_ai_messages_search
+        ON telegram_group_ai_messages USING GIN
+        (to_tsvector('simple'::regconfig, content))`);
+      for (const table of [
+        "telegram_group_ai_settings",
+        "telegram_group_ai_consents",
+        "telegram_group_ai_messages",
+        "telegram_group_ai_insights",
+      ]) {
+        await database.execute(`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY`);
+        await database.execute(`REVOKE ALL ON ${table} FROM anon, authenticated`);
+      }
+    })().catch((error) => {
+      telegramGroupAiTablesReady = null;
+      throw error;
+    });
+  }
+  await telegramGroupAiTablesReady;
+}
+
+export async function enableTelegramGroupAi(
+  groupId: number,
+  ownerUid: number,
+  groupTitle: string,
+  enabledBy: number,
+): Promise<void> {
+  await ensureTelegramGroupAiTables();
+  const now = new Date().toISOString();
+  await getDatabase().execute({
+    sql: `INSERT INTO telegram_group_ai_settings
+            (group_id, owner_uid, group_title, enabled, enabled_by, created_at, updated_at)
+          VALUES (?, ?, ?, 1, ?, ?, ?)
+          ON CONFLICT(group_id) DO UPDATE SET
+            owner_uid = excluded.owner_uid,
+            group_title = excluded.group_title,
+            enabled = 1,
+            enabled_by = excluded.enabled_by,
+            updated_at = excluded.updated_at`,
+    args: [groupId, ownerUid, groupTitle.slice(0, 200), enabledBy, now, now],
+  });
+}
+
+export async function disableTelegramGroupAi(groupId: number): Promise<void> {
+  await ensureTelegramGroupAiTables();
+  const now = new Date().toISOString();
+  await getDatabase().batch([
+    {
+      sql: `UPDATE telegram_group_ai_settings
+            SET enabled = 0, updated_at = ?
+            WHERE group_id = ?`,
+      args: [now, groupId],
+    },
+    {
+      sql: "DELETE FROM telegram_group_ai_messages WHERE group_id = ?",
+      args: [groupId],
+    },
+    {
+      sql: "DELETE FROM telegram_group_ai_insights WHERE group_id = ?",
+      args: [groupId],
+    },
+    {
+      sql: `UPDATE telegram_group_ai_consents
+            SET is_active = 0, revoked_at = ?
+            WHERE group_id = ? AND is_active = 1`,
+      args: [now, groupId],
+    },
+  ]);
+}
+
+export async function setTelegramGroupAiSendPermission(
+  groupId: number,
+  ownerUid: number,
+  enabled: boolean,
+): Promise<boolean> {
+  await ensureTelegramGroupAiTables();
+  const result = await getDatabase().execute({
+    sql: `UPDATE telegram_group_ai_settings
+          SET send_enabled = ?, updated_at = ?
+          WHERE group_id = ? AND owner_uid = ? AND enabled = 1`,
+    args: [enabled ? 1 : 0, new Date().toISOString(), groupId, ownerUid],
+  });
+  return result.rowsAffected > 0;
+}
+
+export async function storeTelegramGroupAiInsight(input: {
+  groupId: number;
+  ownerUid: number;
+  messageId: number;
+  summary: string;
+}): Promise<void> {
+  const summary = input.summary.trim().slice(0, 1600);
+  if (!summary) return;
+  await ensureTelegramGroupAiTables();
+  await getDatabase().execute({
+    sql: `INSERT INTO telegram_group_ai_insights
+            (id, group_id, owner_uid, telegram_message_id, summary, created_at)
+          SELECT ?, ?, ?, ?, ?, ?
+          WHERE EXISTS (
+            SELECT 1 FROM telegram_group_ai_settings
+            WHERE group_id = ? AND owner_uid = ? AND enabled = 1
+          )
+          ON CONFLICT DO NOTHING`,
+    args: [
+      `tgi-${input.groupId}-${input.messageId}`,
+      input.groupId,
+      input.ownerUid,
+      input.messageId,
+      summary,
+      new Date().toISOString(),
+      input.groupId,
+      input.ownerUid,
+    ],
+  });
+}
+
+export async function setTelegramGroupAiConsent(
+  groupId: number,
+  telegramUid: number,
+  displayName: string,
+): Promise<boolean> {
+  await ensureTelegramGroupAiTables();
+  const now = new Date().toISOString();
+  const result = await getDatabase().execute({
+    sql: `INSERT INTO telegram_group_ai_consents
+            (group_id, telegram_uid, display_name, is_active, consented_at, revoked_at)
+          SELECT ?, ?, ?, 1, ?, NULL
+          WHERE EXISTS (
+            SELECT 1 FROM telegram_group_ai_settings
+            WHERE group_id = ? AND enabled = 1
+          )
+          ON CONFLICT(group_id, telegram_uid) DO UPDATE SET
+            display_name = excluded.display_name,
+            is_active = 1,
+            consented_at = excluded.consented_at,
+            revoked_at = NULL`,
+    args: [
+      groupId,
+      telegramUid,
+      displayName.slice(0, 120),
+      now,
+      groupId,
+    ],
+  });
+  return result.rowsAffected > 0;
+}
+
+export async function revokeTelegramGroupAiConsent(
+  groupId: number,
+  telegramUid: number,
+): Promise<boolean> {
+  await ensureTelegramGroupAiTables();
+  const now = new Date().toISOString();
+  const results = await getDatabase().batch([
+    {
+      sql: `UPDATE telegram_group_ai_consents
+            SET is_active = 0, revoked_at = ?
+            WHERE group_id = ? AND telegram_uid = ? AND is_active = 1`,
+      args: [now, groupId, telegramUid],
+    },
+    {
+      sql: `DELETE FROM telegram_group_ai_messages
+            WHERE group_id = ?
+              AND sender_kind = 'bot'
+              AND reply_to_message_id IN (
+                SELECT telegram_message_id
+                FROM telegram_group_ai_messages
+                WHERE group_id = ? AND sender_uid = ?
+              )`,
+      args: [groupId, groupId, telegramUid],
+    },
+    {
+      sql: "DELETE FROM telegram_group_ai_messages WHERE group_id = ? AND sender_uid = ?",
+      args: [groupId, telegramUid],
+    },
+  ]);
+  return results[0].rowsAffected > 0;
+}
+
+export async function getTelegramGroupAiStatus(
+  groupId: number,
+  telegramUid?: number,
+): Promise<{
+  enabled: boolean;
+  sendEnabled: boolean;
+  consented: boolean;
+  groupTitle: string;
+  ownerUid: number | null;
+}> {
+  await ensureTelegramGroupAiTables();
+  const result = await getDatabase().execute({
+    sql: `SELECT settings.enabled, settings.send_enabled, settings.group_title, settings.owner_uid,
+                 EXISTS (
+                   SELECT 1 FROM telegram_group_ai_consents consent
+                   WHERE consent.group_id = settings.group_id
+                     AND consent.telegram_uid = ?
+                     AND consent.is_active = 1
+                 ) AS consented
+          FROM telegram_group_ai_settings settings
+          WHERE settings.group_id = ?
+          LIMIT 1`,
+    args: [telegramUid ?? 0, groupId],
+  });
+  const row = result.rows[0];
+  const isTrue = (value: unknown) =>
+    value === true || value === 1 || value === "1" || value === "t";
+  return {
+    enabled: isTrue(row?.enabled),
+    sendEnabled: isTrue(row?.send_enabled),
+    consented: isTrue(row?.consented),
+    groupTitle: row?.group_title == null ? "" : String(row.group_title),
+    ownerUid: row?.owner_uid == null ? null : Number(row.owner_uid),
+  };
+}
+
+export async function storeTelegramGroupAiMessage(input: {
+  groupId: number;
+  messageId: number;
+  senderUid: number;
+  senderName: string;
+  content: string;
+  mediaTypes: string[];
+  replyToMessageId: number | null;
+}): Promise<"stored" | "not_consented" | "duplicate"> {
+  await ensureTelegramGroupAiTables();
+  const now = new Date().toISOString();
+  const result = await getDatabase().execute({
+    sql: `INSERT INTO telegram_group_ai_messages
+            (id, group_id, telegram_message_id, sender_uid, sender_name, sender_kind,
+             content, media_types, reply_to_message_id, created_at)
+          SELECT ?, ?, ?, ?, ?, 'user', ?, ?, ?, ?
+          WHERE EXISTS (
+            SELECT 1 FROM telegram_group_ai_settings settings
+            INNER JOIN telegram_group_ai_consents consent
+              ON consent.group_id = settings.group_id
+            WHERE settings.group_id = ?
+              AND settings.enabled = 1
+              AND consent.telegram_uid = ?
+              AND consent.is_active = 1
+          )
+          ON CONFLICT(group_id, telegram_message_id) DO NOTHING`,
+    args: [
+      `tg-${input.groupId}-${input.messageId}`,
+      input.groupId,
+      input.messageId,
+      input.senderUid,
+      input.senderName.slice(0, 120),
+      input.content.slice(0, 4000),
+      input.mediaTypes.slice(0, 8).join(","),
+      input.replyToMessageId,
+      now,
+      input.groupId,
+      input.senderUid,
+    ],
+  });
+  if (result.rowsAffected > 0) return "stored";
+  const status = await getTelegramGroupAiStatus(input.groupId, input.senderUid);
+  if (!status.enabled || !status.consented) return "not_consented";
+  return "duplicate";
+}
+
+export async function storeTelegramGroupAiAdminMessage(input: {
+  groupId: number;
+  ownerUid: number;
+  messageId: number;
+  senderName: string;
+  mediaTypes: string[];
+  replyToMessageId: number | null;
+}): Promise<"stored" | "not_enabled" | "duplicate"> {
+  await ensureTelegramGroupAiTables();
+  const now = new Date().toISOString();
+  const result = await getDatabase().execute({
+    sql: `INSERT INTO telegram_group_ai_messages
+            (id, group_id, telegram_message_id, sender_uid, sender_name, sender_kind,
+             content, media_types, reply_to_message_id, created_at)
+          SELECT ?, ?, ?, ?, ?, 'user', ?, ?, ?, ?
+          WHERE EXISTS (
+            SELECT 1 FROM telegram_group_ai_settings
+            WHERE group_id = ? AND owner_uid = ? AND enabled = 1
+          )
+          ON CONFLICT(group_id, telegram_message_id) DO NOTHING`,
+    args: [
+      `tg-${input.groupId}-${input.messageId}`,
+      input.groupId,
+      input.messageId,
+      input.ownerUid,
+      input.senderName.slice(0, 120),
+      "[owner message; details are distilled into private memory]",
+      input.mediaTypes.slice(0, 8).join(","),
+      input.replyToMessageId,
+      now,
+      input.groupId,
+      input.ownerUid,
+    ],
+  });
+  if (result.rowsAffected > 0) return "stored";
+  const status = await getTelegramGroupAiStatus(input.groupId);
+  return status.enabled && status.ownerUid === input.ownerUid
+    ? "duplicate"
+    : "not_enabled";
+}
+
+export async function storeTelegramGroupAiBotMessage(input: {
+  groupId: number;
+  messageId: number;
+  content: string;
+  replyToMessageId: number | null;
+}): Promise<void> {
+  await ensureTelegramGroupAiTables();
+  const now = new Date().toISOString();
+  await getDatabase().execute({
+    sql: `INSERT INTO telegram_group_ai_messages
+            (id, group_id, telegram_message_id, sender_uid, sender_name, sender_kind,
+             content, media_types, reply_to_message_id, created_at)
+          SELECT ?, ?, ?, NULL, 'Cheya', 'bot', ?, '', ?, ?
+          WHERE EXISTS (
+            SELECT 1 FROM telegram_group_ai_settings
+            WHERE group_id = ? AND enabled = 1
+          )
+          ON CONFLICT(group_id, telegram_message_id) DO NOTHING`,
+    args: [
+      `tg-${input.groupId}-${input.messageId}`,
+      input.groupId,
+      input.messageId,
+      input.content.slice(0, 4000),
+      input.replyToMessageId,
+      now,
+      input.groupId,
+    ],
+  });
+}
+
+export async function retrieveTelegramGroupAiMemory(
+  groupId: number,
+  ownerUid: number,
+  query: string,
+  replyToMessageId: number | null,
+): Promise<Array<{
+  messageId: number;
+  senderName: string;
+  senderKind: string;
+  content: string;
+  createdAt: string;
+  mediaTypes: string[];
+}>> {
+  await ensureTelegramGroupAiTables();
+  const normalizedQuery = query.trim().slice(0, 1000);
+  const insightLimit = /\b(kebiasaan|habit|pola|rutinitas|biasanya|sering|selalu|preferensi|suka)\b/i
+    .test(normalizedQuery)
+    ? 32
+    : 8;
+  const recent = await getDatabase().execute({
+    sql: `SELECT telegram_message_id, sender_name, sender_kind, content, created_at, media_types
+          FROM telegram_group_ai_messages
+          WHERE group_id = ?
+            AND (sender_uid = ? OR (
+              sender_kind = 'bot'
+              AND reply_to_message_id IN (
+                SELECT telegram_message_id FROM telegram_group_ai_messages
+                WHERE group_id = ? AND sender_uid = ?
+              )
+            ))
+          ORDER BY created_at DESC, telegram_message_id DESC
+          LIMIT 12`,
+    args: [groupId, ownerUid, groupId, ownerUid],
+  });
+  const relevant = normalizedQuery
+    ? await getDatabase().execute({
+        sql: `SELECT telegram_message_id, sender_name, sender_kind, content, created_at, media_types
+              FROM telegram_group_ai_messages
+              WHERE group_id = ?
+                AND (sender_uid = ? OR (
+                  sender_kind = 'bot'
+                  AND reply_to_message_id IN (
+                    SELECT telegram_message_id FROM telegram_group_ai_messages
+                    WHERE group_id = ? AND sender_uid = ?
+                  )
+                ))
+                AND to_tsvector('simple'::regconfig, content)
+                    @@ websearch_to_tsquery('simple'::regconfig, ?)
+              ORDER BY ts_rank(
+                to_tsvector('simple'::regconfig, content),
+                websearch_to_tsquery('simple'::regconfig, ?)
+              ) DESC, created_at DESC
+              LIMIT 12`,
+        args: [
+          groupId,
+          ownerUid,
+          groupId,
+          ownerUid,
+          normalizedQuery,
+          normalizedQuery,
+        ],
+      })
+    : { rows: [] };
+  const replied = replyToMessageId === null
+    ? { rows: [] }
+    : await getDatabase().execute({
+        sql: `SELECT telegram_message_id, sender_name, sender_kind, content, created_at, media_types
+              FROM telegram_group_ai_messages
+              WHERE group_id = ?
+                AND telegram_message_id = ?
+                AND (
+                  sender_uid = ?
+                  OR (
+                    sender_kind = 'bot'
+                    AND reply_to_message_id IN (
+                      SELECT telegram_message_id FROM telegram_group_ai_messages
+                      WHERE group_id = ? AND sender_uid = ?
+                    )
+                  )
+                )
+              LIMIT 1`,
+        args: [groupId, replyToMessageId, ownerUid, groupId, ownerUid],
+      });
+  const insightArgs = normalizedQuery
+    ? [groupId, ownerUid, normalizedQuery, normalizedQuery]
+    : [groupId, ownerUid];
+  const [recentInsights, relevantInsights, repliedInsight] = await Promise.all([
+    getDatabase().execute({
+      sql: `SELECT telegram_message_id, summary, created_at
+            FROM telegram_group_ai_insights
+            WHERE group_id = ? AND owner_uid = ?
+            ORDER BY created_at DESC
+            LIMIT ${insightLimit}`,
+      args: [groupId, ownerUid],
+    }),
+    normalizedQuery
+      ? getDatabase().execute({
+          sql: `SELECT telegram_message_id, summary, created_at
+                FROM telegram_group_ai_insights
+                WHERE group_id = ? AND owner_uid = ?
+                  AND to_tsvector('simple'::regconfig, summary)
+                      @@ websearch_to_tsquery('simple'::regconfig, ?)
+                ORDER BY ts_rank(
+                  to_tsvector('simple'::regconfig, summary),
+                  websearch_to_tsquery('simple'::regconfig, ?)
+                ) DESC, created_at DESC
+                LIMIT ${insightLimit}`,
+          args: insightArgs,
+        })
+      : Promise.resolve({ rows: [] as Record<string, unknown>[] }),
+    replyToMessageId === null
+      ? Promise.resolve({ rows: [] as Record<string, unknown>[] })
+      : getDatabase().execute({
+          sql: `SELECT telegram_message_id, summary, created_at
+                FROM telegram_group_ai_insights
+                WHERE group_id = ? AND owner_uid = ? AND telegram_message_id = ?
+                LIMIT 1`,
+          args: [groupId, ownerUid, replyToMessageId],
+        }),
+  ]);
+
+  const byMessageId = new Map<string, Record<string, unknown>>();
+  for (const row of [...recent.rows, ...relevant.rows, ...replied.rows]) {
+    byMessageId.set(String(row.telegram_message_id), row);
+  }
+  const messages = Array.from(byMessageId.values())
+    .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))
+    .slice(-24)
+    .map((row) => ({
+      messageId: Number(row.telegram_message_id),
+      senderName: String(row.sender_name ?? "Group member"),
+      senderKind: String(row.sender_kind ?? "user"),
+      content: String(row.content ?? "").slice(0, 1200),
+      createdAt: String(row.created_at ?? ""),
+      mediaTypes: String(row.media_types ?? "")
+        .split(",")
+        .filter(Boolean),
+    }));
+  const uniqueInsights = new Map<string, Record<string, unknown>>();
+  for (const row of [
+    ...recentInsights.rows,
+    ...relevantInsights.rows,
+    ...repliedInsight.rows,
+  ]) {
+    uniqueInsights.set(String(row.telegram_message_id), row);
+  }
+  return [
+    ...messages,
+    ...Array.from(uniqueInsights.values()).map((row) => ({
+      messageId: Number(row.telegram_message_id),
+      senderName: "Long-term memory",
+      senderKind: "memory",
+      content: String(row.summary ?? "").slice(0, 1600),
+      createdAt: String(row.created_at ?? ""),
+      mediaTypes: [] as string[],
+    })),
+  ].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+export async function retrieveTelegramGroupAiMemoryForOwner(
+  ownerUid: number,
+  query: string,
+): Promise<Array<{
+  groupId: number;
+  groupTitle: string;
+  messageId: number;
+  source: "summary" | "reply";
+  content: string;
+  createdAt: string;
+}>> {
+  if (!Number.isSafeInteger(ownerUid) || ownerUid <= 0) {
+    throw new Error("Invalid Telegram group AI memory owner.");
+  }
+  await ensureTelegramGroupAiTables();
+  const normalizedQuery = query.trim().slice(0, 1000);
+  const summarySearch = normalizedQuery
+    ? getDatabase().execute({
+        sql: `SELECT settings.group_id, settings.group_title,
+                     insight.telegram_message_id, insight.summary, insight.created_at,
+                     ts_rank(
+                       to_tsvector('simple'::regconfig, insight.summary),
+                       websearch_to_tsquery('simple'::regconfig, ?)
+                     ) AS rank
+              FROM telegram_group_ai_settings settings
+              INNER JOIN telegram_group_ai_insights insight
+                ON insight.group_id = settings.group_id
+               AND insight.owner_uid = settings.owner_uid
+              WHERE settings.owner_uid = ?
+                AND settings.enabled = 1
+                AND to_tsvector('simple'::regconfig, insight.summary)
+                    @@ websearch_to_tsquery('simple'::regconfig, ?)
+              ORDER BY rank DESC, insight.created_at DESC
+              LIMIT 12`,
+        args: [normalizedQuery, ownerUid, normalizedQuery],
+      })
+    : Promise.resolve({ rows: [] as Record<string, unknown>[] });
+  const replySearch = normalizedQuery
+    ? getDatabase().execute({
+        sql: `SELECT settings.group_id, settings.group_title,
+                     message.telegram_message_id, message.content, message.created_at,
+                     ts_rank(
+                       to_tsvector('simple'::regconfig, message.content),
+                       websearch_to_tsquery('simple'::regconfig, ?)
+                     ) AS rank
+              FROM telegram_group_ai_settings settings
+              INNER JOIN telegram_group_ai_messages message
+                ON message.group_id = settings.group_id
+              WHERE settings.owner_uid = ?
+                AND settings.enabled = 1
+                AND message.sender_kind = 'bot'
+                AND EXISTS (
+                  SELECT 1
+                  FROM telegram_group_ai_messages owner_message
+                  WHERE owner_message.group_id = message.group_id
+                    AND owner_message.telegram_message_id = message.reply_to_message_id
+                    AND owner_message.sender_uid = settings.owner_uid
+                )
+                AND to_tsvector('simple'::regconfig, message.content)
+                    @@ websearch_to_tsquery('simple'::regconfig, ?)
+              ORDER BY rank DESC, message.created_at DESC
+              LIMIT 8`,
+        args: [normalizedQuery, ownerUid, normalizedQuery],
+      })
+    : Promise.resolve({ rows: [] as Record<string, unknown>[] });
+  const [recentSummaries, recentReplies, matchingSummaries, matchingReplies] =
+    await Promise.all([
+      getDatabase().execute({
+        sql: `SELECT settings.group_id, settings.group_title,
+                     insight.telegram_message_id, insight.summary, insight.created_at
+              FROM telegram_group_ai_settings settings
+              INNER JOIN telegram_group_ai_insights insight
+                ON insight.group_id = settings.group_id
+               AND insight.owner_uid = settings.owner_uid
+              WHERE settings.owner_uid = ? AND settings.enabled = 1
+              ORDER BY insight.created_at DESC
+              LIMIT 10`,
+        args: [ownerUid],
+      }),
+      getDatabase().execute({
+        sql: `SELECT settings.group_id, settings.group_title,
+                     message.telegram_message_id, message.content, message.created_at
+              FROM telegram_group_ai_settings settings
+              INNER JOIN telegram_group_ai_messages message
+                ON message.group_id = settings.group_id
+              WHERE settings.owner_uid = ?
+                AND settings.enabled = 1
+                AND message.sender_kind = 'bot'
+                AND EXISTS (
+                  SELECT 1
+                  FROM telegram_group_ai_messages owner_message
+                  WHERE owner_message.group_id = message.group_id
+                    AND owner_message.telegram_message_id = message.reply_to_message_id
+                    AND owner_message.sender_uid = settings.owner_uid
+                )
+              ORDER BY message.created_at DESC
+              LIMIT 8`,
+        args: [ownerUid],
+      }),
+      summarySearch,
+      replySearch,
+    ]);
+
+  const entries = new Map<string, {
+    groupId: number;
+    groupTitle: string;
+    messageId: number;
+    source: "summary" | "reply";
+    content: string;
+    createdAt: string;
+  }>();
+  for (const row of [...recentSummaries.rows, ...matchingSummaries.rows]) {
+    const groupId = Number(row.group_id);
+    const messageId = Number(row.telegram_message_id);
+    const key = `${groupId}:${messageId}:summary`;
+    entries.set(key, {
+      groupId,
+      groupTitle: String(row.group_title ?? ""),
+      messageId,
+      source: "summary",
+      content: String(row.summary ?? "").slice(0, 800),
+      createdAt: String(row.created_at ?? ""),
+    });
+  }
+  for (const row of [...recentReplies.rows, ...matchingReplies.rows]) {
+    const groupId = Number(row.group_id);
+    const messageId = Number(row.telegram_message_id);
+    const key = `${groupId}:${messageId}:reply`;
+    entries.set(key, {
+      groupId,
+      groupTitle: String(row.group_title ?? ""),
+      messageId,
+      source: "reply",
+      content: String(row.content ?? "").slice(0, 800),
+      createdAt: String(row.created_at ?? ""),
+    });
+  }
+  const matchingKeys = new Set([
+    ...matchingSummaries.rows.map(
+      (row) => `${Number(row.group_id)}:${Number(row.telegram_message_id)}:summary`,
+    ),
+    ...matchingReplies.rows.map(
+      (row) => `${Number(row.group_id)}:${Number(row.telegram_message_id)}:reply`,
+    ),
+  ]);
+  return Array.from(entries.entries())
+    .sort(([keyA, a], [keyB, b]) => {
+      const matchDifference =
+        Number(matchingKeys.has(keyB)) - Number(matchingKeys.has(keyA));
+      return matchDifference || b.createdAt.localeCompare(a.createdAt);
+    })
+    .slice(0, 20)
+    .map(([, entry]) => entry)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+export type TelegramGroupHistoryImportMessage = {
+  messageId: number;
+  senderKind: "user" | "bot";
+  senderName: string;
+  content: string;
+  mediaTypes: string[];
+  replyToMessageId: number | null;
+  createdAt: string;
+};
+
+export async function listOwnedTelegramGroupAiSettings(
+  ownerUid: number,
+): Promise<Array<{ groupId: number; groupTitle: string }>> {
+  await ensureTelegramGroupAiTables();
+  const result = await getDatabase().execute({
+    sql: `SELECT group_id, group_title
+          FROM telegram_group_ai_settings
+          WHERE owner_uid = ? AND enabled = 1
+          ORDER BY updated_at DESC`,
+    args: [ownerUid],
+  });
+  return result.rows.map((row) => ({
+    groupId: Number(row.group_id),
+    groupTitle: String(row.group_title ?? ""),
+  }));
+}
+
+export async function importTelegramGroupAiHistory(
+  ownerUid: number,
+  groupId: number,
+  messages: TelegramGroupHistoryImportMessage[],
+): Promise<number> {
+  if (
+    !Number.isSafeInteger(ownerUid) ||
+    ownerUid <= 0 ||
+    !Number.isSafeInteger(groupId) ||
+    groupId >= 0 ||
+    messages.length > 100
+  ) {
+    throw new Error("Invalid Telegram history import request.");
+  }
+  if (messages.length === 0) return 0;
+  await ensureTelegramGroupAiTables();
+
+  const values = messages
+    .map(() => "(?::TEXT, ?::BIGINT, ?::BIGINT, ?::BIGINT, ?::TEXT, ?::TEXT, ?::TEXT, ?::TEXT, ?::BIGINT, ?::TEXT)")
+    .join(", ");
+  const args = messages.flatMap((message) => [
+    `tg-${groupId}-${message.messageId}`,
+    groupId,
+    message.messageId,
+    message.senderKind === "user" ? ownerUid : null,
+    message.senderName.slice(0, 120),
+    message.senderKind,
+    message.content.slice(0, 4000),
+    message.mediaTypes.slice(0, 8).join(","),
+    message.replyToMessageId,
+    message.createdAt,
+  ]);
+  const result = await getDatabase().execute({
+    sql: `INSERT INTO telegram_group_ai_messages
+            (id, group_id, telegram_message_id, sender_uid, sender_name, sender_kind,
+             content, media_types, reply_to_message_id, created_at)
+          SELECT imported.*
+          FROM (VALUES ${values}) AS imported
+            (id, group_id, telegram_message_id, sender_uid, sender_name, sender_kind,
+             content, media_types, reply_to_message_id, created_at)
+          WHERE EXISTS (
+            SELECT 1 FROM telegram_group_ai_settings
+            WHERE group_id = ? AND owner_uid = ? AND enabled = 1
+          )
+          ON CONFLICT(group_id, telegram_message_id) DO UPDATE SET
+            sender_uid = excluded.sender_uid,
+            sender_name = excluded.sender_name,
+            sender_kind = excluded.sender_kind,
+            content = excluded.content,
+            media_types = excluded.media_types,
+            reply_to_message_id = excluded.reply_to_message_id,
+            created_at = excluded.created_at`,
+    args: [...args, groupId, ownerUid],
+  });
+  return result.rowsAffected;
 }
 
 export async function upsertTelegramUser(
@@ -1323,7 +2342,7 @@ async function upsertTelegramAccount(
 ): Promise<void> {
   const now = new Date().toISOString();
   await ensureTelegramAccountsTable();
-  await getTurso().execute({
+  await getDatabase().execute({
     sql: `INSERT INTO "akun-telegram"
             (uid, username, first_name, last_name, photo_url, photo_file_id, auth_date, allows_write_to_pm, role, created_at, updated_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -1357,7 +2376,7 @@ async function upsertTelegramAccount(
   });
 
   try {
-    await getTurso().execute({
+    await getDatabase().execute({
       sql: `INSERT INTO telegram_users
               (uid, username, first_name, last_name, photo_file_id, role, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -1408,7 +2427,7 @@ let chatMessageActionsReady: Promise<void> | null = null;
 async function ensureChatMessageActions(): Promise<void> {
   if (!chatMessageActionsReady) {
     chatMessageActionsReady = (async () => {
-      const db = getTurso();
+      const db = getDatabase();
       const columns = await db.execute("PRAGMA table_info(messages)");
       const existing = new Set(
         columns.rows.map((row) => String((row as Record<string, unknown>).name)),
@@ -1443,6 +2462,9 @@ async function ensureChatMessageActions(): Promise<void> {
         created_at TEXT NOT NULL,
         PRIMARY KEY (uid, notification_id)
       )`);
+      await db.execute(`CREATE INDEX IF NOT EXISTS idx_messages_ai_memory_search
+        ON messages USING GIN (to_tsvector('simple'::regconfig, content))
+        WHERE deleted_at IS NULL`);
     })().catch((error) => {
       chatMessageActionsReady = null;
       throw error;
@@ -1499,7 +2521,7 @@ export async function createMessage(data: {
     const createdAt = new Date().toISOString();
     const deliveredAt = data.delivered_at ?? null;
     const readAt = data.read_at ?? null;
-    await getTurso().execute({
+    await getDatabase().execute({
       sql: `INSERT INTO messages
               (id, uid, sender, sender_role, title, content, created_at, delivered_at, read_at, reply_to_id, ai_input_tokens, ai_output_tokens, sender_device_id)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1546,7 +2568,7 @@ export async function createMessage(data: {
 export async function listMessages(uid: number, limit = 500): Promise<ChatMessage[]> {
   try {
     await ensureChatMessageActions();
-    const result = await getTurso().execute({
+    const result = await getDatabase().execute({
       sql: `SELECT messages.*,
                    EXISTS (
                      SELECT 1 FROM chat_message_pins pins
@@ -1568,9 +2590,145 @@ export async function listMessages(uid: number, limit = 500): Promise<ChatMessag
   }
 }
 
+export type AiChatMemoryMatch = {
+  message: ChatMessage;
+  score: number;
+};
+
+export async function listRecentAiChatMessages(
+  uid: number,
+  limit = 8,
+): Promise<ChatMessage[]> {
+  await ensureChatMessageActions();
+  const result = await getDatabase().execute({
+    sql: `SELECT messages.*,
+                 EXISTS (
+                   SELECT 1 FROM chat_message_pins pins
+                   WHERE pins.uid = messages.uid AND pins.message_id = messages.id
+                 ) AS is_pinned
+          FROM messages
+          WHERE uid = ?
+            AND deleted_at IS NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM chat_message_hides hides
+              WHERE hides.uid = messages.uid AND hides.message_id = messages.id
+            )
+          ORDER BY created_at DESC, id DESC
+          LIMIT ?`,
+    args: [uid, Math.max(1, Math.min(20, Math.floor(limit)))],
+  });
+  return result.rows
+    .map((row) => rowToMessage(row as unknown as Record<string, unknown>))
+    .reverse();
+}
+
+export async function searchAiChatHistory(
+  uid: number,
+  query: string,
+  limit = 20,
+): Promise<AiChatMemoryMatch[]> {
+  await ensureChatMessageActions();
+  const stopWords = new Set([
+    "about", "after", "again", "all", "am", "an", "and", "are", "as", "apa",
+    "bagaimana", "baru", "be", "because", "been", "before", "being", "bisa",
+    "buat", "but", "by", "can", "could", "dari", "did", "do", "does", "doing",
+    "down", "during", "dengan", "di", "for", "from", "gimana", "had", "has",
+    "have", "having", "he", "her", "here", "hers", "him", "his", "how", "i",
+    "ini", "itu", "its", "just", "kan", "ke", "kita", "kok", "lagi", "lalu",
+    "mana", "masih", "mau", "me", "menjadi", "might", "more", "most", "my",
+    "must", "nya", "of", "on", "once", "only", "or", "other", "our", "out",
+    "pada", "pernah", "saya", "sebelumnya", "she", "should", "so", "some",
+    "such", "sudah", "than", "that", "the", "their", "them", "then", "there",
+    "these", "they", "this", "those", "through", "to", "too", "under", "until",
+    "up", "very", "was", "we", "were", "what", "when", "where", "which", "while",
+    "who", "whom", "why", "will", "with", "would", "yang", "you", "your",
+    "ingat", "mengingat", "remember", "recall",
+  ]);
+  const terms = Array.from(new Set(
+    query.toLocaleLowerCase()
+      .match(/[\p{L}\p{N}]{2,}/gu)
+      ?.filter((term) => !stopWords.has(term)) ?? [],
+  )).slice(0, 16);
+  if (terms.length === 0) return [];
+
+  const tsQuery = terms
+    .map((term) => `'${term.replace(/'/g, "''")}':*`)
+    .join(" | ");
+  const boundedLimit = Math.max(1, Math.min(40, Math.floor(limit)));
+  const database = getDatabase();
+  const matchedResult = await database.execute({
+    sql: `SELECT messages.*,
+                 ts_rank_cd(
+                   to_tsvector('simple'::regconfig, messages.content),
+                   to_tsquery('simple'::regconfig, ?),
+                   32
+                 ) AS ai_memory_score,
+                 EXISTS (
+                   SELECT 1 FROM chat_message_pins pins
+                   WHERE pins.uid = messages.uid AND pins.message_id = messages.id
+                 ) AS is_pinned
+          FROM messages
+          WHERE uid = ?
+            AND deleted_at IS NULL
+            AND to_tsvector('simple'::regconfig, content)
+              @@ to_tsquery('simple'::regconfig, ?)
+            AND NOT EXISTS (
+              SELECT 1 FROM chat_message_hides hides
+              WHERE hides.uid = messages.uid AND hides.message_id = messages.id
+            )
+          ORDER BY ai_memory_score DESC, created_at DESC
+          LIMIT ?`,
+    args: [tsQuery, uid, tsQuery, boundedLimit],
+  });
+  const matches = matchedResult.rows.map((row) => {
+    const record = row as unknown as Record<string, unknown>;
+    return {
+      message: rowToMessage(record),
+      score: Number(record.ai_memory_score ?? 0),
+    };
+  });
+  if (matches.length === 0) return [];
+
+  const matchIds = matches.map(({ message }) => message.id);
+  const placeholders = matchIds.map(() => "?").join(", ");
+  const linkedResult = await database.execute({
+    sql: `SELECT messages.*,
+                 EXISTS (
+                   SELECT 1 FROM chat_message_pins pins
+                   WHERE pins.uid = messages.uid AND pins.message_id = messages.id
+                 ) AS is_pinned
+          FROM messages
+          WHERE uid = ?
+            AND deleted_at IS NULL
+            AND (id IN (${placeholders}) OR reply_to_id IN (${placeholders}))
+            AND NOT EXISTS (
+              SELECT 1 FROM chat_message_hides hides
+              WHERE hides.uid = messages.uid AND hides.message_id = messages.id
+            )`,
+    args: [uid, ...matchIds, ...matchIds],
+  });
+  const scores = new Map(matches.map(({ message, score }) => [message.id, score]));
+  const selected = new Map<string, AiChatMemoryMatch>();
+  for (const { message, score } of matches) {
+    selected.set(message.id, { message, score });
+  }
+  for (const row of linkedResult.rows) {
+    const message = rowToMessage(row as unknown as Record<string, unknown>);
+    if (!selected.has(message.id)) {
+      selected.set(message.id, {
+        message,
+        score: scores.get(message.reply_to_id ?? "") ?? 0,
+      });
+    }
+  }
+  return Array.from(selected.values()).sort((a, b) =>
+    a.message.created_at.localeCompare(b.message.created_at),
+  );
+}
+
 export async function getChatMessage(uid: number, id: string): Promise<ChatMessage | null> {
   await ensureChatMessageActions();
-  const result = await getTurso().execute({
+  const result = await getDatabase().execute({
     sql: `SELECT messages.*,
                  EXISTS (
                    SELECT 1 FROM chat_message_pins pins
@@ -1590,7 +2748,7 @@ export async function editChatMessage(
   content: string,
 ): Promise<ChatMessage | null> {
   await ensureChatMessageActions();
-  await getTurso().execute({
+  await getDatabase().execute({
     sql: `UPDATE messages SET content = ?, edited_at = ?
           WHERE uid = ? AND id = ? AND sender = 'user' AND deleted_at IS NULL`,
     args: [content, new Date().toISOString(), uid, id],
@@ -1607,7 +2765,7 @@ export async function deleteChatMessage(
   const message = await getChatMessage(uid, id);
   if (!message) return false;
   if (message.deleted_at) {
-    const results = await getTurso().batch(
+    const results = await getDatabase().batch(
       [
         {
           sql: "DELETE FROM chat_message_pins WHERE uid = ? AND message_id = ?",
@@ -1627,7 +2785,7 @@ export async function deleteChatMessage(
     return results[2].rowsAffected > 0;
   }
   if (scope === "everyone") {
-    const results = await getTurso().batch(
+    const results = await getDatabase().batch(
       [
         {
           sql: "DELETE FROM chat_message_pins WHERE uid = ? AND message_id = ?",
@@ -1646,7 +2804,7 @@ export async function deleteChatMessage(
     );
     return results[2].rowsAffected > 0;
   }
-  await getTurso().batch(
+  await getDatabase().batch(
     [
       {
         sql: `INSERT OR IGNORE INTO chat_message_hides (uid, message_id, created_at)
@@ -1668,13 +2826,13 @@ export async function toggleChatMessagePin(uid: number, id: string): Promise<boo
   const message = await getChatMessage(uid, id);
   if (!message || message.deleted_at) return null;
   if (message.is_pinned) {
-    await getTurso().execute({
+    await getDatabase().execute({
       sql: "DELETE FROM chat_message_pins WHERE uid = ? AND message_id = ?",
       args: [uid, id],
     });
     return false;
   }
-  await getTurso().execute({
+  await getDatabase().execute({
     sql: `INSERT OR IGNORE INTO chat_message_pins (uid, message_id, created_at)
           VALUES (?, ?, ?)`,
     args: [uid, id, new Date().toISOString()],
@@ -1684,7 +2842,7 @@ export async function toggleChatMessagePin(uid: number, id: string): Promise<boo
 
 export async function listActiveAnnouncementRecipients(): Promise<number[]> {
   await ensureTelegramAccountsTable();
-  const result = await getTurso().execute({
+  const result = await getDatabase().execute({
     sql: `SELECT uid FROM "akun-telegram"
           WHERE COALESCE(role, 'user') NOT IN ('deleted', 'admin')
           ORDER BY uid`,
@@ -1703,7 +2861,7 @@ export async function saveBroadcastAnnouncement(
   await ensureChatMessageActions();
   const id = `announcement-${broadcastId}-${uid}`;
   const createdAt = new Date().toISOString();
-  const db = getTurso();
+  const db = getDatabase();
   const activeAccount = `EXISTS (
     SELECT 1 FROM "akun-telegram"
     WHERE uid = ? AND COALESCE(role, 'user') NOT IN ('deleted', 'admin')
@@ -1728,7 +2886,7 @@ export async function saveBroadcastAnnouncement(
 
 export async function getLastMessage(uid: number): Promise<ChatMessage | null> {
   try {
-    const result = await getTurso().execute({
+    const result = await getDatabase().execute({
       sql: "SELECT * FROM messages WHERE uid = ? ORDER BY created_at DESC LIMIT 1",
       args: [uid],
     });
@@ -1745,12 +2903,12 @@ export async function markMessageDelivered(
 ): Promise<string | null> {
   const now = new Date().toISOString();
   try {
-    const res = await getTurso().execute({
+    const res = await getDatabase().execute({
       sql: "UPDATE messages SET delivered_at = ? WHERE id = ? AND uid = ? AND delivered_at IS NULL",
       args: [now, messageId, uid],
     });
     if (res.rowsAffected === 0) {
-      const existing = await getTurso().execute({
+      const existing = await getDatabase().execute({
         sql: "SELECT delivered_at FROM messages WHERE id = ? AND uid = ? LIMIT 1",
         args: [messageId, uid],
       });
@@ -1769,12 +2927,12 @@ export async function markMessageRead(
 ): Promise<string | null> {
   const now = new Date().toISOString();
   try {
-    const res = await getTurso().execute({
+    const res = await getDatabase().execute({
       sql: "UPDATE messages SET read_at = ? WHERE id = ? AND uid = ? AND read_at IS NULL",
       args: [now, messageId, uid],
     });
     if (res.rowsAffected === 0) {
-      const existing = await getTurso().execute({
+      const existing = await getDatabase().execute({
         sql: "SELECT read_at FROM messages WHERE id = ? AND uid = ? LIMIT 1",
         args: [messageId, uid],
       });
@@ -1791,10 +2949,11 @@ export async function markUnreadBotMessagesRead(
   uid: number,
 ): Promise<{ readAt: string; messageIds: string[] }> {
   await ensureChatMessageActions();
-  const result = await getTurso().execute({
+  const result = await getDatabase().execute({
     sql: `SELECT id FROM messages
           WHERE uid = ? AND read_at IS NULL
-            AND (sender = 'bot' OR sender_role = 'admin')
+            AND deleted_at IS NULL
+            AND (sender = 'bot' OR sender_role IN ('admin', 'ai'))
           ORDER BY created_at ASC`,
     args: [uid],
   });
@@ -1803,10 +2962,11 @@ export async function markUnreadBotMessagesRead(
     return { readAt: new Date().toISOString(), messageIds };
   }
   const readAt = new Date().toISOString();
-  await getTurso().execute({
+  await getDatabase().execute({
     sql: `UPDATE messages SET read_at = ?
           WHERE uid = ? AND read_at IS NULL
-            AND (sender = 'bot' OR sender_role = 'admin')`,
+            AND deleted_at IS NULL
+            AND (sender = 'bot' OR sender_role IN ('admin', 'ai'))`,
     args: [readAt, uid],
   });
   return { readAt, messageIds };
@@ -1843,7 +3003,7 @@ export async function upsertPushSubscription(data: {
 }): Promise<void> {
   const now = new Date().toISOString();
   try {
-    await getTurso().execute({
+    await getDatabase().execute({
       sql: `INSERT INTO push_subscriptions
               (endpoint, uid, device_id, p256dh, auth, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -1865,6 +3025,7 @@ export async function upsertPushSubscription(data: {
     });
   } catch (err) {
     console.error("upsertPushSubscription error:", err);
+    throw err;
   }
 }
 
@@ -1872,7 +3033,7 @@ export async function deletePushSubscription(
   endpoint: string,
   uid: number,
 ): Promise<void> {
-  await getTurso().execute({
+  await getDatabase().execute({
     sql: "DELETE FROM push_subscriptions WHERE endpoint = ? AND uid = ?",
     args: [endpoint, uid],
   });
@@ -1882,21 +3043,22 @@ export async function listPushSubscriptions(
   uid: number,
 ): Promise<PushSubscriptionRow[]> {
   try {
-    const result = await getTurso().execute({
+    const result = await getDatabase().execute({
       sql: "SELECT * FROM push_subscriptions WHERE uid = ?",
       args: [uid],
     });
     return result.rows.map((r) =>
       rowToPushSubscription(r as unknown as Record<string, unknown>),
     );
-  } catch {
-    return [];
+  } catch (error) {
+    console.error("listPushSubscriptions error:", error);
+    throw error;
   }
 }
 
 export async function deleteWebAccountData(
   uid: number,
-): Promise<number[]> {
+): Promise<string[]> {
   await Promise.all([
     ensureTelegramAccountsTable(),
     ensureTelegramLoginChallengesTable(),
@@ -1906,7 +3068,7 @@ export async function deleteWebAccountData(
     ensureAccountPreferencesTable(),
   ]);
 
-  const db = getTurso();
+  const db = getDatabase();
   await db.execute(`CREATE TABLE IF NOT EXISTS device_link_tokens (
     token_hash TEXT PRIMARY KEY,
     uid INTEGER NOT NULL,
@@ -1918,20 +3080,20 @@ export async function deleteWebAccountData(
 
   const [mediaResult, coverResult, tableResult] = await Promise.all([
     db.execute({
-      sql: "SELECT storage_message_id FROM media WHERE owner_id = ?",
+      sql: "SELECT storage_path FROM media WHERE owner_id = ?",
       args: [uid],
     }),
     db.execute({
-      sql: "SELECT storage_message_id FROM user_covers WHERE uid = ?",
+      sql: "SELECT storage_path FROM user_covers WHERE uid = ?",
       args: [uid],
     }),
     db.execute("SELECT name FROM sqlite_master WHERE type = 'table'"),
   ]);
-  const telegramMessageIds = Array.from(
+  const storagePaths = Array.from(
     new Set(
       [...mediaResult.rows, ...coverResult.rows]
-        .map((row) => Number(row.storage_message_id))
-        .filter((messageId) => Number.isSafeInteger(messageId) && messageId > 0),
+        .map((row) => String(row.storage_path ?? ""))
+        .filter((path) => isUserMediaPath(uid, path)),
     ),
   );
   const tables = new Set(
@@ -1956,6 +3118,7 @@ export async function deleteWebAccountData(
     ["chat_presence", "uid"],
     ["library_nodes", "owner_uid"],
     ["github_credentials", "uid"],
+    ["ai_context_preferences", "uid"],
     ["account_preferences", "uid"],
   ];
 
@@ -1996,5 +3159,5 @@ export async function deleteWebAccountData(
   });
 
   await db.batch(statements, "write");
-  return telegramMessageIds;
+  return storagePaths;
 }
