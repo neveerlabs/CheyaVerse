@@ -1546,23 +1546,9 @@ async function ensureTelegramGroupAiTables(): Promise<void> {
       await database.execute(`CREATE INDEX IF NOT EXISTS idx_telegram_group_ai_insights_search
         ON telegram_group_ai_insights USING GIN
         (to_tsvector('simple'::regconfig, summary))`);
-      await database.execute(`WITH ranked_insights AS (
-        SELECT ctid,
-               ROW_NUMBER() OVER (
-                 PARTITION BY group_id, owner_uid,
-                   lower(regexp_replace(btrim(summary), '[[:space:]]+', ' ', 'g'))
-                 ORDER BY created_at DESC, telegram_message_id DESC
-               ) AS duplicate_rank
-        FROM telegram_group_ai_insights
-      )
-      DELETE FROM telegram_group_ai_insights AS insight
-      USING ranked_insights
-      WHERE insight.ctid = ranked_insights.ctid
-        AND ranked_insights.duplicate_rank > 1`);
-      await database.execute(`CREATE UNIQUE INDEX IF NOT EXISTS idx_telegram_group_ai_insights_unique_summary
-        ON telegram_group_ai_insights
-        (group_id, owner_uid,
-         lower(regexp_replace(btrim(summary), '[[:space:]]+', ' ', 'g')))`);
+      await database.execute(
+        "DROP INDEX IF EXISTS idx_telegram_group_ai_insights_unique_summary",
+      );
       await database.execute(`CREATE INDEX IF NOT EXISTS idx_telegram_group_ai_messages_search
         ON telegram_group_ai_messages USING GIN
         (to_tsvector('simple'::regconfig, content))`);
@@ -1656,27 +1642,27 @@ export async function storeTelegramGroupAiInsight(input: {
 }): Promise<void> {
   const summary = input.summary.trim().slice(0, 1600);
   await ensureTelegramGroupAiTables();
-  const statements: DatabaseStatement[] = [];
-  if (input.replace) {
-    statements.push({
-      sql: `DELETE FROM telegram_group_ai_insights
-            WHERE id = ?
-              AND EXISTS (
-                SELECT 1 FROM telegram_group_ai_settings
-                WHERE group_id = ? AND owner_uid = ? AND enabled = 1
-              )`,
-      args: [
-        `tgi-${input.groupId}-${input.messageId}`,
-        input.groupId,
-        input.ownerUid,
-      ],
-    });
-  }
   if (!summary) {
-    if (statements.length > 0) await getDatabase().batch(statements);
+    if (input.replace) {
+      await getDatabase().execute({
+        sql: `DELETE FROM telegram_group_ai_insights
+              WHERE group_id = ? AND owner_uid = ? AND telegram_message_id = ?
+                AND EXISTS (
+                  SELECT 1 FROM telegram_group_ai_settings
+                  WHERE group_id = ? AND owner_uid = ? AND enabled = 1
+                )`,
+        args: [
+          input.groupId,
+          input.ownerUid,
+          input.messageId,
+          input.groupId,
+          input.ownerUid,
+        ],
+      });
+    }
     return;
   }
-  statements.push({
+  await getDatabase().execute({
     sql: `INSERT INTO telegram_group_ai_insights
             (id, group_id, owner_uid, telegram_message_id, summary, created_at)
           SELECT ?, ?, ?, ?, ?, ?
@@ -1684,7 +1670,10 @@ export async function storeTelegramGroupAiInsight(input: {
             SELECT 1 FROM telegram_group_ai_settings
             WHERE group_id = ? AND owner_uid = ? AND enabled = 1
           )
-          ON CONFLICT DO NOTHING`,
+          ON CONFLICT(group_id, telegram_message_id) DO UPDATE SET
+            owner_uid = excluded.owner_uid,
+            summary = excluded.summary,
+            created_at = excluded.created_at`,
     args: [
       `tgi-${input.groupId}-${input.messageId}`,
       input.groupId,
@@ -1695,14 +1684,6 @@ export async function storeTelegramGroupAiInsight(input: {
       input.groupId,
       input.ownerUid,
     ],
-  });
-  if (input.replace) {
-    await getDatabase().batch(statements);
-    return;
-  }
-  await getDatabase().execute({
-    sql: statements[0].sql,
-    args: statements[0].args,
   });
 }
 
@@ -1872,6 +1853,7 @@ export async function storeTelegramGroupAiAdminMessage(input: {
   ownerUid: number;
   messageId: number;
   senderName: string;
+  content: string;
   mediaTypes: string[];
   replyToMessageId: number | null;
   edited?: boolean;
@@ -1903,7 +1885,7 @@ export async function storeTelegramGroupAiAdminMessage(input: {
       input.messageId,
       input.ownerUid,
       input.senderName.slice(0, 120),
-      "[owner message; details are distilled into private memory]",
+      input.content.slice(0, 4000),
       input.mediaTypes.slice(0, 8).join(","),
       input.replyToMessageId,
       now,

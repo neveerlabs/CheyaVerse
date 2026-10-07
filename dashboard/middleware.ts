@@ -13,6 +13,7 @@ const PUBLIC_API = [
   /^\/api\/auth\/telegram$/,
   /^\/api\/session\/restore$/,
   /^\/api\/device-links\/redeem$/,
+  /^\/api\/internal\/telegram\/group-ai$/,
   /^\/api\/media\/\d{7}\/content$/,
   /^\/api\/media\/\d{7}\/direct-download$/,
   /^\/api\/download\/\d{7}$/,
@@ -34,24 +35,34 @@ function decodeBase64Url(value: string): Uint8Array<ArrayBuffer> {
 async function readEdgeSession(
   token: string | undefined,
 ): Promise<SessionPayload | null> {
-  const secret = process.env.TELEGRAM_BOT_TOKEN?.trim();
-  if (!token || !secret) return null;
+  const sessionSecret = process.env.SESSION_SECRET?.trim();
+  const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN?.trim();
+  const secrets = [
+    sessionSecret || telegramBotToken,
+    telegramBotToken && telegramBotToken !== sessionSecret
+      ? telegramBotToken
+      : null,
+  ].filter((secret): secret is string => Boolean(secret));
+  if (!token || secrets.length === 0) return null;
   try {
     const [payload, suppliedSignature, ...extra] = token.split(".");
     if (!payload || !suppliedSignature || extra.length) return null;
-    const key = await crypto.subtle.importKey(
-      "raw",
-      new TextEncoder().encode(secret),
-      { name: "HMAC", hash: "SHA-256" },
-      false,
-      ["verify"],
-    );
-    const valid = await crypto.subtle.verify(
-      "HMAC",
-      key,
-      decodeBase64Url(suppliedSignature),
-      new TextEncoder().encode(payload),
-    );
+    const signature = decodeBase64Url(suppliedSignature);
+    const payloadBytes = new TextEncoder().encode(payload);
+    let valid = false;
+    for (const secret of secrets) {
+      const key = await crypto.subtle.importKey(
+        "raw",
+        new TextEncoder().encode(secret),
+        { name: "HMAC", hash: "SHA-256" },
+        false,
+        ["verify"],
+      );
+      if (await crypto.subtle.verify("HMAC", key, signature, payloadBytes)) {
+        valid = true;
+        break;
+      }
+    }
     if (!valid) return null;
     const session = JSON.parse(
       new TextDecoder().decode(decodeBase64Url(payload)),

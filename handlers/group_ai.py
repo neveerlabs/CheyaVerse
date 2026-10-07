@@ -75,14 +75,18 @@ async def _channel_owner_uid(message: Message) -> int | None:
     except TelegramAPIError as exc:
         logger.warning(f"Could not verify channel admins for {message.chat.id}: {exc}")
         return None
-    human_admins = [item.user.id for item in admins if not item.user.is_bot]
-    if len(human_admins) != 1 or human_admins[0] not in ADMIN_TELEGRAM_IDS:
+    configured_human_admins = {
+        item.user.id
+        for item in admins
+        if not item.user.is_bot and item.user.id in ADMIN_TELEGRAM_IDS
+    }
+    if len(configured_human_admins) != 1:
         logger.warning(
             f"Ignored channel AI message for {message.chat.id}: expected exactly one "
-            "human channel admin whose Telegram ID is configured in ADMIN_TELEGRAM_IDS."
+            "channel admin whose Telegram ID is configured in ADMIN_TELEGRAM_IDS."
         )
         return None
-    return human_admins[0]
+    return next(iter(configured_human_admins))
 
 
 async def _set_send_permission(

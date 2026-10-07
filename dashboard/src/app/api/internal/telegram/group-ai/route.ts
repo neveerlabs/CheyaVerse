@@ -331,6 +331,7 @@ export async function POST(request: NextRequest) {
         ownerUid: userId,
         messageId,
         senderName: name,
+        content: message || `[Media attached: ${types.join(", ")}]`,
         mediaTypes: types,
         replyToMessageId,
         edited,

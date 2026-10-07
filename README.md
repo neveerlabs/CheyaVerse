@@ -104,7 +104,9 @@ PUBLIC_URL=http://localhost:8080
 TELEGRAM_GROUP_AI_SECRET=secret_acak_yang_sama_di_bot_dan_web
 ```
 
-`SUPABASE_DB_URL`, Project URL, JWT secret, dan service-role key harus berasal dari project yang sama dengan konfigurasi bot. Hanya URL dan anon/publishable key yang memang bersifat publik; key server lainnya tetap rahasia. `TELEGRAM_BOT_TOKEN` harus sama dengan `BOT_TOKEN`, sedangkan `BOT_USERNAME` diisi tanpa `@`. Atur `SESSION_SECRET` ke nilai acak yang sama pada semua instance web dan pertahankan nilainya saat restart/deploy agar sesi tidak bergantung pada rotasi token Telegram. Token sesi lama yang ditandatangani dengan bot token masih diterima untuk migrasi; sesi baru menggunakan `SESSION_SECRET`.
+`SUPABASE_DB_URL`, Project URL, JWT secret, dan service-role key harus berasal dari project yang sama dengan konfigurasi bot. Hanya URL dan anon/publishable key yang memang bersifat publik; key server lainnya tetap rahasia. `TELEGRAM_BOT_TOKEN` harus sama dengan `BOT_TOKEN`, sedangkan `BOT_USERNAME` diisi tanpa `@`. Atur `SESSION_SECRET` ke nilai acak yang sama pada semua instance web dan pertahankan nilainya saat restart/deploy agar sesi tidak bergantung pada rotasi token Telegram. Middleware dan endpoint web sama-sama memverifikasi `SESSION_SECRET`; token sesi lama yang ditandatangani dengan bot token masih diterima untuk migrasi.
+
+Memori AI grup disimpan oleh endpoint dashboard ke database yang dipakai dashboard (`SUPABASE_DB_URL` di environment web). Bot mengirim pesan ke endpoint itu melalui `PUBLIC_URL`; jangan arahkan web dan bot ke project Supabase berbeda kecuali memang sedang melakukan migrasi data dan sudah mengatur sinkronisasinya.
 
 Jalankan web:
 

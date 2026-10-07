@@ -339,23 +339,7 @@ CREATE INDEX IF NOT EXISTS idx_telegram_group_ai_insights_time
 CREATE INDEX IF NOT EXISTS idx_telegram_group_ai_insights_search
   ON public.telegram_group_ai_insights
   USING GIN (to_tsvector('simple'::regconfig, summary));
-WITH ranked_insights AS (
-  SELECT ctid,
-         ROW_NUMBER() OVER (
-           PARTITION BY group_id, owner_uid,
-             lower(regexp_replace(btrim(summary), '[[:space:]]+', ' ', 'g'))
-           ORDER BY created_at DESC, telegram_message_id DESC
-         ) AS duplicate_rank
-  FROM public.telegram_group_ai_insights
-)
-DELETE FROM public.telegram_group_ai_insights AS insight
-USING ranked_insights
-WHERE insight.ctid = ranked_insights.ctid
-  AND ranked_insights.duplicate_rank > 1;
-CREATE UNIQUE INDEX IF NOT EXISTS idx_telegram_group_ai_insights_unique_summary
-  ON public.telegram_group_ai_insights
-  (group_id, owner_uid,
-   lower(regexp_replace(btrim(summary), '[[:space:]]+', ' ', 'g')));
+DROP INDEX IF EXISTS public.idx_telegram_group_ai_insights_unique_summary;
 CREATE INDEX IF NOT EXISTS idx_telegram_group_ai_messages_search
   ON public.telegram_group_ai_messages
   USING GIN (to_tsvector('simple'::regconfig, content));

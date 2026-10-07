@@ -100,8 +100,24 @@ async function registerPushSubscription(uid: string, vapidKey: string) {
     cache: "no-store",
   });
   if (!response.ok) {
-    throw new Error(`Push subscription registration failed (${response.status}).`);
+    const result = await response.json().catch(() => null);
+    const errorCode =
+      result && typeof result.error === "string" ? `: ${result.error}` : "";
+    throw new Error(
+      `Server menolak pendaftaran push (${response.status}${errorCode}).`,
+    );
   }
+}
+
+function registrationErrorMessage(
+  error: unknown,
+  permissionGranted = Notification.permission === "granted",
+): string {
+  const detail =
+    error instanceof Error ? error.message : "kesalahan yang tidak diketahui";
+  return permissionGranted
+    ? `Izin notifikasi browser sudah aktif, tetapi langganan push gagal disiapkan: ${detail}`
+    : `Pendaftaran notifikasi gagal: ${detail}`;
 }
 
 export function PushRegister({ uid }: { uid: string }) {
@@ -139,7 +155,7 @@ export function PushRegister({ uid }: { uid: string }) {
       } catch (error) {
         if (!cancelled) {
           console.error("[push-register] subscription setup failed:", error);
-          setStatus("Notifikasi belum dapat disiapkan. Coba lagi sebentar.");
+          setStatus(registrationErrorMessage(error));
           setCanRetryRegistration(Notification.permission === "granted");
         }
       }
@@ -184,7 +200,7 @@ export function PushRegister({ uid }: { uid: string }) {
       }
     } catch (error) {
       console.error("[push-register] permission request failed:", error);
-      setStatus("Notifikasi belum dapat disiapkan. Coba lagi sebentar.");
+      setStatus(registrationErrorMessage(error, permissionGranted));
       setCanRetryRegistration(permissionGranted);
     }
   }
@@ -203,7 +219,7 @@ export function PushRegister({ uid }: { uid: string }) {
       setStatus("");
     } catch (error) {
       console.error("[push-register] subscription retry failed:", error);
-      setStatus("Notifikasi belum dapat disiapkan. Coba lagi sebentar.");
+      setStatus(registrationErrorMessage(error));
     }
   }
 
