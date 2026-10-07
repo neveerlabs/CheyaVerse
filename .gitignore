@@ -30,5 +30,4 @@ data/
 data/telegram-ai-memory.sqlite3*
 backups/
 .env.example
-!cheya/.env.example
 env.*

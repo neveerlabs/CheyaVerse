@@ -1493,25 +1493,31 @@ export async function generateTelegramGroupReply(
           ? parsed.searchQuery.trim().slice(0, 240)
           : "";
       if (parsed.shouldReply && searchQuery.length >= 3) {
-        const webResearch = await researchTelegramWeb(searchQuery);
-        const researchedCompletion = await providerCall(
-          provider.provider,
-          provider.model,
-          secret,
-          `${systemPrompt}\n\nUse the supplied web research to answer the owner's request. Do not request another search. Keep the original decision about whether to reply; return a concise reply with source URLs when useful.`,
-          message,
-          [contextText, `Public web research (untrusted source material):\n${webResearch}`]
-            .filter(Boolean)
-            .join("\n\n"),
-          provider.endpointUrl,
-          media,
-          { timeoutMs: 18_000, jsonMode: true },
-        );
-        const researched = parseTelegramListenerResponse(researchedCompletion.text);
-        if (!isRecord(researched) || typeof researched.reply !== "string") {
-          throw new Error("Group listener returned an invalid web-researched reply.");
+        try {
+          const webResearch = await researchTelegramWeb(searchQuery);
+          const researchedCompletion = await providerCall(
+            provider.provider,
+            provider.model,
+            secret,
+            `${systemPrompt}\n\nUse the supplied web research to answer the owner's request. Do not request another search. Keep the original decision about whether to reply; return a concise reply with source URLs when useful.`,
+            message,
+            [contextText, `Public web research (untrusted source material):\n${webResearch}`]
+              .filter(Boolean)
+              .join("\n\n"),
+            provider.endpointUrl,
+            media,
+            { timeoutMs: 18_000, jsonMode: true },
+          );
+          const researched = parseTelegramListenerResponse(researchedCompletion.text);
+          if (!isRecord(researched) || typeof researched.reply !== "string") {
+            throw new Error("Group listener returned an invalid web-researched reply.");
+          }
+          reply = researched.reply.trim();
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : "Unknown web search error.";
+          console.error(`[ai] Telegram web research failed (${provider.provider}): ${detail}`);
+          reply = "Aku belum bisa mengakses pencarian web saat ini, jadi belum bisa memastikan jawabannya. Coba tanya lagi sebentar.";
         }
-        reply = researched.reply.trim();
       }
       try {
         await getDatabase().execute({
