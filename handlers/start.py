@@ -172,18 +172,15 @@ async def handle_login_challenge_callback(callback: CallbackQuery) -> None:
     )
 
 
-@router.message(F.forward_origin)
+@router.message(
+    F.forward_origin
+    | F.forward_date
+    | F.forward_from
+    | F.forward_from_chat
+    | F.forward_sender_name
+)
 async def handle_forwarded_update(message: Message, event_update: Update) -> None:
     if message.chat.type != "private" or not message.from_user:
-        return
-
-    message_text = message.text or message.caption or ""
-    if message_text.lstrip().startswith("/"):
-        return
-
-    origin = message.forward_origin
-    forwarded_user = getattr(origin, "sender_user", None)
-    if forwarded_user and forwarded_user.id == message.from_user.id:
         return
 
     label = message.from_user.username or message.from_user.full_name or str(message.from_user.id)

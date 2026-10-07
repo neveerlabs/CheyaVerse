@@ -1,5 +1,5 @@
 const ICON_PATH = "/push-icon.png";
-const CACHE_NAME = "cheya-push-assets-v6";
+const CACHE_NAME = "cheya-push-assets-v8";
 const DEFAULT_TITLE = "CheyaVerse · Web";
 
 function absoluteUrl(path) {
