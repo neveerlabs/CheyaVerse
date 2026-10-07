@@ -271,7 +271,7 @@ async def _run() -> int:
     exit_code = 0
     try:
         await with_telegram_retry(
-            lambda: bot.delete_webhook(drop_pending_updates=True),
+            lambda: bot.delete_webhook(drop_pending_updates=False),
             label="webhook cleanup",
             logger=logger,
         )

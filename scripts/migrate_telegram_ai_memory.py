@@ -3,8 +3,12 @@ import asyncio
 import hashlib
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Any
+
+# Running this file directly puts scripts/ on sys.path, not the repository root.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import asyncpg
 
