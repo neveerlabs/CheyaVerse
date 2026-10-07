@@ -144,19 +144,7 @@ ingress:
 
 Route DNS hostname tersebut ke tunnel di Cloudflare, lalu jalankan tunnel dengan konfigurasi itu.
 
-Sebelum migrasi, deploy kode dashboard terbaru beserta `TELEGRAM_AI_MEMORY_URL` dan secret-nya ke Vercel. Pastikan bot dan tunnel dapat berjalan dengan port/database SQLite yang persisten. Hentikan proses bot sementara agar tidak ada pesan yang masuk saat migrasi, lalu dari root repository jalankan:
-
-```bash
-python scripts/migrate_telegram_ai_memory.py
-```
-
-Perintah ini menyalin pesan pemilik/admin, balasan AI yang terkait, serta insight dari Supabase ke SQLite dan memverifikasi isi tabel lokal. Sumber di Supabase tetap utuh. Setelah verifikasi sukses, jika ingin mengosongkan salinan pesan/insight itu di Supabase untuk membebaskan kuota, jalankan migrasi kembali dengan `--delete-source`:
-
-```bash
-python scripts/migrate_telegram_ai_memory.py --delete-source
-```
-
-Penghapusan sumber dilakukan dalam transaksi yang sama setelah salinan lokal lolos checksum; bila verifikasi gagal, data Supabase tidak dihapus. Pesan anggota grup lain tidak ikut dipindahkan. Pastikan kode dashboard terbaru sudah aktif sebelum menghapus sumber; riwayat chat web tetap ada di Supabase.
+Riwayat pemilik/admin Telegram, balasan bot terkait, dan insight telah dimigrasikan ke SQLite lokal. Perhatian: tabel pesan Supabase lama mungkin juga berisi pesan anggota lain yang sengaja tidak disalin ke SQLite; menjalankan [drop_telegram_ai_history.sql](./dashboard/sql/drop_telegram_ai_history.sql) akan menghapus semua pesan dan insight dari tabel lama, termasuk data anggota tersebut yang tidak ada di backup lokal. Jangan jalankan sampai sudah memastikan data yang tidak dimigrasikan memang boleh dihapus dan menguji deployment terbaru. Script itu hanya menghapus tabel pesan dan insight Telegram; setting grup, consent anggota, chat web, serta schema lainnya tidak dihapus.
 
 Setelah itu, jalankan bot dan Cloudflare Tunnel. Untuk pengujian sementara, `cloudflared tunnel --url http://127.0.0.1:8765` membuat hostname Quick Tunnel; untuk deployment gunakan hostname named tunnel yang stabil. Tunnel harus tetap hidup selama fitur pencarian memori Telegram dari web digunakan.
 
@@ -263,7 +251,9 @@ Detail identitas/role atau hingga 25 DeviceID dibaca hanya saat ditanya tentang 
 
 Pengambilan ini berjalan ulang pada setiap permintaan AI dan context packet mencatat command data yang benar-benar dieksekusi (misalnya `/account.profile`, `/device.sessions`, `/network.location`, `/github.repository`, dan `/chat.history`). Command yang tidak relevan tidak dijalankan; riwayat tindakan pengguna tidak direkam atau dibuat-buat.
 
-Provider/model AI dikonfigurasi di **Settings → GitHub → AI assistants**. Daftar model diminta langsung dari endpoint masing-masing provider setelah API key (jika diperlukan) diberikan. Provider yang didukung: OpenRouter, OpenAI, Gemini, Anthropic/Claude, DeepSeek, Qwen/DashScope, dan Groq (termasuk model Llama yang tersedia melalui Groq). **Local (OpenAI-compatible)** mendukung server seperti Ollama melalui base URL loopback, misalnya `http://localhost:11434/v1`; endpoint lokal dipanggil dari server CheyaVerse dan dibatasi ke localhost/loopback, sehingga deployment publik tidak dapat menjangkau localhost di perangkat pengguna. Untuk model lokal, jalankan dashboard sendiri pada mesin yang dapat mengakses model. Atur `AI_PROVIDER_ENCRYPTION_KEY` atau `GITHUB_TOKEN_ENCRYPTION_KEY` sebagai key base64 32-byte di environment web agar API key AI tersimpan terenkripsi; jangan commit atau membagikan key ini.
+Provider/model AI dikonfigurasi di **Settings → GitHub → AI assistants**. Daftar model diminta langsung dari endpoint masing-masing provider setelah API key (jika diperlukan) diberikan. Provider yang didukung: OpenRouter, OpenAI, Gemini, Anthropic/Claude, DeepSeek, Qwen/DashScope, dan Groq (termasuk model Llama yang tersedia melalui Groq). Personal Access Token Classic pada bagian **GitHub projects** hanya dipakai untuk membaca repositori GitHub; token itu bukan API key model AI. Masukkan kredensial provider AI pada bagian **AI assistants** di halaman yang sama. **Local (OpenAI-compatible)** mendukung server seperti Ollama melalui base URL loopback, misalnya `http://localhost:11434/v1`; endpoint lokal dipanggil dari server CheyaVerse dan dibatasi ke localhost/loopback, sehingga deployment publik tidak dapat menjangkau localhost di perangkat pengguna. Untuk model lokal, jalankan dashboard sendiri pada mesin yang dapat mengakses model. Atur `AI_PROVIDER_ENCRYPTION_KEY` atau `GITHUB_TOKEN_ENCRYPTION_KEY` sebagai key base64 32-byte di environment web agar API key AI tersimpan terenkripsi; jangan commit atau membagikan key ini.
+
+Web chat dan listener AI Telegram dapat melakukan pencarian web otomatis bila pertanyaan memerlukan informasi publik/terkini atau pemilik meminta riset. Hasil pencarian dibatasi hingga lima kandidat dan listener Telegram membuka paling banyak tiga halaman publik untuk menjawab; sumber yang dipakai dicantumkan pada jawaban. Pencarian memakai Brave bila `BRAVE_SEARCH_API_KEY` tersedia, atau DuckDuckGo sebagai fallback. Pembatasan timeout, ukuran respons, HTTPS, dan pemeriksaan alamat publik tetap berlaku; pencarian tanpa batas tidak didukung.
 
 AI juga dapat mencari history akun yang sedang login, menjalankan command Linux, dan mengetes kode Python, JavaScript/Node.js, atau Bash. Tool dipanggil oleh AI hanya bila relevan dengan permintaan; tidak ada tombol **Run** pada code block. Setiap eksekusi berjalan di Vercel Sandbox sementara, terpisah dari server aplikasi, dengan network dinonaktifkan dan batas waktu; file sandbox dibuang setelah selesai. Eksekusi tidak dapat membaca file host atau mengakses database/provider key. Fitur ini memerlukan autentikasi Vercel Sandbox: di deployment Vercel gunakan OIDC deployment; untuk lokal, jalankan perintah berikut dari folder `dashboard`:
 

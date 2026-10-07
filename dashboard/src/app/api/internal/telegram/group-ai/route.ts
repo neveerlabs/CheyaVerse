@@ -180,6 +180,12 @@ function groupAiFailure(error: unknown): { code: string; message: string } {
         : "Format atau media ini belum didukung untuk dianalisis.",
     };
   }
+  if (/web search|brave search|duckduckgo|search result|public source|public page/.test(normalized)) {
+    return {
+      code: "web_search_failed",
+      message: "Pencarian web atau pembacaan sumber publik gagal. Memori pesan ini belum diperbarui; coba lagi nanti.",
+    };
+  }
   if (/telegram ai memory|sqlite|database|postgres|supabase|query|sql|pool|connection terminated/.test(normalized)) {
     return {
       code: "database_error",

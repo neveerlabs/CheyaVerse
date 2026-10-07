@@ -307,10 +307,20 @@ def retrieve_group_memory(
             """
             SELECT telegram_message_id, sender_name, sender_kind, content, created_at, media_types
             FROM telegram_ai_messages
-            WHERE group_id = ? AND sender_uid = ?
+            WHERE group_id = ? AND (
+                sender_uid = ? OR (
+                    sender_kind = 'bot' AND EXISTS (
+                        SELECT 1 FROM telegram_ai_messages AS owner_message
+                        WHERE owner_message.group_id = telegram_ai_messages.group_id
+                          AND owner_message.telegram_message_id =
+                              telegram_ai_messages.reply_to_message_id
+                          AND owner_message.sender_uid = ?
+                    )
+                )
+            )
             ORDER BY created_at DESC, telegram_message_id DESC LIMIT 12
             """,
-            (group_id, owner_uid),
+            (group_id, owner_uid, owner_uid),
         )
         relevant: list[sqlite3.Row] = []
         if fts_query:
@@ -323,11 +333,21 @@ def retrieve_group_memory(
                 JOIN telegram_ai_messages AS message
                   ON message.rowid = telegram_ai_messages_fts.rowid
                 WHERE telegram_ai_messages_fts MATCH ?
-                  AND message.group_id = ? AND message.sender_uid = ?
+                  AND message.group_id = ? AND (
+                    message.sender_uid = ? OR (
+                        message.sender_kind = 'bot' AND EXISTS (
+                            SELECT 1 FROM telegram_ai_messages AS owner_message
+                            WHERE owner_message.group_id = message.group_id
+                              AND owner_message.telegram_message_id =
+                                  message.reply_to_message_id
+                              AND owner_message.sender_uid = ?
+                        )
+                    )
+                  )
                 ORDER BY bm25(telegram_ai_messages_fts), message.created_at DESC
                 LIMIT 12
                 """,
-                (fts_query, group_id, owner_uid),
+                (fts_query, group_id, owner_uid, owner_uid),
             )
         replied: list[sqlite3.Row] = []
         if reply_to_message_id is not None:
@@ -336,10 +356,20 @@ def retrieve_group_memory(
                 """
                 SELECT telegram_message_id, sender_name, sender_kind, content, created_at, media_types
                 FROM telegram_ai_messages
-                WHERE group_id = ? AND telegram_message_id = ? AND sender_uid = ?
+                WHERE group_id = ? AND telegram_message_id = ? AND (
+                    sender_uid = ? OR (
+                        sender_kind = 'bot' AND EXISTS (
+                            SELECT 1 FROM telegram_ai_messages AS owner_message
+                            WHERE owner_message.group_id = telegram_ai_messages.group_id
+                              AND owner_message.telegram_message_id =
+                                  telegram_ai_messages.reply_to_message_id
+                              AND owner_message.sender_uid = ?
+                        )
+                    )
+                )
                 LIMIT 1
                 """,
-                (group_id, reply_to_message_id, owner_uid),
+                (group_id, reply_to_message_id, owner_uid, owner_uid),
             )
         recent_insights = _rows(
             connection,

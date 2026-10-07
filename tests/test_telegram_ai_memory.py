@@ -116,6 +116,11 @@ class TelegramAiMemoryTests(unittest.TestCase):
             {(row["messageId"], row["source"]) for row in owner_memory},
             {(21, "summary"), (22, "reply")},
         )
+        group_memory = memory.retrieve_group_memory(-100123, 42, "new job", None)
+        self.assertEqual(
+            {(row["messageId"], row["senderKind"]) for row in group_memory},
+            {(21, "user"), (22, "bot"), (21, "memory")},
+        )
         self.assertEqual(
             memory.get_insight(-100123, 42, 21),
             "Owner started a new job this month.",

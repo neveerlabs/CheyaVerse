@@ -310,40 +310,6 @@ CREATE TABLE IF NOT EXISTS public.telegram_group_ai_consents (
   revoked_at TEXT,
   PRIMARY KEY (group_id, telegram_uid)
 );
-CREATE TABLE IF NOT EXISTS public.telegram_group_ai_messages (
-  id TEXT PRIMARY KEY,
-  group_id BIGINT NOT NULL,
-  telegram_message_id BIGINT NOT NULL,
-  sender_uid BIGINT,
-  sender_name TEXT NOT NULL,
-  sender_kind TEXT NOT NULL,
-  content TEXT NOT NULL,
-  media_types TEXT NOT NULL DEFAULT '',
-  reply_to_message_id BIGINT,
-  created_at TEXT NOT NULL,
-  UNIQUE (group_id, telegram_message_id)
-);
-CREATE TABLE IF NOT EXISTS public.telegram_group_ai_insights (
-  id TEXT PRIMARY KEY,
-  group_id BIGINT NOT NULL,
-  owner_uid BIGINT NOT NULL,
-  telegram_message_id BIGINT NOT NULL,
-  summary TEXT NOT NULL,
-  created_at TEXT NOT NULL,
-  UNIQUE (group_id, telegram_message_id)
-);
-CREATE INDEX IF NOT EXISTS idx_telegram_group_ai_messages_time
-  ON public.telegram_group_ai_messages(group_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_telegram_group_ai_insights_time
-  ON public.telegram_group_ai_insights(group_id, owner_uid, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_telegram_group_ai_insights_search
-  ON public.telegram_group_ai_insights
-  USING GIN (to_tsvector('simple'::regconfig, summary));
-DROP INDEX IF EXISTS public.idx_telegram_group_ai_insights_unique_summary;
-CREATE INDEX IF NOT EXISTS idx_telegram_group_ai_messages_search
-  ON public.telegram_group_ai_messages
-  USING GIN (to_tsvector('simple'::regconfig, content));
-
 CREATE TABLE IF NOT EXISTS public.system_incident_alerts (
   fingerprint TEXT PRIMARY KEY,
   last_notified_at BIGINT NOT NULL
@@ -402,9 +368,7 @@ BEGIN
     'github_credentials',
     'ai_provider_keys',
     'telegram_group_ai_settings',
-    'telegram_group_ai_consents',
-    'telegram_group_ai_messages',
-    'telegram_group_ai_insights'
+    'telegram_group_ai_consents'
   ]
   LOOP
     EXECUTE format(
@@ -430,8 +394,7 @@ REVOKE ALL ON public.messages, public.notifications, public.media, public.user_c
   public.chat_message_hides, public.chat_message_pins, public.chat_notification_pins,
   public.session_blacklist, public.library_nodes, public.web_presence,
   public.device_account_state, public.telegram_group_ai_settings,
-  public.telegram_group_ai_consents, public.telegram_group_ai_messages,
-  public.telegram_group_ai_insights
+  public.telegram_group_ai_consents
   FROM anon, authenticated;
 GRANT SELECT ON public.messages, public.notifications, public.media, public.user_covers,
   public.chat_message_hides, public.chat_message_pins, public.chat_notification_pins,
@@ -451,8 +414,6 @@ ALTER TABLE public.device_account_state ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.library_nodes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.telegram_group_ai_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.telegram_group_ai_consents ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.telegram_group_ai_messages ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.telegram_group_ai_insights ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS messages_realtime_own_rows ON public.messages;
 CREATE POLICY messages_realtime_own_rows ON public.messages
