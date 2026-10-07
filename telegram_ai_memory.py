@@ -2,6 +2,7 @@ import json
 import os
 import re
 import sqlite3
+import tempfile
 import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -644,3 +645,38 @@ def export_json(path: str | Path, destination: str | Path) -> None:
         json.dumps(data, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
+
+
+def export_json_files(
+    path: str | Path | None,
+    output_directory: str | Path,
+) -> dict[str, int]:
+    destination = Path(output_directory)
+    destination.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(destination, 0o700)
+    data = snapshot_rows(path)
+
+    for table, rows in data.items():
+        target = destination / f"{table.removeprefix('telegram_ai_')}.json"
+        temporary_path: str | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=destination,
+                prefix=f".{target.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as temporary:
+                temporary_path = temporary.name
+                json.dump(rows, temporary, ensure_ascii=False, indent=2)
+                temporary.write("\n")
+                temporary.flush()
+                os.fsync(temporary.fileno())
+            os.replace(temporary_path, target)
+            os.chmod(target, 0o600)
+        finally:
+            if temporary_path and os.path.exists(temporary_path):
+                os.unlink(temporary_path)
+
+    return {name.removeprefix("telegram_ai_"): len(rows) for name, rows in data.items()}

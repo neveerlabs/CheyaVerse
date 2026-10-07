@@ -71,6 +71,14 @@ Riwayat memori AI Telegram disimpan di SQLite lokal pada `TELEGRAM_AI_MEMORY_DB_
 python -c 'import sqlite3; from pathlib import Path; Path("backups").mkdir(exist_ok=True); source=sqlite3.connect("data/telegram-ai-memory.sqlite3"); backup=sqlite3.connect("backups/telegram-ai-memory.sqlite3"); source.backup(backup); backup.close(); source.close()'
 ```
 
+Untuk membaca memori sebagai JSON, jalankan export manual dari root repository:
+
+```bash
+python scripts/export_telegram_ai_memory_json.py
+```
+
+Perintah ini menghasilkan `backups/telegram-ai-memory-json/groups.json`, `messages.json`, dan `insights.json` sebagai snapshot terpisah. Jalankan ulang kapan pun ingin memperbaruinya; export tidak berjalan otomatis dan bukan sumber data bot. File export dan backup mengandung riwayat privat, disimpan dengan permission terbatas, dan tidak masuk Git.
+
 Pasang dependensi dan jalankan bot dari folder utama:
 
 ```bash

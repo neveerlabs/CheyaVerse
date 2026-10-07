@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -119,6 +120,43 @@ class TelegramAiMemoryTests(unittest.TestCase):
             memory.get_insight(-100123, 42, 21),
             "Owner started a new job this month.",
         )
+
+    def test_json_export_writes_separate_private_files(self):
+        memory.store_owner_message(
+            group_id=-100123,
+            owner_uid=42,
+            group_title="Channel",
+            message_id=31,
+            sender_name="Owner",
+            content="A readable message",
+            media_types=[],
+            reply_to_message_id=None,
+            edited=False,
+        )
+        memory.store_insight(
+            group_id=-100123,
+            owner_uid=42,
+            group_title="Channel",
+            message_id=31,
+            summary="A separate readable insight",
+            replace=False,
+        )
+        output_directory = Path(self.temp_dir.name) / "exports"
+
+        counts = memory.export_json_files(self.database_path, output_directory)
+
+        self.assertEqual(counts, {"groups": 1, "messages": 1, "insights": 1})
+        self.assertEqual(
+            json.loads((output_directory / "messages.json").read_text())[0]["content"],
+            "A readable message",
+        )
+        self.assertEqual(
+            json.loads((output_directory / "insights.json").read_text())[0]["summary"],
+            "A separate readable insight",
+        )
+        self.assertFalse((output_directory / "telegram_ai_memory.json").exists())
+        self.assertEqual(output_directory.stat().st_mode & 0o777, 0o700)
+        self.assertEqual((output_directory / "messages.json").stat().st_mode & 0o777, 0o600)
 
 
 if __name__ == "__main__":
