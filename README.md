@@ -54,9 +54,22 @@ PUBLIC_URL=http://localhost:8080
 MEDIA_TTL_DAYS=30
 # Opsional untuk memori AI grup: gunakan secret acak yang sama di bot dan web
 TELEGRAM_GROUP_AI_SECRET=secret_acak_yang_sama_di_bot_dan_web
+# Secret terpisah untuk endpoint memori lokal; samakan dengan secret di Vercel
+TELEGRAM_AI_MEMORY_SECRET=secret_acak_yang_sama_di_bot_dan_vercel
+# Endpoint hanya bind ke loopback; Cloudflare Tunnel meneruskan HTTPS ke port ini
+TELEGRAM_AI_MEMORY_HOST=127.0.0.1
+TELEGRAM_AI_MEMORY_PORT=8765
+# Opsional: lokasi SQLite persisten, default data/telegram-ai-memory.sqlite3
+TELEGRAM_AI_MEMORY_DB_PATH=data/telegram-ai-memory.sqlite3
 ```
 
 Ganti semua nilai contoh dengan nilai project Supabase dan Telegram milik sendiri. `SUPABASE_DB_URL` harus connection string PostgreSQL Session pooler yang sama dengan web. Bot membutuhkan `SUPABASE_URL` serta `SUPABASE_SERVICE_ROLE_KEY` untuk mengunggah dan menghapus berkas di bucket private. Jangan gunakan service-role key sebagai anon key atau kirim ke browser. Isi `PUBLIC_URL` dengan alamat web yang dapat dibuka pengguna; gunakan HTTPS untuk deployment.
+
+Riwayat memori AI Telegram disimpan di SQLite lokal pada `TELEGRAM_AI_MEMORY_DB_PATH`; pesan chat web dan setting/consent AI tetap di Supabase. File SQLite berada di disk komputer/server bot dan sudah diabaikan Git. Jangan simpan file itu di filesystem ephemeral atau folder yang dibersihkan otomatis. Untuk backup konsisten saat bot sedang berjalan, gunakan SQLite online backup API:
+
+```bash
+python -c 'import sqlite3; from pathlib import Path; Path("backups").mkdir(exist_ok=True); source=sqlite3.connect("data/telegram-ai-memory.sqlite3"); backup=sqlite3.connect("backups/telegram-ai-memory.sqlite3"); source.backup(backup); backup.close(); source.close()'
+```
 
 Pasang dependensi dan jalankan bot dari folder utama:
 
@@ -100,13 +113,44 @@ TELEGRAM_BOT_TOKEN=token_yang_sama_dengan_BOT_TOKEN
 SESSION_SECRET=rahasia_acak_panjang_yang_stabil
 BOT_USERNAME=username_bot_tanpa_at
 PUBLIC_URL=http://localhost:8080
+TELEGRAM_AI_MEMORY_URL=https://memory.example.com
+TELEGRAM_AI_MEMORY_SECRET=secret_acak_yang_sama_di_bot_dan_vercel
 # Opsional untuk memori AI grup: gunakan secret acak yang sama di bot dan web
 TELEGRAM_GROUP_AI_SECRET=secret_acak_yang_sama_di_bot_dan_web
 ```
 
 `SUPABASE_DB_URL`, Project URL, JWT secret, dan service-role key harus berasal dari project yang sama dengan konfigurasi bot. Hanya URL dan anon/publishable key yang memang bersifat publik; key server lainnya tetap rahasia. `TELEGRAM_BOT_TOKEN` harus sama dengan `BOT_TOKEN`, sedangkan `BOT_USERNAME` diisi tanpa `@`. Atur `SESSION_SECRET` ke nilai acak yang sama pada semua instance web dan pertahankan nilainya saat restart/deploy agar sesi tidak bergantung pada rotasi token Telegram. Middleware dan endpoint web sama-sama memverifikasi `SESSION_SECRET`; token sesi lama yang ditandatangani dengan bot token masih diterima untuk migrasi.
 
-Memori AI grup disimpan oleh endpoint dashboard ke database yang dipakai dashboard (`SUPABASE_DB_URL` di environment web). Bot mengirim pesan ke endpoint itu melalui `PUBLIC_URL`; jangan arahkan web dan bot ke project Supabase berbeda kecuali memang sedang melakukan migrasi data dan sudah mengatur sinkronisasinya.
+`TELEGRAM_AI_MEMORY_URL` adalah hostname HTTPS Cloudflare Tunnel yang meneruskan request ke `http://127.0.0.1:8765`. Tunnel diperlukan karena Vercel tidak dapat membaca file SQLite di PC secara langsung. Gunakan named tunnel/hostname stabil untuk deployment; quick tunnel menghasilkan hostname sementara yang perlu diperbarui di Vercel setiap kali berubah. `TELEGRAM_AI_MEMORY_SECRET` wajib sama di environment web dan bot, dan wajib berbeda dari `TELEGRAM_GROUP_AI_SECRET`. Endpoint lokal hanya menerima admin yang tercantum di `ADMIN_TELEGRAM_IDS` dan menolak bind ke alamat selain loopback.
+
+Untuk named tunnel, konfigurasi ingress Cloudflare mengarah ke service lokal, misalnya:
+
+```yaml
+tunnel: <TUNNEL_UUID>
+credentials-file: /path/aman/<TUNNEL_UUID>.json
+ingress:
+  - hostname: memory.example.com
+    service: http://127.0.0.1:8765
+  - service: http_status:404
+```
+
+Route DNS hostname tersebut ke tunnel di Cloudflare, lalu jalankan tunnel dengan konfigurasi itu.
+
+Sebelum migrasi, deploy kode dashboard terbaru beserta `TELEGRAM_AI_MEMORY_URL` dan secret-nya ke Vercel. Pastikan bot dan tunnel dapat berjalan dengan port/database SQLite yang persisten. Hentikan proses bot sementara agar tidak ada pesan yang masuk saat migrasi, lalu dari root repository jalankan:
+
+```bash
+python scripts/migrate_telegram_ai_memory.py
+```
+
+Perintah ini menyalin pesan pemilik/admin, balasan AI yang terkait, serta insight dari Supabase ke SQLite dan memverifikasi isi tabel lokal. Sumber di Supabase tetap utuh. Setelah verifikasi sukses, jika ingin mengosongkan salinan pesan/insight itu di Supabase untuk membebaskan kuota, jalankan migrasi kembali dengan `--delete-source`:
+
+```bash
+python scripts/migrate_telegram_ai_memory.py --delete-source
+```
+
+Penghapusan sumber dilakukan dalam transaksi yang sama setelah salinan lokal lolos checksum; bila verifikasi gagal, data Supabase tidak dihapus. Pesan anggota grup lain tidak ikut dipindahkan. Pastikan kode dashboard terbaru sudah aktif sebelum menghapus sumber; riwayat chat web tetap ada di Supabase.
+
+Setelah itu, jalankan bot dan Cloudflare Tunnel. Untuk pengujian sementara, `cloudflared tunnel --url http://127.0.0.1:8765` membuat hostname Quick Tunnel; untuk deployment gunakan hostname named tunnel yang stabil. Tunnel harus tetap hidup selama fitur pencarian memori Telegram dari web digunakan.
 
 Jalankan web:
 
@@ -124,7 +168,7 @@ Tambahkan nilai berikut pada file environment yang disebutkan hanya jika fitur t
 |---|---|---|
 | Login/tautan web | `PUBLIC_URL` (bot dan web), `BOT_USERNAME` (web) | Gunakan alamat web yang sama; username bot tanpa `@`. |
 | Broadcast admin | `ADMIN_TELEGRAM_IDS`, `BROADCAST_WEB_SECRET` (bot dan web) | ID numerik admin, pisahkan dengan koma. Buat satu secret acak dan gunakan nilai yang sama di kedua aplikasi. |
-| Memori AI grup Telegram | `TELEGRAM_GROUP_AI_SECRET` (bot dan web), `ADMIN_TELEGRAM_IDS` (bot dan web) | Buat secret acak panjang dan gunakan nilai yang sama pada kedua aplikasi. `PUBLIC_URL` bot harus menunjuk ke dashboard yang dapat dijangkau bot. |
+| Memori AI Telegram | `TELEGRAM_GROUP_AI_SECRET` (bot dan web), `TELEGRAM_AI_MEMORY_SECRET` (bot dan web), `TELEGRAM_AI_MEMORY_URL` (web), `ADMIN_TELEGRAM_IDS` (bot dan web) | Pesan pemilik, balasan AI terkait, dan insight disimpan di SQLite lokal bot; Vercel mengaksesnya melalui Cloudflare Tunnel HTTPS. Setting grup, consent, serta chat web tetap di Supabase. |
 | Akses Telegram API dari web | `TELEGRAM_BOT_API_URL` (web, opsional) | Default `https://api.telegram.org`. Jika host web tidak dapat membuat koneksi keluar ke Telegram karena firewall/routing, arahkan ke Bot API proxy HTTPS yang Anda kelola atau Local Bot API Server yang dapat dijangkau web. HTTP hanya diterima untuk `localhost`/loopback, misalnya `http://127.0.0.1:8081`. Pastikan endpoint benar-benar dapat dijangkau dari proses Next.js; ini tidak memperbaiki outage Telegram atau firewall provider dengan sendirinya. |
 | Pencarian web AI | `BRAVE_SEARCH_API_KEY` (opsional) | Jika diatur, pencarian memakai Brave Search; tanpa key, server memakai hasil HTML publik DuckDuckGo. Provider publik dapat membatasi permintaan. Pencarian hanya untuk riset umum, bukan untuk melacak atau mengidentifikasi orang privat. |
 | Supabase keepalive | `CRON_SECRET` (web/deployment) | Buat nilai acak panjang, misalnya `openssl rand -hex 32`. Vercel Cron mengirimkannya untuk mengamankan endpoint keepalive. Atur pada environment deployment Vercel; cron dijadwalkan sekali sehari dan hanya menulis lalu menghapus baris sementara bila tidak ada perubahan data aplikasi selama lima hari. |

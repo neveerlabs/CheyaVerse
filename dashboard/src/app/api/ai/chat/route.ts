@@ -22,8 +22,8 @@ import {
   listRecentAiChatMessages,
   listOnlineWebPresence,
   searchAiChatHistory,
-  retrieveTelegramGroupAiMemoryForOwner,
 } from "@/lib/storage";
+import { retrieveTelegramOwnerMemory } from "@/lib/telegram-ai-memory";
 import { broadcastToUid } from "@/lib/realtime";
 
 export const runtime = "nodejs";
@@ -453,7 +453,7 @@ export async function POST(request: NextRequest) {
     const [memoryMatches, telegramGroupMemory] = await Promise.all([
       searchAiChatHistory(session.uid, memoryQuery, 24),
       canReadTelegramMemory
-        ? retrieveTelegramGroupAiMemoryForOwner(session.uid, memoryQuery)
+        ? retrieveTelegramOwnerMemory(session.uid, memoryQuery)
         : Promise.resolve([]),
     ]);
     const history = formatAiHistory(

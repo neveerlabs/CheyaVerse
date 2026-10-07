@@ -1,6 +1,7 @@
 import asyncio
 import sys
 from urllib.parse import urlsplit
+from aiohttp import web
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.client.session.aiohttp import AiohttpSession
@@ -15,6 +16,9 @@ from config import (
     BOT_TOKEN,
     BROADCAST_WEB_SECRET,
     PUBLIC_URL,
+    TELEGRAM_AI_MEMORY_HOST,
+    TELEGRAM_AI_MEMORY_PORT,
+    TELEGRAM_AI_MEMORY_SECRET,
     TELEGRAM_BOT_API_URL,
 )
 from handlers import announcement as announcement_handler
@@ -26,6 +30,7 @@ from handlers import unblock as unblock_handler
 from logger import logger
 from handlers import web as web_handler
 from telegram_retry import with_telegram_retry
+from telegram_ai_memory_server import start_server as start_telegram_ai_memory_server
 
 CLEANUP_INTERVAL_SECONDS = 6 * 3600
 TELEGRAM_REQUEST_TIMEOUT_SECONDS = 20
@@ -239,6 +244,28 @@ async def _run() -> int:
         await storage.close_db_pool()
         return 1
 
+    memory_runner: web.AppRunner | None = None
+    if TELEGRAM_AI_MEMORY_SECRET:
+        try:
+            memory_runner = await start_telegram_ai_memory_server(
+                TELEGRAM_AI_MEMORY_HOST,
+                TELEGRAM_AI_MEMORY_PORT,
+            )
+            logger.info(
+                "Telegram AI memory API listening on "
+                f"{TELEGRAM_AI_MEMORY_HOST}:{TELEGRAM_AI_MEMORY_PORT}."
+            )
+        except Exception as exc:
+            logger.error(f"Telegram AI memory API failed to start: {exc}")
+            await bot.session.close()
+            await storage.close_db_pool()
+            return 1
+    else:
+        logger.warning(
+            "Telegram AI memory API is disabled. Configure "
+            "TELEGRAM_AI_MEMORY_SECRET before using local AI memory."
+        )
+
     cleanup_task = asyncio.create_task(_cleanup_loop(bot))
 
     exit_code = 0
@@ -270,6 +297,11 @@ async def _run() -> int:
             await storage.close_db_pool()
         except Exception as exc:
             logger.error(f"Turso session cleanup failed: {exc}")
+        if memory_runner is not None:
+            try:
+                await memory_runner.cleanup()
+            except Exception as exc:
+                logger.error(f"Telegram AI memory API shutdown failed: {exc}")
         logger.info("CheyaVerse bot has shut down.")
 
     return exit_code

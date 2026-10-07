@@ -26,6 +26,7 @@ Thumbs.db
 # Local
 web.txt
 bot.txt
+data/telegram-ai-memory.sqlite3*
 .env.example
 !cheya/.env.example
 env.*

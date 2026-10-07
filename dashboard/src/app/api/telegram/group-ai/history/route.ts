@@ -3,10 +3,12 @@ import { getUserSession, hasValidSameOrigin } from "@/lib/auth-request";
 import { config } from "@/lib/config";
 import {
   getTelegramGroupAiStatus,
-  importTelegramGroupAiHistory,
   listOwnedTelegramGroupAiSettings,
-  type TelegramGroupHistoryImportMessage,
 } from "@/lib/storage";
+import {
+  importTelegramGroupHistory,
+  type TelegramGroupHistoryImportMessage,
+} from "@/lib/telegram-ai-memory";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -136,11 +138,12 @@ export async function POST(request: NextRequest) {
     if (!status.enabled || status.ownerUid !== auth.session.uid) {
       return NextResponse.json({ error: "Grup tidak aktif atau bukan milik admin ini." }, { status: 403 });
     }
-    const imported = await importTelegramGroupAiHistory(
-      auth.session.uid,
+    const imported = await importTelegramGroupHistory({
+      ownerUid: auth.session.uid,
       groupId,
+      groupTitle: status.groupTitle,
       messages,
-    );
+    });
     if (imported !== messages.length) {
       return NextResponse.json(
         { error: "Tidak semua pesan berhasil disimpan. Impor aman diulangi; pesan yang sama diperbarui." },

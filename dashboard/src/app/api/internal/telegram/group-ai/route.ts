@@ -8,14 +8,16 @@ import {
 import { getTelegramFileUrl } from "@/lib/telegram";
 import {
   enableTelegramGroupAi,
-  getTelegramGroupAiInsight,
   getTelegramGroupAiStatus,
-  retrieveTelegramGroupAiMemory,
-  storeTelegramGroupAiBotMessage,
-  storeTelegramGroupAiAdminMessage,
-  storeTelegramGroupAiInsight,
   setTelegramGroupAiSendPermission,
 } from "@/lib/storage";
+import {
+  getTelegramStoredInsight,
+  retrieveTelegramGroupMemory,
+  storeTelegramBotMessage,
+  storeTelegramInsight,
+  storeTelegramOwnerMessage,
+} from "@/lib/telegram-ai-memory";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -178,7 +180,7 @@ function groupAiFailure(error: unknown): { code: string; message: string } {
         : "Format atau media ini belum didukung untuk dianalisis.",
     };
   }
-  if (/database|postgres|supabase|query|sql|pool|connection terminated/.test(normalized)) {
+  if (/telegram ai memory|sqlite|database|postgres|supabase|query|sql|pool|connection terminated/.test(normalized)) {
     return {
       code: "database_error",
       message: "Database gagal menyimpan atau membaca memori pesan. Coba lagi setelah koneksi database pulih.",
@@ -326,9 +328,10 @@ export async function POST(request: NextRequest) {
       if (!status.enabled || status.ownerUid !== userId) {
         return NextResponse.json({ ok: true, stored: false, reply: null });
       }
-      const stored = await storeTelegramGroupAiAdminMessage({
+      const stored = await storeTelegramOwnerMessage({
         groupId: id,
         ownerUid: userId,
+        groupTitle: typeof input.groupTitle === "string" ? input.groupTitle : "",
         messageId,
         senderName: name,
         content: message || `[Media attached: ${types.join(", ")}]`,
@@ -336,12 +339,21 @@ export async function POST(request: NextRequest) {
         replyToMessageId,
         edited,
       });
-      if (stored !== "stored") {
-        return NextResponse.json({ ok: true, stored: false, reason: stored, reply: null });
+      if (!stored.stored) {
+        return NextResponse.json({ ok: true, stored: false, reason: stored.reason, reply: null });
       }
-      const memory = await retrieveTelegramGroupAiMemory(id, userId, message, replyToMessageId);
+      const memory = await retrieveTelegramGroupMemory({
+        groupId: id,
+        ownerUid: userId,
+        query: message,
+        replyToMessageId,
+      });
       const previousInsight = edited
-        ? await getTelegramGroupAiInsight(id, userId, messageId)
+        ? await getTelegramStoredInsight({
+            groupId: id,
+            ownerUid: userId,
+            messageId,
+          })
         : null;
       const context = [
         `Telegram group/channel ID: ${id}. The incoming message is from the verified owner.`,
@@ -367,9 +379,10 @@ export async function POST(request: NextRequest) {
         context,
         attachments,
       );
-      await storeTelegramGroupAiInsight({
+      await storeTelegramInsight({
         groupId: id,
         ownerUid: userId,
+        groupTitle: typeof input.groupTitle === "string" ? input.groupTitle : "",
         messageId,
         summary: generated.summary,
         replace: edited,
@@ -401,13 +414,18 @@ export async function POST(request: NextRequest) {
       ) {
         return NextResponse.json({ ok: false, error: "invalid_message" }, { status: 400 });
       }
-      await storeTelegramGroupAiBotMessage({
+      const status = await getTelegramGroupAiStatus(id);
+      if (!status.enabled || status.ownerUid === null) {
+        return NextResponse.json({ ok: true, stored: false });
+      }
+      await storeTelegramBotMessage({
         groupId: id,
+        ownerUid: status.ownerUid,
         messageId,
         content,
         replyToMessageId,
       });
-      return NextResponse.json({ ok: true });
+      return NextResponse.json({ ok: true, stored: true });
     }
 
     return NextResponse.json({ ok: false, error: "unsupported_action" }, { status: 400 });

@@ -20,6 +20,8 @@ export const config = {
   botUsername: (process.env.BOT_USERNAME ?? "").replace(/^@/, ""),
   broadcastWebSecret: process.env.BROADCAST_WEB_SECRET ?? "",
   telegramGroupAiSecret: process.env.TELEGRAM_GROUP_AI_SECRET ?? "",
+  telegramAiMemoryUrl: process.env.TELEGRAM_AI_MEMORY_URL?.trim() ?? "",
+  telegramAiMemorySecret: process.env.TELEGRAM_AI_MEMORY_SECRET?.trim() ?? "",
   publicUrl: (process.env.PUBLIC_URL ?? "").replace(/\/+$/, ""),
   mediaTtlDays: Number(process.env.MEDIA_TTL_DAYS ?? 30),
   recaptchaSiteKey: process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY ?? "",
