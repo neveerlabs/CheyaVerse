@@ -23,6 +23,30 @@ function readDeviceId(): string | null {
   }
 }
 
+function sameApplicationServerKey(
+  current: ArrayBuffer | null,
+  expected: Uint8Array<ArrayBuffer>,
+): boolean {
+  if (!current) return false;
+  const currentBytes = new Uint8Array(current);
+  return (
+    currentBytes.length === expected.length &&
+    currentBytes.every((value, index) => value === expected[index])
+  );
+}
+
+async function removeStoredPushSubscription(uid: string, endpoint: string) {
+  const response = await fetch("/api/push/unsubscribe", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ endpoint, uid: Number(uid) }),
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error(`Old push subscription cleanup failed (${response.status}).`);
+  }
+}
+
 async function registerPushSubscription(uid: string, vapidKey: string) {
   const registration = await navigator.serviceWorker.register("/sw.js", {
     scope: "/",
@@ -32,11 +56,26 @@ async function registerPushSubscription(uid: string, vapidKey: string) {
   });
   await navigator.serviceWorker.ready;
 
+  const applicationServerKey = urlBase64ToUint8Array(vapidKey);
   let subscription = await registration.pushManager.getSubscription();
+  if (
+    subscription &&
+    !sameApplicationServerKey(
+      subscription.options.applicationServerKey,
+      applicationServerKey,
+    )
+  ) {
+    await removeStoredPushSubscription(uid, subscription.endpoint);
+    const unsubscribed = await subscription.unsubscribe();
+    if (!unsubscribed) {
+      throw new Error("The old push subscription could not be replaced.");
+    }
+    subscription = null;
+  }
   if (!subscription) {
     subscription = await registration.pushManager.subscribe({
       userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(vapidKey),
+      applicationServerKey,
     });
   }
 
@@ -66,14 +105,14 @@ async function registerPushSubscription(uid: string, vapidKey: string) {
 }
 
 export function PushRegister({ uid }: { uid: string }) {
-  const done = useRef(false);
+  const done = useRef<string | null>(null);
   const [status, setStatus] = useState("");
   const [canRequestPermission, setCanRequestPermission] = useState(false);
   const [canRetryRegistration, setCanRetryRegistration] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (done.current) return;
+    if (done.current === uid) return;
 
     const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
     if (
@@ -93,7 +132,7 @@ export function PushRegister({ uid }: { uid: string }) {
         await registerPushSubscription(uid, vapidKey);
         if (cancelled) return;
 
-        done.current = true;
+        done.current = uid;
         setStatus("");
         setCanRequestPermission(false);
         setCanRetryRegistration(false);
@@ -139,7 +178,7 @@ export function PushRegister({ uid }: { uid: string }) {
         const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
         if (!vapidKey) return;
         await registerPushSubscription(uid, vapidKey);
-        done.current = true;
+        done.current = uid;
         setCanRetryRegistration(false);
         setStatus("");
       }
@@ -159,7 +198,7 @@ export function PushRegister({ uid }: { uid: string }) {
     }
     try {
       await registerPushSubscription(uid, vapidKey);
-      done.current = true;
+      done.current = uid;
       setCanRetryRegistration(false);
       setStatus("");
     } catch (error) {

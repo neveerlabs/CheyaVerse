@@ -133,14 +133,14 @@ function adaptSql(sql: string, args: unknown[] = []): DatabaseStatement {
     };
   }
 
+  const insertOrIgnore = /^\s*INSERT\s+OR\s+IGNORE\s+INTO\b/i.test(sql);
   let adaptedSql = sql.replace(
     /^\s*INSERT\s+OR\s+IGNORE\s+INTO\b/i,
     (match) => match.replace(/OR\s+IGNORE\s+/i, ""),
   );
   adaptedSql = replaceQuestionPlaceholders(adaptedSql);
 
-  if (/^\s*INSERT\s+INTO\b/i.test(sql) && /^\s*INSERT\s+INTO\b/i.test(adaptedSql) &&
-      /^\s*INSERT\s+OR\s+IGNORE\s+INTO\b/i.test(sql)) {
+  if (insertOrIgnore) {
     const returning = /\s+RETURNING\s+[\s\S]*$/i.exec(adaptedSql);
     const insertEnd = returning?.index ?? adaptedSql.length;
     const beforeReturning = adaptedSql.slice(0, insertEnd).trimEnd();

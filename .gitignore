@@ -27,6 +27,7 @@ Thumbs.db
 web.txt
 bot.txt
 .env.example
+!cheya/.env.example
 env.*
 .viewrc
 view.py

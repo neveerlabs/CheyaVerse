@@ -8,6 +8,7 @@ import {
 import { getTelegramFileUrl } from "@/lib/telegram";
 import {
   enableTelegramGroupAi,
+  getTelegramGroupAiInsight,
   getTelegramGroupAiStatus,
   retrieveTelegramGroupAiMemory,
   storeTelegramGroupAiBotMessage,
@@ -320,6 +321,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ ok: false, error: "invalid_message" }, { status: 400 });
       }
       const attachments = await readAttachments(input.attachments);
+      const edited = input.edited === true;
       const status = await getTelegramGroupAiStatus(id);
       if (!status.enabled || status.ownerUid !== userId) {
         return NextResponse.json({ ok: true, stored: false, reply: null });
@@ -331,13 +333,25 @@ export async function POST(request: NextRequest) {
         senderName: name,
         mediaTypes: types,
         replyToMessageId,
+        edited,
       });
       if (stored !== "stored") {
         return NextResponse.json({ ok: true, stored: false, reason: stored, reply: null });
       }
       const memory = await retrieveTelegramGroupAiMemory(id, userId, message, replyToMessageId);
+      const previousInsight = edited
+        ? await getTelegramGroupAiInsight(id, userId, messageId)
+        : null;
       const context = [
         `Telegram group/channel ID: ${id}. The incoming message is from the verified owner.`,
+        ...(previousInsight
+          ? [
+              "This is an edited Telegram post. The new post content replaces the old version; revise or remove outdated details from its previous memory instead of treating both versions as separate events.",
+              `Previous memory for this exact post: ${previousInsight}`,
+            ]
+          : edited
+            ? ["This is an edited Telegram post. Treat the current content as the corrected replacement for the earlier version."]
+            : []),
         replyToMessageId === null
           ? "The incoming Telegram message is not a reply."
           : `The incoming Telegram message replies to telegram_message_id=${replyToMessageId}.`,
@@ -357,13 +371,14 @@ export async function POST(request: NextRequest) {
         ownerUid: userId,
         messageId,
         summary: generated.summary,
+        replace: edited,
       });
       const reply = generated.reply?.trim() ?? "";
       return NextResponse.json({
         ok: true,
         stored: true,
-        sendEnabled: status.sendEnabled,
-        reply: status.sendEnabled && reply ? reply.slice(0, 1800) : null,
+        sendEnabled: status.sendEnabled && !edited,
+        reply: status.sendEnabled && !edited && reply ? reply.slice(0, 1800) : null,
         summaryStored: Boolean(generated.summary),
         provider: generated.provider,
         model: generated.model,

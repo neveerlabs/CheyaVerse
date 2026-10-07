@@ -77,6 +77,10 @@ async def _channel_owner_uid(message: Message) -> int | None:
         return None
     human_admins = [item.user.id for item in admins if not item.user.is_bot]
     if len(human_admins) != 1 or human_admins[0] not in ADMIN_TELEGRAM_IDS:
+        logger.warning(
+            f"Ignored channel AI message for {message.chat.id}: expected exactly one "
+            "human channel admin whose Telegram ID is configured in ADMIN_TELEGRAM_IDS."
+        )
         return None
     return human_admins[0]
 
@@ -234,6 +238,14 @@ async def process_channel_post(message: Message) -> None:
     await _process_owner_message(message, owner_uid)
 
 
+@router.edited_channel_post()
+async def process_edited_channel_post(message: Message) -> None:
+    owner_uid = await _channel_owner_uid(message)
+    if owner_uid is None:
+        return
+    await _process_owner_message(message, owner_uid, edited=True)
+
+
 def _message_attachments(message: Message) -> list[dict[str, object]]:
     media = (
         ("photo", message.photo[-1] if message.photo else None, "image/jpeg", None),
@@ -264,7 +276,11 @@ def _message_attachments(message: Message) -> list[dict[str, object]]:
     return attachments
 
 
-async def _process_owner_message(message: Message, owner_uid: int) -> None:
+async def _process_owner_message(
+    message: Message,
+    owner_uid: int,
+    edited: bool = False,
+) -> None:
     text = (message.text or message.caption or "").strip()
     if text.startswith("/"):
         return
@@ -280,6 +296,10 @@ async def _process_owner_message(message: Message, owner_uid: int) -> None:
             ownerUid=owner_uid,
         )
         if not status.get("enabled"):
+            logger.warning(
+                f"Group AI did not enable channel {message.chat.id}; "
+                "the owner message was not sent for digestion."
+            )
             return
         result = await _api(
             "auto_process",
@@ -301,7 +321,19 @@ async def _process_owner_message(message: Message, owner_uid: int) -> None:
             text=text,
             mediaTypes=[str(item["type"]) for item in attachments],
             attachments=attachments,
+            edited=edited,
         )
+        if result.get("stored") is not True:
+            logger.warning(
+                f"Group AI did not store channel {message.chat.id} message "
+                f"{message.message_id}: {result.get('reason', 'not_stored')}."
+            )
+            return
+        if result.get("summaryStored") is not True:
+            logger.warning(
+                f"Group AI produced no durable summary for channel {message.chat.id} "
+                f"message {message.message_id}."
+            )
         reply = result.get("reply")
         if (
             not result.get("sendEnabled")

@@ -1,4 +1,4 @@
-import { getDatabase } from "./database";
+import { getDatabase, type DatabaseStatement } from "./database";
 import { config } from "./config";
 import { deleteUserMediaObject, isUserMediaPath } from "./supabase-storage";
 
@@ -1652,11 +1652,31 @@ export async function storeTelegramGroupAiInsight(input: {
   ownerUid: number;
   messageId: number;
   summary: string;
+  replace?: boolean;
 }): Promise<void> {
   const summary = input.summary.trim().slice(0, 1600);
-  if (!summary) return;
   await ensureTelegramGroupAiTables();
-  await getDatabase().execute({
+  const statements: DatabaseStatement[] = [];
+  if (input.replace) {
+    statements.push({
+      sql: `DELETE FROM telegram_group_ai_insights
+            WHERE id = ?
+              AND EXISTS (
+                SELECT 1 FROM telegram_group_ai_settings
+                WHERE group_id = ? AND owner_uid = ? AND enabled = 1
+              )`,
+      args: [
+        `tgi-${input.groupId}-${input.messageId}`,
+        input.groupId,
+        input.ownerUid,
+      ],
+    });
+  }
+  if (!summary) {
+    if (statements.length > 0) await getDatabase().batch(statements);
+    return;
+  }
+  statements.push({
     sql: `INSERT INTO telegram_group_ai_insights
             (id, group_id, owner_uid, telegram_message_id, summary, created_at)
           SELECT ?, ?, ?, ?, ?, ?
@@ -1676,6 +1696,30 @@ export async function storeTelegramGroupAiInsight(input: {
       input.ownerUid,
     ],
   });
+  if (input.replace) {
+    await getDatabase().batch(statements);
+    return;
+  }
+  await getDatabase().execute({
+    sql: statements[0].sql,
+    args: statements[0].args,
+  });
+}
+
+export async function getTelegramGroupAiInsight(
+  groupId: number,
+  ownerUid: number,
+  messageId: number,
+): Promise<string | null> {
+  await ensureTelegramGroupAiTables();
+  const result = await getDatabase().execute({
+    sql: `SELECT summary FROM telegram_group_ai_insights
+          WHERE group_id = ? AND owner_uid = ? AND telegram_message_id = ?
+          LIMIT 1`,
+    args: [groupId, ownerUid, messageId],
+  });
+  const summary = result.rows[0]?.summary;
+  return typeof summary === "string" ? summary : null;
 }
 
 export async function setTelegramGroupAiConsent(
@@ -1830,9 +1874,19 @@ export async function storeTelegramGroupAiAdminMessage(input: {
   senderName: string;
   mediaTypes: string[];
   replyToMessageId: number | null;
+  edited?: boolean;
 }): Promise<"stored" | "not_enabled" | "duplicate"> {
   await ensureTelegramGroupAiTables();
   const now = new Date().toISOString();
+  const conflictAction = input.edited
+    ? `DO UPDATE SET
+         sender_uid = excluded.sender_uid,
+         sender_name = excluded.sender_name,
+         content = excluded.content,
+         media_types = excluded.media_types,
+         reply_to_message_id = excluded.reply_to_message_id,
+         created_at = excluded.created_at`
+    : "DO NOTHING";
   const result = await getDatabase().execute({
     sql: `INSERT INTO telegram_group_ai_messages
             (id, group_id, telegram_message_id, sender_uid, sender_name, sender_kind,
@@ -1842,7 +1896,7 @@ export async function storeTelegramGroupAiAdminMessage(input: {
             SELECT 1 FROM telegram_group_ai_settings
             WHERE group_id = ? AND owner_uid = ? AND enabled = 1
           )
-          ON CONFLICT(group_id, telegram_message_id) DO NOTHING`,
+          ON CONFLICT(group_id, telegram_message_id) ${conflictAction}`,
     args: [
       `tg-${input.groupId}-${input.messageId}`,
       input.groupId,
