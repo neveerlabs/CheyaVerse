@@ -9,7 +9,7 @@ from datetime import datetime
 from aiohttp import web
 
 import memory_telegram as memory
-import personal_memory
+import memory as personal_memory
 from config import ADMIN_TELEGRAM_IDS, TELEGRAM_AI_MEMORY_SECRET
 
 
@@ -431,7 +431,7 @@ async def start_server(host: str, port: int) -> web.AppRunner:
         raise RuntimeError("TELEGRAM_AI_MEMORY_SECRET is required.")
     if host != "localhost" and not ipaddress.ip_address(host).is_loopback:
         raise ValueError("TELEGRAM_AI_MEMORY_HOST must be a loopback address.")
-    memory.initialize()
+    personal_memory.initialize()
     app = web.Application(client_max_size=2 * 1024 * 1024)
     app.router.add_post("/internal/telegram-group-ai", _handle)
     runner = web.AppRunner(app, access_log=None)

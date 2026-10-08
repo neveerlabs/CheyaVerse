@@ -95,7 +95,7 @@ export function ProfileClient({
   const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | null>(null);
   const [isMobile, setIsMobile] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
-  const [avatarUsingProxy, setAvatarUsingProxy] = useState(!info?.photo_url);
+  const [avatarUsingProxy, setAvatarUsingProxy] = useState(true);
   const [avatarOpen, setAvatarOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [deviceId, setDeviceId] = useState<string | null>(null);
@@ -460,13 +460,13 @@ export function ProfileClient({
     : info?.photo_url;
 
   useEffect(() => {
-    setAvatarUsingProxy(!info?.photo_url);
+    setAvatarUsingProxy(true);
     setAvatarFailed(false);
   }, [info?.photo_url, uid]);
 
   function handleAvatarError() {
-    if (!avatarUsingProxy) {
-      setAvatarUsingProxy(true);
+    if (avatarUsingProxy && info?.photo_url) {
+      setAvatarUsingProxy(false);
       return;
     }
     setAvatarFailed(true);

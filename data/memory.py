@@ -5,6 +5,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import memory_telegram as memory
+import memory as personal_memory
 from config import TELEGRAM_AI_MEMORY_DB_PATH
 
 
@@ -13,7 +14,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Export local Telegram AI memory tables to separate JSON files."
+        description="Export local Telegram AI and personal memory tables to separate JSON files."
     )
     parser.add_argument(
         "--database-path",
@@ -31,8 +32,10 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    database_path = Path(args.database_path).expanduser()
+    personal_memory.initialize(database_path)
     counts = memory.export_json_files(
-        Path(args.database_path).expanduser(),
+        database_path,
         Path(args.output_dir).expanduser(),
     )
     output_directory = Path(args.output_dir).expanduser().resolve()
@@ -41,6 +44,7 @@ def main() -> int:
         "groups": "group",
         "messages": "message",
         "insights": "insight",
+        "memories": "memory",
     }
     for name, count in counts.items():
         print(f"  {output_names[name]}.json: {count} records")

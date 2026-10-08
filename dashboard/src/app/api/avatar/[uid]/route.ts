@@ -24,23 +24,26 @@ export async function GET(
     return new NextResponse("Invalid uid", { status: 400 });
   }
 
-  let fileId: string | null = null;
+  let cachedFileId: string | null = null;
   try {
-    fileId = (await getTelegramUser(uid))?.photo_file_id ?? null;
+    cachedFileId = (await getTelegramUser(uid))?.photo_file_id ?? null;
   } catch (error) {
     console.error("[avatar] failed to load cached Telegram photo:", error);
   }
 
-  if (!fileId) fileId = await getTelegramAvatarFileId(uid);
+  const latestFileId = await getTelegramAvatarFileId(uid);
+  let fileId = latestFileId ?? cachedFileId;
+  if (latestFileId && latestFileId !== cachedFileId) {
+    try {
+      await upsertTelegramUser(uid, { photo_file_id: latestFileId });
+    } catch (error) {
+      console.warn("[avatar] failed to refresh cached Telegram photo ID:", error);
+    }
+  }
 
   let upstream = fileId ? await fetchTelegramFile(fileId) : null;
-  if (!upstream?.body) {
-    const refreshedFileId = await getTelegramAvatarFileId(uid);
-    if (refreshedFileId && refreshedFileId !== fileId) {
-      fileId = refreshedFileId;
-      await upsertTelegramUser(uid, { photo_file_id: fileId });
-      upstream = await fetchTelegramFile(fileId);
-    }
+  if ((!upstream?.body) && cachedFileId && cachedFileId !== fileId) {
+    upstream = await fetchTelegramFile(cachedFileId);
   }
   if (!upstream || !upstream.body) {
     return placeholderResponse();
@@ -54,7 +57,7 @@ export async function GET(
       ? upstreamContentType
       : "image/jpeg",
   );
-  headers.set("Cache-Control", "private, max-age=300, stale-while-revalidate=3600");
+  headers.set("Cache-Control", "private, no-store, max-age=0");
   headers.set("X-Content-Type-Options", "nosniff");
 
   return new NextResponse(upstream.body, { status: 200, headers });

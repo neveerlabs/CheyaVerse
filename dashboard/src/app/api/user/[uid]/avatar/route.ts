@@ -14,35 +14,41 @@ export async function GET(
     return new NextResponse(null, { status: 404 });
   }
 
-  let fileId: string | null = null;
+  let cachedFileId: string | null = null;
 
   try {
     const user = await getTelegramUser(uid);
-    fileId = user?.photo_file_id ?? null;
-  } catch {}
+    cachedFileId = user?.photo_file_id ?? null;
+  } catch (error) {
+    console.error("[user-avatar] failed to load cached Telegram photo:", error);
+  }
 
-  if (!fileId) {
+  const latestFileId = await getTelegramAvatarFileId(uid);
+  let fileId = latestFileId ?? cachedFileId;
+  if (latestFileId && latestFileId !== cachedFileId) {
     try {
-      fileId = await getTelegramAvatarFileId(uid);
-      if (fileId) {
-        await upsertTelegramUser(uid, { photo_file_id: fileId }).catch(() => {});
-      }
-    } catch {}
+      await upsertTelegramUser(uid, { photo_file_id: latestFileId });
+    } catch (error) {
+      console.warn("[user-avatar] failed to refresh cached Telegram photo ID:", error);
+    }
   }
 
   if (!fileId) {
     return new NextResponse(null, { status: 404 });
   }
 
-  const upstream = await fetchTelegramFile(fileId);
-  if (!upstream || !upstream.body) {
+  let upstream = await fetchTelegramFile(fileId);
+  if ((!upstream?.body) && cachedFileId && cachedFileId !== fileId) {
+    upstream = await fetchTelegramFile(cachedFileId);
+  }
+  if (!upstream?.body) {
     return new NextResponse(null, { status: 404 });
   }
 
   return new NextResponse(upstream.body, {
     headers: {
       "Content-Type": upstream.headers.get("content-type") ?? "image/jpeg",
-      "Cache-Control": "public, max-age=3600",
+      "Cache-Control": "private, no-store, max-age=0",
     },
   });
 }

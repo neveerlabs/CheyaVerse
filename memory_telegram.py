@@ -66,10 +66,15 @@ def connect(path: str | Path | None = None) -> sqlite3.Connection:
     target = Path(path) if path is not None else database_path()
     target.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(target, timeout=10, isolation_level=None)
+    os.chmod(target, 0o600)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA busy_timeout = 10000")
     connection.execute("PRAGMA foreign_keys = ON")
     connection.execute("PRAGMA journal_mode = WAL")
+    for suffix in ("-wal", "-shm"):
+        sidecar = Path(f"{target}{suffix}")
+        if sidecar.exists():
+            os.chmod(sidecar, 0o600)
     return connection
 
 
@@ -117,6 +122,21 @@ def initialize(path: str | Path | None = None) -> None:
                 summary TEXT NOT NULL,
                 timestamp TEXT NOT NULL,
                 UNIQUE(group_id, telegram_message_id)
+            );
+            CREATE TABLE IF NOT EXISTS memory (
+                id TEXT PRIMARY KEY,
+                owner_uid INTEGER NOT NULL,
+                content TEXT NOT NULL,
+                tags TEXT NOT NULL DEFAULT '[]',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                source TEXT NOT NULL CHECK (source IN ('web', 'telegram'))
+            );
+            CREATE INDEX IF NOT EXISTS memory_owner_updated
+                ON memory(owner_uid, updated_at DESC, id);
+            CREATE TABLE IF NOT EXISTS memory_migrations (
+                migration_key TEXT PRIMARY KEY,
+                completed_at TEXT NOT NULL
             );
             CREATE VIRTUAL TABLE IF NOT EXISTS telegram_ai_messages_fts
                 USING fts5(content, content='telegram_ai_messages', content_rowid='rowid');
@@ -1088,6 +1108,7 @@ def table_counts(path: str | Path | None = None) -> dict[str, int]:
                 "telegram_ai_groups",
                 "telegram_ai_messages",
                 "telegram_ai_insights",
+                "memory",
             )
         }
 
@@ -1126,6 +1147,23 @@ def snapshot_rows(path: str | Path | None = None) -> dict[str, list[dict[str, An
                 """
             )
         ]
+        personal_memories = [
+            {
+                "id": str(row["id"]),
+                "owner_uid": int(row["owner_uid"]),
+                "content": str(row["content"]),
+                "tags": json.loads(str(row["tags"])),
+                "created_at": str(row["created_at"]),
+                "updated_at": str(row["updated_at"]),
+                "source": str(row["source"]),
+            }
+            for row in connection.execute(
+                """
+                SELECT id, owner_uid, content, tags, created_at, updated_at, source
+                FROM memory ORDER BY owner_uid, updated_at, id
+                """
+            )
+        ]
         return {
             "telegram_ai_groups": groups,
             "telegram_ai_messages": [
@@ -1157,6 +1195,7 @@ def snapshot_rows(path: str | Path | None = None) -> dict[str, list[dict[str, An
                 }
                 for row in insights
             ],
+            "memory": personal_memories,
         }
 
 
@@ -1184,6 +1223,7 @@ def export_json_files(
         "telegram_ai_groups": "group.json",
         "telegram_ai_messages": "message.json",
         "telegram_ai_insights": "insight.json",
+        "memory": "memory.json",
     }
     for table, rows in data.items():
         target = destination / output_names[table]
@@ -1208,4 +1248,7 @@ def export_json_files(
             if temporary_path and os.path.exists(temporary_path):
                 os.unlink(temporary_path)
 
-    return {name.removeprefix("telegram_ai_"): len(rows) for name, rows in data.items()}
+    return {
+        "memories" if name == "memory" else name.removeprefix("telegram_ai_"): len(rows)
+        for name, rows in data.items()
+    }
