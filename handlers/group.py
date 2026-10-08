@@ -339,6 +339,14 @@ async def _process_owner_message(
                 f"Group AI produced no durable summary for channel {message.chat.id} "
                 f"message {message.message_id}."
             )
+        memory_action_failures = result.get("memoryActionFailures", 0)
+        if (
+            isinstance(memory_action_failures, int)
+            and not isinstance(memory_action_failures, bool)
+            and memory_action_failures > 0
+        ):
+            await _notify_personal_memory_action_error(message)
+            return
         reply = result.get("reply")
         if (
             not result.get("sendEnabled")
@@ -403,4 +411,22 @@ async def _notify_processing_error(message: Message, detail: str) -> None:
         logger.error(
             f"Failed to show group AI error in Telegram chat {message.chat.id}: "
             f"{send_error}"
+        )
+
+
+async def _notify_personal_memory_action_error(message: Message) -> None:
+    notice = (
+        "⚠️ Pesan sudah diproses, tetapi perubahan pada memori jangka panjang "
+        "tidak berhasil. Aku belum menganggap perubahan itu tersimpan; coba "
+        "ulangi dengan menyebut catatan yang dimaksud secara jelas."
+    )
+    try:
+        if message.chat.type == "channel":
+            await message.answer(notice, parse_mode=None)
+        else:
+            await message.reply(notice, parse_mode=None)
+    except TelegramAPIError as send_error:
+        logger.error(
+            f"Failed to show personal-memory action error in Telegram chat "
+            f"{message.chat.id}: {send_error}"
         )

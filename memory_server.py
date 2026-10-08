@@ -9,6 +9,7 @@ from datetime import datetime
 from aiohttp import web
 
 import memory_telegram as memory
+import personal_memory
 from config import ADMIN_TELEGRAM_IDS, TELEGRAM_AI_MEMORY_SECRET
 
 
@@ -149,6 +150,105 @@ async def _handle(request: web.Request) -> web.Response:
                 ),
             }
         )
+
+    if action == "personal_memory_search":
+        query = body.get("query", "")
+        limit = body.get("limit", 20)
+        if (
+            owner_uid is None
+            or not isinstance(query, str)
+            or isinstance(limit, bool)
+            or not isinstance(limit, int)
+        ):
+            raise web.HTTPBadRequest(
+                text=json.dumps({"ok": False, "error": "invalid_personal_memory_query"}),
+                content_type="application/json",
+            )
+        try:
+            memories = await asyncio.to_thread(
+                personal_memory.search, owner_uid, query, limit
+            )
+        except ValueError as error:
+            raise web.HTTPBadRequest(
+                text=json.dumps({"ok": False, "error": str(error)}),
+                content_type="application/json",
+            ) from error
+        return web.json_response(
+            {"ok": True, "memories": memories}
+        )
+
+    if action == "personal_memory_create":
+        content = body.get("content")
+        tags = body.get("tags", [])
+        source = body.get("source", "web")
+        if (
+            owner_uid is None
+            or not isinstance(content, str)
+            or not isinstance(tags, list)
+            or not isinstance(source, str)
+        ):
+            raise web.HTTPBadRequest(
+                text=json.dumps({"ok": False, "error": "invalid_personal_memory"}),
+                content_type="application/json",
+            )
+        try:
+            result = await asyncio.to_thread(
+                personal_memory.create, owner_uid, content, tags, source
+            )
+        except ValueError as error:
+            raise web.HTTPBadRequest(
+                text=json.dumps({"ok": False, "error": str(error)}),
+                content_type="application/json",
+            ) from error
+        return web.json_response({"ok": True, **result})
+
+    if action == "personal_memory_update":
+        memory_id = body.get("memoryId")
+        content = body.get("content")
+        tags = body.get("tags")
+        source = body.get("source", "web")
+        if (
+            owner_uid is None
+            or not isinstance(memory_id, str)
+            or content is not None and not isinstance(content, str)
+            or tags is not None and not isinstance(tags, list)
+            or not isinstance(source, str)
+        ):
+            raise web.HTTPBadRequest(
+                text=json.dumps({"ok": False, "error": "invalid_personal_memory"}),
+                content_type="application/json",
+            )
+        try:
+            updated = await asyncio.to_thread(
+                personal_memory.update,
+                owner_uid,
+                memory_id,
+                content,
+                tags,
+                source,
+            )
+        except ValueError as error:
+            raise web.HTTPBadRequest(
+                text=json.dumps({"ok": False, "error": str(error)}),
+                content_type="application/json",
+            ) from error
+        return web.json_response({"ok": True, "updated": updated is not None, "memory": updated})
+
+    if action == "personal_memory_delete":
+        memory_id = body.get("memoryId")
+        if owner_uid is None or not isinstance(memory_id, str):
+            raise web.HTTPBadRequest(
+                text=json.dumps({"ok": False, "error": "invalid_personal_memory"}),
+                content_type="application/json",
+            )
+        try:
+            deleted = await asyncio.to_thread(personal_memory.delete, owner_uid, memory_id)
+        except ValueError as error:
+            raise web.HTTPBadRequest(
+                text=json.dumps({"ok": False, "error": str(error)}),
+                content_type="application/json",
+            ) from error
+        return web.json_response({"ok": True, "deleted": deleted})
 
     if owner_uid is None or group_id is None:
         raise web.HTTPBadRequest(

@@ -7,6 +7,7 @@ export type TelegramGroupMemoryEntry = {
   messageId: string;
   senderName: string;
   role: "admin" | "bot" | "memory";
+  matched: boolean;
   content: string;
   timestamp: string;
   timestampIso: string;
@@ -19,7 +20,8 @@ export type TelegramOwnerMemoryEntry = {
   groupTitle: string;
   id: string;
   messageId: string;
-  source: "summary" | "reply";
+  source: "message" | "summary" | "reply";
+  matched: boolean;
   content: string;
   timestamp: string;
   timestampIso: string;
@@ -35,6 +37,35 @@ export type TelegramGroupHistoryImportMessage = {
   createdAt: string;
 };
 
+export type PersonalMemoryEntry = {
+  id: string;
+  owner_uid: number;
+  content: string;
+  tags: string[];
+  created_at: string;
+  updated_at: string;
+  source: "web" | "telegram";
+};
+
+export type PersonalMemoryOperation =
+  | { operation: "search"; query?: string }
+  | { operation: "create"; content: string; tags?: string[] }
+  | { operation: "update"; memoryId: string; content?: string; tags?: string[] }
+  | { operation: "delete"; memoryId: string };
+
+export function hasExplicitPersonalMemoryMutationIntent(
+  message: string,
+  operation: "update" | "delete",
+): boolean {
+  const verbs = operation === "delete"
+    ? "hapus(?:kan|in)?|lupakan|hilangkan|delete|forget|remove"
+    : "ubah|perbarui|update|edit|ganti";
+  return new RegExp(
+    `(?:\\b(?:${verbs})\\b[\\s\\S]{0,80}\\b(?:ingatan|memori|memory|catatan)\\b|\\b(?:ingatan|memori|memory|catatan)\\b[\\s\\S]{0,80}\\b(?:${verbs})\\b)`,
+    "i",
+  ).test(message);
+}
+
 type MemoryResponse = {
   ok?: boolean;
   error?: string;
@@ -42,6 +73,10 @@ type MemoryResponse = {
   reason?: string;
   summary?: string | null;
   memory?: unknown;
+  memories?: unknown;
+  created?: boolean;
+  updated?: boolean;
+  deleted?: boolean;
   imported?: number;
 };
 
@@ -124,6 +159,7 @@ function isGroupMemoryEntry(value: unknown): value is TelegramGroupMemoryEntry {
     /^\d{40}$/.test(row.messageId) &&
     typeof row.senderName === "string" &&
     (row.role === "admin" || row.role === "bot" || row.role === "memory") &&
+    typeof row.matched === "boolean" &&
     typeof row.content === "string" &&
     typeof row.timestamp === "string" &&
     typeof row.timestampIso === "string" &&
@@ -143,10 +179,27 @@ function isOwnerMemoryEntry(value: unknown): value is TelegramOwnerMemoryEntry {
     /^\d{40}$/.test(row.id) &&
     typeof row.messageId === "string" &&
     /^\d{40}$/.test(row.messageId) &&
-    (row.source === "summary" || row.source === "reply") &&
+    (row.source === "message" || row.source === "summary" || row.source === "reply") &&
+    typeof row.matched === "boolean" &&
     typeof row.content === "string" &&
     typeof row.timestamp === "string" &&
     typeof row.timestampIso === "string"
+  );
+}
+
+function isPersonalMemoryEntry(value: unknown): value is PersonalMemoryEntry {
+  if (typeof value !== "object" || value === null) return false;
+  const row = value as Record<string, unknown>;
+  return (
+    typeof row.id === "string" &&
+    /^[0-9a-f]{32}$/.test(row.id) &&
+    Number.isSafeInteger(row.owner_uid) &&
+    typeof row.content === "string" &&
+    Array.isArray(row.tags) &&
+    row.tags.every((tag) => typeof tag === "string") &&
+    typeof row.created_at === "string" &&
+    typeof row.updated_at === "string" &&
+    (row.source === "web" || row.source === "telegram")
   );
 }
 
@@ -219,6 +272,61 @@ export async function retrieveTelegramOwnerMemory(
 ): Promise<TelegramOwnerMemoryEntry[]> {
   const result = await requestMemoryService("retrieve_owner_memory", ownerUid, { query });
   return parseMemory(result.memory, isOwnerMemoryEntry);
+}
+
+export async function searchPersonalMemory(
+  ownerUid: number,
+  query = "",
+  limit = 20,
+): Promise<PersonalMemoryEntry[]> {
+  const result = await requestMemoryService(
+    "personal_memory_search",
+    ownerUid,
+    { query, limit },
+  );
+  return parseMemory(result.memories, isPersonalMemoryEntry);
+}
+
+export async function managePersonalMemory(
+  ownerUid: number,
+  operation: PersonalMemoryOperation,
+  source: "web" | "telegram",
+): Promise<Record<string, unknown>> {
+  const action = `personal_memory_${operation.operation}`;
+  const payload =
+    operation.operation === "search"
+      ? { query: operation.query ?? "", limit: 20 }
+      : operation.operation === "create"
+        ? { content: operation.content, tags: operation.tags ?? [], source }
+        : operation.operation === "update"
+          ? {
+              memoryId: operation.memoryId,
+              ...(operation.content !== undefined ? { content: operation.content } : {}),
+              ...(operation.tags !== undefined ? { tags: operation.tags } : {}),
+              source,
+            }
+          : { memoryId: operation.memoryId };
+  const result = await requestMemoryService(action, ownerUid, payload);
+  if (
+    operation.operation === "search" &&
+    (!Array.isArray(result.memories) || !result.memories.every(isPersonalMemoryEntry))
+  ) {
+    throw new Error("Personal memory service returned an invalid search result.");
+  }
+  if (operation.operation === "create" && !isPersonalMemoryEntry(result.memory)) {
+    throw new Error("Personal memory service returned an invalid created memory.");
+  }
+  if (
+    operation.operation === "update" &&
+    result.updated === true &&
+    !isPersonalMemoryEntry(result.memory)
+  ) {
+    throw new Error("Personal memory service returned an invalid updated memory.");
+  }
+  if (operation.operation === "delete" && typeof result.deleted !== "boolean") {
+    throw new Error("Personal memory service returned an invalid delete result.");
+  }
+  return result as Record<string, unknown>;
 }
 
 export async function importTelegramGroupHistory(input: {

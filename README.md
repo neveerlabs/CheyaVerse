@@ -67,6 +67,8 @@ Ganti semua nilai contoh dengan nilai project Supabase dan Telegram milik sendir
 
 Riwayat memori AI Telegram disimpan di SQLite lokal pada `TELEGRAM_AI_MEMORY_DB_PATH`; pesan chat web dan setting/consent AI tetap di Supabase. File SQLite berada di disk komputer/server bot dan sudah diabaikan Git. Jangan simpan file itu di filesystem ephemeral atau folder yang dibersihkan otomatis. Untuk membuat ZIP seluruh project termasuk database SQLite, gunakan `python backup.py` dari root repository.
 
+Untuk akun admin/pemilik yang sama, setiap permintaan AI mengambil konteks terbatas dari kedua riwayat: Telegram dapat memakai chat web dari Supabase, dan web dapat memakai pesan asli, insight, serta balasan Telegram dari SQLite. Pencarian dilakukan pada riwayat tersimpan dan menyertakan percakapan terbaru serta balasan terkait; seluruh transkrip tidak dikirim sekaligus. Pesan yang dihapus atau disembunyikan dari chat web tidak dipakai. Di Telegram, balasan otomatis tetap bergantung pada izin kirim; jika diaktifkan, AI dapat menanggapi post biasa saat ada respons yang berguna, tanpa membalas setiap post.
+
 Untuk membaca memori sebagai JSON, jalankan export manual dari root repository:
 
 ```bash
@@ -141,6 +143,8 @@ ingress:
 Route DNS hostname tersebut ke tunnel di Cloudflare, lalu jalankan tunnel dengan konfigurasi itu.
 
 Riwayat pemilik/admin Telegram, balasan bot terkait, dan insight telah dimigrasikan ke SQLite lokal. Perhatian: tabel pesan Supabase lama mungkin juga berisi pesan anggota lain yang sengaja tidak disalin ke SQLite; menjalankan [drop_telegram_ai_history.sql](./dashboard/sql/drop_telegram_ai_history.sql) akan menghapus semua pesan dan insight dari tabel lama, termasuk data anggota tersebut yang tidak ada di backup lokal. Jangan jalankan sampai sudah memastikan data yang tidak dimigrasikan memang boleh dihapus dan menguji deployment terbaru. Script itu hanya menghapus tabel pesan dan insight Telegram; setting grup, consent anggota, chat web, serta schema lainnya tidak dihapus.
+
+Memori jangka panjang pribadi AI yang dapat dikelola dari web dan Telegram disimpan bersama pada `data/memory.json` di mesin yang menjalankan memory-service; datanya tidak disimpan di Supabase. File dibuat saat memori pertama kali disimpan, dipisahkan menurut ID pemilik, diabaikan Git, dan diberi permission `0600` pada sistem yang mendukung permission Unix. Catatan yang disimpan dapat memuat informasi pribadi/sensitif yang memang diminta atau dinilai penting oleh AI; jangan masukkan password, token, kode login, kunci, atau kredensial. Catatan relevan dapat dikirim ke provider AI sebagai konteks saat menjawab. `python backup.py` mengarsipkan file project, termasuk `data/memory.json` bila file itu ada; ZIP tersebut tidak dienkripsi secara otomatis, jadi simpan dan pindahkan backup dengan perlindungan yang sesuai.
 
 Setelah itu, jalankan bot dan Cloudflare Tunnel. Untuk pengujian sementara, `cloudflared tunnel --url http://127.0.0.1:8765` membuat hostname Quick Tunnel; untuk deployment gunakan hostname named tunnel yang stabil. Tunnel harus tetap hidup selama fitur pencarian memori Telegram dari web digunakan.
 

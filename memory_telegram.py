@@ -753,14 +753,20 @@ def retrieve_group_memory(
             )
 
     messages_by_id: dict[str, sqlite3.Row] = {}
-    for row in [*recent, *relevant, *replied]:
-        messages_by_id[str(row["id"])] = row
+    for row in [*replied, *relevant, *recent]:
+        messages_by_id.setdefault(str(row["id"]), row)
+        if len(messages_by_id) >= 24:
+            break
+    matched_message_ids = {
+        str(row["id"]) for row in [*replied, *relevant]
+    }
     messages = [
         {
             "id": str(row["id"]),
             "messageId": str(row["id"]),
             "senderName": str(row["sender_name"] or "Group member"),
             "role": str(row["role"]),
+            "matched": str(row["id"]) in matched_message_ids,
             "content": str(row["content"] or "")[:1200],
             **_timestamp_fields(str(row["timestamp"])),
             "mediaTypes": [item for item in str(row["media_types"] or "").split(",") if item],
@@ -770,17 +776,23 @@ def retrieve_group_memory(
                 else None
             ),
         }
-        for row in sorted(messages_by_id.values(), key=lambda item: str(item["timestamp"]))[-24:]
+        for row in sorted(messages_by_id.values(), key=lambda item: str(item["timestamp"]))
     ]
     insights_by_id: dict[str, sqlite3.Row] = {}
-    for row in [*recent_insights, *relevant_insights, *replied_insight]:
-        insights_by_id[str(row["id"])] = row
+    for row in [*replied_insight, *relevant_insights, *recent_insights]:
+        insights_by_id.setdefault(str(row["id"]), row)
+        if len(insights_by_id) >= 16:
+            break
+    matched_insight_ids = {
+        str(row["id"]) for row in [*replied_insight, *relevant_insights]
+    }
     memories = [
         {
             "id": str(row["id"]),
             "messageId": str(row["message_id"]),
             "senderName": "Long-term memory",
             "role": "memory",
+            "matched": str(row["id"]) in matched_insight_ids,
             "content": str(row["summary"] or "")[:1600],
             **_timestamp_fields(str(row["timestamp"])),
             "mediaTypes": [],
@@ -831,8 +843,21 @@ def retrieve_owner_memory(owner_uid: int, query: str) -> list[dict[str, Any]]:
             """,
             (owner_uid,),
         )
+        recent_messages = _rows(
+            connection,
+            """
+            SELECT groups.group_id, groups.group_title, message.id,
+                   message.telegram_message_id, message.content, message.timestamp
+            FROM telegram_ai_groups AS groups
+            JOIN telegram_ai_messages AS message ON message.group_id = groups.group_id
+            WHERE groups.owner_uid = ? AND message.sender_uid = ?
+            ORDER BY message.timestamp DESC, message.telegram_message_id DESC LIMIT 8
+            """,
+            (owner_uid, owner_uid),
+        )
         matching_summaries: list[sqlite3.Row] = []
         matching_replies: list[sqlite3.Row] = []
+        matching_messages: list[sqlite3.Row] = []
         if fts_query:
             matching_summaries = _rows(
                 connection,
@@ -875,9 +900,40 @@ def retrieve_owner_memory(owner_uid: int, query: str) -> list[dict[str, Any]]:
                 """,
                 (fts_query, owner_uid),
             )
+            matching_messages = _rows(
+                connection,
+                """
+                SELECT groups.group_id, groups.group_title, message.id,
+                       message.telegram_message_id, message.content, message.timestamp
+                FROM telegram_ai_messages_fts
+                JOIN telegram_ai_messages AS message
+                  ON message.rowid = telegram_ai_messages_fts.rowid
+                JOIN telegram_ai_groups AS groups ON groups.group_id = message.group_id
+                WHERE telegram_ai_messages_fts MATCH ?
+                  AND groups.owner_uid = ? AND message.sender_uid = ?
+                ORDER BY bm25(telegram_ai_messages_fts), message.timestamp DESC
+                LIMIT 12
+                """,
+                (fts_query, owner_uid, owner_uid),
+            )
 
     entries: dict[str, dict[str, Any]] = {}
     matching_keys: set[str] = set()
+    for row in [*recent_messages, *matching_messages]:
+        item = {
+            "groupId": int(row["group_id"]),
+            "groupTitle": str(row["group_title"] or ""),
+            "id": str(row["id"]),
+            "messageId": str(row["id"]),
+            "source": "message",
+            "matched": False,
+            "content": str(row["content"] or "")[:1200],
+            **_timestamp_fields(str(row["timestamp"])),
+        }
+        key = f'{item["groupId"]}:{row["telegram_message_id"]}:message'
+        entries[key] = item
+    for row in matching_messages:
+        matching_keys.add(f'{row["group_id"]}:{row["telegram_message_id"]}:message')
     for row in [*recent_summaries, *matching_summaries]:
         item = {
             "groupId": int(row["group_id"]),
@@ -885,6 +941,7 @@ def retrieve_owner_memory(owner_uid: int, query: str) -> list[dict[str, Any]]:
             "id": str(row["id"]),
             "messageId": str(row["message_id"]),
             "source": "summary",
+            "matched": False,
             "content": str(row["content"] or "")[:800],
             **_timestamp_fields(str(row["timestamp"])),
         }
@@ -899,6 +956,7 @@ def retrieve_owner_memory(owner_uid: int, query: str) -> list[dict[str, Any]]:
             "id": str(row["id"]),
             "messageId": str(row["id"]),
             "source": "reply",
+            "matched": False,
             "content": str(row["content"] or "")[:800],
             **_timestamp_fields(str(row["timestamp"])),
         }
@@ -916,7 +974,9 @@ def retrieve_owner_memory(owner_uid: int, query: str) -> list[dict[str, Any]]:
         key=lambda pair: pair[1]["timestampIso"],
         reverse=True,
     )
-    ordered = [*matched, *recent][:20]
+    ordered = [*matched, *recent][:24]
+    for key, item in ordered:
+        item["matched"] = key in matching_keys
     return sorted((item for _, item in ordered), key=lambda item: item["timestampIso"])
 
 
