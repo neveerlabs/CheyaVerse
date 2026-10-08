@@ -285,11 +285,11 @@ async def _process_owner_message(
     owner_uid: int,
     edited: bool = False,
 ) -> None:
-    text = (message.text or message.caption or "").strip()
-    if text.startswith("/"):
+    text = message.text or message.caption or ""
+    if text.strip().startswith("/"):
         return
     attachments = _message_attachments(message)
-    if not text and not attachments:
+    if not text.strip() and not attachments:
         return
 
     try:
@@ -326,6 +326,7 @@ async def _process_owner_message(
             mediaTypes=[str(item["type"]) for item in attachments],
             attachments=attachments,
             edited=edited,
+            timestamp=message.date.isoformat(),
         )
         if result.get("stored") is not True:
             logger.warning(
@@ -356,6 +357,7 @@ async def _process_owner_message(
             messageId=sent.message_id,
             replyToMessageId=message.message_id,
             text=reply.strip()[:1800],
+            timestamp=sent.date.isoformat(),
         )
     except (GroupAiApiError, TelegramAPIError) as exc:
         logger.error(

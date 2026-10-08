@@ -68,6 +68,7 @@ class TelegramAiMemoryApiTests(unittest.IsolatedAsyncioTestCase):
                 "content": "I started a new role at work.",
                 "mediaTypes": [],
                 "replyToMessageId": None,
+                "timestamp": "2024-01-01T02:03:04Z",
                 "edited": False,
             }
         )
@@ -88,6 +89,11 @@ class TelegramAiMemoryApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(
             any("new role" in item["content"] for item in search_data["memory"])
         )
+        entry = search_data["memory"][0]
+        self.assertEqual(entry["role"], "admin")
+        self.assertRegex(entry["id"], r"^\d{40}$")
+        self.assertEqual(entry["timestamp"], "Senin, 1 Januari 2024 09:03 WIB")
+        self.assertNotIn("telegram_message_id", entry)
 
     async def test_rejects_non_string_media_types_without_server_error(self):
         response = await self._post(

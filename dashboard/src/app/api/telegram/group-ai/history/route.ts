@@ -126,7 +126,7 @@ export async function POST(request: NextRequest) {
       messageId,
       senderKind,
       senderName,
-      content: content.trim(),
+      content,
       mediaTypes: mediaTypes as string[],
       replyToMessageId: replyToMessageId as number | null,
       createdAt: new Date(parsedDate).toISOString(),

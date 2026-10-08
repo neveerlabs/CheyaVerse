@@ -4,6 +4,7 @@ import ipaddress
 import json
 import logging
 from typing import Any
+from datetime import datetime
 
 from aiohttp import web
 
@@ -43,6 +44,18 @@ def _valid_group_id(value: Any) -> int | None:
     return group_id if group_id is not None and group_id < 0 else None
 
 
+def _valid_timestamp(value: Any) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        return None
+    try:
+        datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return value
+
+
 def _authorize(request: web.Request) -> bool:
     expected = TELEGRAM_AI_MEMORY_SECRET
     supplied = request.headers.get("Authorization", "")
@@ -60,15 +73,15 @@ def _validate_import_messages(value: Any) -> list[dict[str, Any]] | None:
         if not isinstance(row, dict):
             return None
         message_id = _integer(row.get("messageId"))
-        sender_kind = row.get("senderKind")
+        sender_kind = row.get("role", row.get("senderKind"))
         sender_name = row.get("senderName")
         content = row.get("content")
         media_types = row.get("mediaTypes")
         reply_id = row.get("replyToMessageId")
-        created_at = row.get("createdAt")
+        created_at = row.get("timestampIso", row.get("createdAt"))
         if (
             message_id is None
-            or sender_kind not in {"user", "bot"}
+            or sender_kind not in {"admin", "user", "bot"}
             or not isinstance(sender_name, str)
             or len(sender_name) > 120
             or not isinstance(content, str)
@@ -80,18 +93,19 @@ def _validate_import_messages(value: Any) -> list[dict[str, Any]] | None:
                 not isinstance(item, str) or item not in ALLOWED_MEDIA_TYPES
                 for item in media_types
             )
-            or reply_id is not None and _integer(reply_id) is None
+            or reply_id is not None and not isinstance(reply_id, (str, int))
             or not isinstance(created_at, str)
+            or _valid_timestamp(created_at) is None
         ):
             return None
         messages.append(
             {
                 "messageId": message_id,
-                "senderKind": sender_kind,
+                "senderKind": "user" if sender_kind == "admin" else sender_kind,
                 "senderName": sender_name,
-                "content": content.strip(),
+                "content": content,
                 "mediaTypes": media_types,
-                "replyToMessageId": reply_id,
+                "replyToMessageId": _integer(reply_id),
                 "createdAt": created_at,
             }
         )
@@ -160,6 +174,8 @@ async def _handle(request: web.Request) -> web.Response:
                 for item in media_types
             )
             or reply_id is not None and _integer(reply_id) is None
+            or body.get("timestamp") is not None
+            and _valid_timestamp(body.get("timestamp")) is None
         ):
             raise web.HTTPBadRequest(
                 text=json.dumps({"ok": False, "error": "invalid_owner_message"}),
@@ -176,6 +192,7 @@ async def _handle(request: web.Request) -> web.Response:
             media_types=media_types,
             reply_to_message_id=reply_id,
             edited=body.get("edited") is True,
+            timestamp=_valid_timestamp(body.get("timestamp")),
         )
         return web.json_response({"ok": True, "stored": result == "stored", "reason": result})
 
@@ -241,13 +258,17 @@ async def _handle(request: web.Request) -> web.Response:
 
     if action == "store_bot_message":
         message_id = _integer(body.get("messageId"))
-        reply_id = _integer(body.get("replyToMessageId"))
+        raw_reply_id = body.get("replyToMessageId")
+        reply_id = _integer(raw_reply_id) if raw_reply_id is not None else None
         content = body.get("content")
         if (
             message_id is None
+            or raw_reply_id is not None and reply_id is None
             or not isinstance(content, str)
             or not content.strip()
             or len(content) > MAX_TEXT_LENGTH
+            or body.get("timestamp") is not None
+            and _valid_timestamp(body.get("timestamp")) is None
         ):
             raise web.HTTPBadRequest(
                 text=json.dumps({"ok": False, "error": "invalid_bot_message"}),
@@ -259,6 +280,7 @@ async def _handle(request: web.Request) -> web.Response:
             message_id=message_id,
             content=content,
             reply_to_message_id=reply_id,
+            timestamp=_valid_timestamp(body.get("timestamp")),
         )
         return web.json_response({"ok": True})
 

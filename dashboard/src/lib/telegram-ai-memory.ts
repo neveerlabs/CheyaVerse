@@ -3,21 +3,26 @@ import "server-only";
 import { config } from "@/lib/config";
 
 export type TelegramGroupMemoryEntry = {
-  messageId: number;
+  id: string;
+  messageId: string;
   senderName: string;
-  senderKind: string;
+  role: "admin" | "bot" | "memory";
   content: string;
-  createdAt: string;
+  timestamp: string;
+  timestampIso: string;
   mediaTypes: string[];
+  replyToMessageId: string | null;
 };
 
 export type TelegramOwnerMemoryEntry = {
   groupId: number;
   groupTitle: string;
-  messageId: number;
+  id: string;
+  messageId: string;
   source: "summary" | "reply";
   content: string;
-  createdAt: string;
+  timestamp: string;
+  timestampIso: string;
 };
 
 export type TelegramGroupHistoryImportMessage = {
@@ -113,13 +118,18 @@ function isGroupMemoryEntry(value: unknown): value is TelegramGroupMemoryEntry {
   if (typeof value !== "object" || value === null) return false;
   const row = value as Record<string, unknown>;
   return (
-    Number.isSafeInteger(row.messageId) &&
+    typeof row.id === "string" &&
+    /^\d{40}$/.test(row.id) &&
+    typeof row.messageId === "string" &&
+    /^\d{40}$/.test(row.messageId) &&
     typeof row.senderName === "string" &&
-    typeof row.senderKind === "string" &&
+    (row.role === "admin" || row.role === "bot" || row.role === "memory") &&
     typeof row.content === "string" &&
-    typeof row.createdAt === "string" &&
+    typeof row.timestamp === "string" &&
+    typeof row.timestampIso === "string" &&
     Array.isArray(row.mediaTypes) &&
-    row.mediaTypes.every((item) => typeof item === "string")
+    row.mediaTypes.every((item) => typeof item === "string") &&
+    (row.replyToMessageId === null || typeof row.replyToMessageId === "string")
   );
 }
 
@@ -129,10 +139,14 @@ function isOwnerMemoryEntry(value: unknown): value is TelegramOwnerMemoryEntry {
   return (
     Number.isSafeInteger(row.groupId) &&
     typeof row.groupTitle === "string" &&
-    Number.isSafeInteger(row.messageId) &&
+    typeof row.id === "string" &&
+    /^\d{40}$/.test(row.id) &&
+    typeof row.messageId === "string" &&
+    /^\d{40}$/.test(row.messageId) &&
     (row.source === "summary" || row.source === "reply") &&
     typeof row.content === "string" &&
-    typeof row.createdAt === "string"
+    typeof row.timestamp === "string" &&
+    typeof row.timestampIso === "string"
   );
 }
 
@@ -145,6 +159,7 @@ export async function storeTelegramOwnerMessage(input: {
   content: string;
   mediaTypes: string[];
   replyToMessageId: number | null;
+  timestamp: string;
   edited: boolean;
 }): Promise<{ stored: boolean; reason: string }> {
   const result = await requestMemoryService("store_owner_message", input.ownerUid, input);
@@ -193,6 +208,7 @@ export async function storeTelegramBotMessage(input: {
   messageId: number;
   content: string;
   replyToMessageId: number | null;
+  timestamp: string;
 }): Promise<void> {
   await requestMemoryService("store_bot_message", input.ownerUid, input);
 }
