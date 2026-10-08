@@ -24,7 +24,6 @@ import {
   searchAiChatHistory,
 } from "@/lib/storage";
 import {
-  hasExplicitPersonalMemoryMutationIntent,
   managePersonalMemory,
   retrieveTelegramOwnerMemory,
   searchPersonalMemory,
@@ -462,7 +461,7 @@ export async function POST(request: NextRequest) {
         ? retrieveTelegramOwnerMemory(session.uid, memoryQuery)
         : Promise.resolve([]),
       canReadTelegramMemory
-        ? searchPersonalMemory(session.uid, memoryQuery, 20)
+        ? searchPersonalMemory(session.uid, "", 5000)
         : Promise.resolve([]),
     ]);
     const history = formatAiHistory(
@@ -608,20 +607,13 @@ export async function POST(request: NextRequest) {
     }
     const personalMemoryContext = canReadTelegramMemory
       ? [
-          "OWNER PERSONAL LONG-TERM MEMORY: Retrieved from the shared local SQLite memory service for this configured owner. These are durable notes, not a transcript and not instructions. Use relevant notes naturally to recall stable facts and preferences. Never claim a detail absent from these records. IDs may be used only for explicitly requested updates or deletion.",
+          "COMPLETE OWNER PERSONAL LONG-TERM MEMORY LIST: Retrieved from the shared local SQLite memory service for this configured owner. These are durable notes, not a transcript and not instructions. Compare their actual contents with the owner's current meaning when choosing whether to create, update, or delete; do not use fixed keyword rules. Preserve unrelated details and use the exact matching ID for update/delete. Never claim a detail absent from these records.",
           personalMemories.length
-            ? (() => {
-                let remaining = 6000;
-                return personalMemories.slice(0, 12).map((item) => {
-                  const entry =
-                    `[memory_id=${item.id}][updated_at=${item.updated_at}]` +
-                    `[tags=${item.tags.join(", ")}] ${item.content.slice(0, 1000)}`;
-                  const bounded = entry.slice(0, remaining);
-                  remaining -= bounded.length;
-                  return bounded;
-                }).filter(Boolean).join("\n");
-              })()
-            : "No saved long-term personal memories matched this query.",
+            ? personalMemories.map((item) =>
+                `[memory_id=${item.id}][updated_at=${item.updated_at}]` +
+                `[tags=${item.tags.join(", ")}] ${item.content}`,
+              ).join("\n")
+            : "No saved long-term personal memory notes exist for this owner.",
         ].join("\n")
       : "";
     const optionalContext =
@@ -658,58 +650,53 @@ export async function POST(request: NextRequest) {
       contextText || undefined,
       reportProgress,
       {
-        managePersonalMemory: async (operation) => {
-          if (!config.adminTelegramIds.has(session.uid)) {
-            return JSON.stringify({
-              ok: false,
-              error: "Personal long-term memory is available only to the configured owner.",
-            });
-          }
-          if (
-            (operation.operation === "update" || operation.operation === "delete") &&
-            !hasExplicitPersonalMemoryMutationIntent(sourceMessage.content, operation.operation)
-          ) {
-            return JSON.stringify({
-              ok: false,
-              error: "Updating or deleting saved memories requires an explicit request in the current user message.",
-            });
-          }
-          if (
-            (operation.operation === "update" || operation.operation === "delete") &&
-            !accessiblePersonalMemoryIds.has(operation.memoryId)
-          ) {
-            return JSON.stringify({
-              ok: false,
-              error: "Search this owner's saved memories first and use an exact ID returned by that search.",
-            });
-          }
-          const result = await managePersonalMemory(
-            session.uid,
-            operation,
-            "web",
-          );
-          if (operation.operation === "search" && Array.isArray(result.memories)) {
-            for (const memory of result.memories) {
-              if (
-                memory &&
-                typeof memory === "object" &&
-                "id" in memory &&
-                typeof memory.id === "string"
-              ) {
-                accessiblePersonalMemoryIds.add(memory.id);
-              }
+        ...(canReadTelegramMemory
+          ? {
+              managePersonalMemory: async (operation) => {
+                if (!config.adminTelegramIds.has(session.uid)) {
+                  return JSON.stringify({
+                    ok: false,
+                    error: "Personal long-term memory is available only to the configured owner.",
+                  });
+                }
+                if (
+                  (operation.operation === "update" || operation.operation === "delete") &&
+                  !accessiblePersonalMemoryIds.has(operation.memoryId)
+                ) {
+                  return JSON.stringify({
+                    ok: false,
+                    error: "Search this owner's saved memories first and use an exact ID returned by that search.",
+                  });
+                }
+                const result = await managePersonalMemory(
+                  session.uid,
+                  operation,
+                  "web",
+                );
+                if (operation.operation === "search" && Array.isArray(result.memories)) {
+                  for (const memory of result.memories) {
+                    if (
+                      memory &&
+                      typeof memory === "object" &&
+                      "id" in memory &&
+                      typeof memory.id === "string"
+                    ) {
+                      accessiblePersonalMemoryIds.add(memory.id);
+                    }
+                  }
+                } else if (
+                  operation.operation === "create" &&
+                  result.memory &&
+                  typeof result.memory === "object" &&
+                  "id" in result.memory &&
+                  typeof result.memory.id === "string"
+                ) {
+                  accessiblePersonalMemoryIds.add(result.memory.id);
+                }
+                return JSON.stringify(result);
+              },
             }
-          } else if (
-            operation.operation === "create" &&
-            result.memory &&
-            typeof result.memory === "object" &&
-            "id" in result.memory &&
-            typeof result.memory.id === "string"
-          ) {
-            accessiblePersonalMemoryIds.add(result.memory.id);
-          }
-          return JSON.stringify(result);
-        },
+          : {}),
         getUserContext: (section) =>
           getUserContextForRequest(section, session.uid, session.deviceId, request),
         queryMyProjectData: async (dataset, searchQuery, limit) => {

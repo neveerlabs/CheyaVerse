@@ -53,19 +53,6 @@ export type PersonalMemoryOperation =
   | { operation: "update"; memoryId: string; content?: string; tags?: string[] }
   | { operation: "delete"; memoryId: string };
 
-export function hasExplicitPersonalMemoryMutationIntent(
-  message: string,
-  operation: "update" | "delete",
-): boolean {
-  const verbs = operation === "delete"
-    ? "hapus(?:kan|in)?|lupakan|hilangkan|delete|forget|remove"
-    : "ubah|perbarui|update|edit|ganti";
-  return new RegExp(
-    `(?:\\b(?:${verbs})\\b[\\s\\S]{0,80}\\b(?:ingatan|memori|memory|catatan)\\b|\\b(?:ingatan|memori|memory|catatan)\\b[\\s\\S]{0,80}\\b(?:${verbs})\\b)`,
-    "i",
-  ).test(message);
-}
-
 type MemoryResponse = {
   ok?: boolean;
   error?: string;

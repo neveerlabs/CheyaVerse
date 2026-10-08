@@ -345,7 +345,11 @@ async def _process_owner_message(
             and not isinstance(memory_action_failures, bool)
             and memory_action_failures > 0
         ):
-            await _notify_personal_memory_action_error(message)
+            await _notify_personal_memory_action_error(
+                message,
+                result.get("memoryActionFailureReasons"),
+                result.get("memoryChanges"),
+            )
             return
         reply = result.get("reply")
         if (
@@ -414,12 +418,34 @@ async def _notify_processing_error(message: Message, detail: str) -> None:
         )
 
 
-async def _notify_personal_memory_action_error(message: Message) -> None:
-    notice = (
-        "⚠️ Pesan sudah diproses, tetapi perubahan pada memori jangka panjang "
-        "tidak berhasil. Aku belum menganggap perubahan itu tersimpan; coba "
-        "ulangi dengan menyebut catatan yang dimaksud secara jelas."
-    )
+async def _notify_personal_memory_action_error(
+    message: Message,
+    reasons: object,
+    successful_actions: object,
+) -> None:
+    reason_codes = set(reasons) if isinstance(reasons, list) else set()
+    if (
+        isinstance(successful_actions, int)
+        and not isinstance(successful_actions, bool)
+        and successful_actions > 0
+    ):
+        notice = (
+            "⚠️ Sebagian operasi memori berhasil, tetapi ada perubahan atau "
+            "penghapusan catatan yang tidak dilakukan. Periksa dulu catatannya "
+            "sebelum mengirim ulang agar tidak membuat duplikat."
+        )
+    elif {"memory_target_not_found", "memory_target_not_retrieved"} & reason_codes:
+        notice = (
+            "⚠️ Aku tidak menemukan catatan yang dimaksud di hasil pencarian, "
+            "jadi perubahan/penghapusan belum dilakukan. Sebutkan catatannya "
+            "lebih spesifik atau minta aku mencari ingatan yang tersimpan."
+        )
+    else:
+        notice = (
+            "⚠️ Ada operasi memori yang tidak bisa diterapkan, jadi aku belum "
+            "menganggap perubahan itu berhasil. Coba minta aku memeriksa catatan "
+            "yang tersimpan sebelum mengirim ulang."
+        )
     try:
         if message.chat.type == "channel":
             await message.answer(notice, parse_mode=None)

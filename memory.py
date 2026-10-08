@@ -188,8 +188,8 @@ def search(owner_uid: int, query: str = "", limit: int = 20) -> list[dict[str, A
     _validate_owner(owner_uid)
     if not isinstance(query, str) or len(query) > 1000:
         raise ValueError("Memory search query must be text no longer than 1000 characters.")
-    if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 50:
-        raise ValueError("Memory search limit must be between 1 and 50.")
+    if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= MAX_MEMORIES:
+        raise ValueError(f"Memory search limit must be between 1 and {MAX_MEMORIES}.")
     initialize()
     terms = list(dict.fromkeys(re.findall(r"[\w'-]{2,}", _normalize(query))))[:32]
     sql = (
