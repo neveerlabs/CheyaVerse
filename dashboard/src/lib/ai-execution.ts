@@ -448,107 +448,134 @@ export async function searchPublicWeb(query: string): Promise<string> {
   }
   const tinyFishApiKey = process.env.TINYFISH_API_KEY?.trim();
   const apiKey = process.env.BRAVE_SEARCH_API_KEY?.trim();
-  let results: unknown[];
-  let provider: string;
+  let results: unknown[] = [];
+  let provider = "";
+  const failures: string[] = [];
   if (tinyFishApiKey) {
-    const url = new URL("https://api.search.tinyfish.ai");
-    url.searchParams.set("query", query);
-    const response = await fetch(url, {
-      headers: {
-        Accept: "application/json",
-        "X-API-Key": tinyFishApiKey,
-      },
-      cache: "no-store",
-      redirect: "error",
-      signal: AbortSignal.timeout(12_000),
-    });
-    if (!response.ok) {
-      throw new Error(`TinyFish Search returned HTTP ${response.status}.`);
-    }
-    const contentLength = Number(response.headers.get("content-length") ?? 0);
-    if (contentLength > 1_000_000) {
-      throw new Error("Web search response exceeded the allowed size.");
-    }
-    const responseText = await response.text();
-    if (responseText.length > 1_000_000) {
-      throw new Error("Web search response exceeded the allowed size.");
-    }
-    let responseJson: unknown;
     try {
-      responseJson = JSON.parse(responseText);
-    } catch {
-      throw new Error("TinyFish Search returned an invalid response.");
-    }
-    const payload = asObject(responseJson);
-    const rows = Array.isArray(payload?.results) ? payload.results : [];
-    results = rows.slice(0, 5).flatMap((row) => {
-      const item = asObject(row);
-      if (!item || typeof item.title !== "string" || typeof item.url !== "string") {
-        return [];
+      const url = new URL("https://api.search.tinyfish.ai");
+      url.searchParams.set("query", query);
+      const response = await fetch(url, {
+        headers: {
+          Accept: "application/json",
+          "X-API-Key": tinyFishApiKey,
+        },
+        cache: "no-store",
+        redirect: "error",
+        signal: AbortSignal.timeout(12_000),
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}.`);
       }
-      const resultUrl = publicHttpsUrl(item.url);
-      if (!resultUrl) return [];
-      return [{
-        title: item.title.slice(0, 240),
-        url: resultUrl,
-        snippet: typeof item.snippet === "string"
-          ? item.snippet.slice(0, 900)
-          : "",
-      }];
-    });
-    provider = "TinyFish Search";
-  } else if (apiKey) {
-    const url = new URL("https://api.search.brave.com/res/v1/web/search");
-    url.searchParams.set("q", query);
-    url.searchParams.set("count", "5");
-    const response = await fetch(url, {
-      headers: {
-        Accept: "application/json",
-        "X-Subscription-Token": apiKey,
-      },
-      cache: "no-store",
-      redirect: "error",
-      signal: AbortSignal.timeout(12_000),
-    });
-    if (!response.ok) {
-      throw new Error(`Brave Search returned HTTP ${response.status}.`);
+      const contentLength = Number(response.headers.get("content-length") ?? 0);
+      if (contentLength > 1_000_000) {
+        throw new Error("Response exceeded the allowed size.");
+      }
+      const responseText = await response.text();
+      if (responseText.length > 1_000_000) {
+        throw new Error("Response exceeded the allowed size.");
+      }
+      let responseJson: unknown;
+      try {
+        responseJson = JSON.parse(responseText);
+      } catch {
+        throw new Error("Invalid JSON response.");
+      }
+      const payload = asObject(responseJson);
+      const rows = Array.isArray(payload?.results) ? payload.results : [];
+      results = rows.slice(0, 5).flatMap((row) => {
+        const item = asObject(row);
+        if (!item || typeof item.title !== "string" || typeof item.url !== "string") {
+          return [];
+        }
+        const resultUrl = publicHttpsUrl(item.url);
+        if (!resultUrl) return [];
+        return [{
+          title: item.title.slice(0, 240),
+          url: resultUrl,
+          snippet: typeof item.snippet === "string"
+            ? item.snippet.slice(0, 900)
+            : "",
+        }];
+      });
+      if (results.length > 0) provider = "TinyFish Search";
+      else failures.push("TinyFish Search returned no usable results.");
+    } catch (error) {
+      failures.push(
+        `TinyFish Search failed: ${error instanceof Error ? error.message : "unknown error"}`,
+      );
     }
-    const contentLength = Number(response.headers.get("content-length") ?? 0);
-    if (contentLength > 1_000_000) {
-      throw new Error("Web search response exceeded the allowed size.");
-    }
-    const responseText = await response.text();
-    if (responseText.length > 1_000_000) {
-      throw new Error("Web search response exceeded the allowed size.");
-    }
-    let responseJson: unknown;
+  }
+  if (results.length === 0 && apiKey) {
     try {
-      responseJson = JSON.parse(responseText);
-    } catch {
-      throw new Error("Brave Search returned an invalid response.");
-    }
-    const payload = asObject(responseJson);
-    const web = asObject(payload?.web);
-    const rows = Array.isArray(web?.results) ? web.results : [];
-    results = rows.slice(0, 5).flatMap((row) => {
-      const item = asObject(row);
-      if (!item || typeof item.title !== "string" || typeof item.url !== "string") {
-        return [];
+      const url = new URL("https://api.search.brave.com/res/v1/web/search");
+      url.searchParams.set("q", query);
+      url.searchParams.set("count", "5");
+      const response = await fetch(url, {
+        headers: {
+          Accept: "application/json",
+          "X-Subscription-Token": apiKey,
+        },
+        cache: "no-store",
+        redirect: "error",
+        signal: AbortSignal.timeout(12_000),
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}.`);
       }
-      const resultUrl = publicHttpsUrl(item.url);
-      if (!resultUrl) return [];
-      return [{
-        title: item.title.slice(0, 240),
-        url: resultUrl,
-        snippet: typeof item.description === "string"
-          ? item.description.slice(0, 900)
-          : "",
-      }];
-    });
-    provider = "Brave Search";
-  } else {
-    results = await searchDuckDuckGo(query);
-    provider = "DuckDuckGo";
+      const contentLength = Number(response.headers.get("content-length") ?? 0);
+      if (contentLength > 1_000_000) {
+        throw new Error("Response exceeded the allowed size.");
+      }
+      const responseText = await response.text();
+      if (responseText.length > 1_000_000) {
+        throw new Error("Response exceeded the allowed size.");
+      }
+      let responseJson: unknown;
+      try {
+        responseJson = JSON.parse(responseText);
+      } catch {
+        throw new Error("Invalid JSON response.");
+      }
+      const payload = asObject(responseJson);
+      const web = asObject(payload?.web);
+      const rows = Array.isArray(web?.results) ? web.results : [];
+      results = rows.slice(0, 5).flatMap((row) => {
+        const item = asObject(row);
+        if (!item || typeof item.title !== "string" || typeof item.url !== "string") {
+          return [];
+        }
+        const resultUrl = publicHttpsUrl(item.url);
+        if (!resultUrl) return [];
+        return [{
+          title: item.title.slice(0, 240),
+          url: resultUrl,
+          snippet: typeof item.description === "string"
+            ? item.description.slice(0, 900)
+            : "",
+        }];
+      });
+      if (results.length > 0) provider = "Brave Search";
+      else failures.push("Brave Search returned no usable results.");
+    } catch (error) {
+      failures.push(
+        `Brave Search failed: ${error instanceof Error ? error.message : "unknown error"}`,
+      );
+    }
+  }
+  if (results.length === 0) {
+    try {
+      results = await searchDuckDuckGo(query);
+      if (results.length > 0) provider = "DuckDuckGo";
+      else failures.push("DuckDuckGo returned no usable results.");
+    } catch (error) {
+      failures.push(
+        `DuckDuckGo failed: ${error instanceof Error ? error.message : "unknown error"}`,
+      );
+    }
+  }
+  if (results.length === 0) {
+    throw new Error(`All public web search providers failed: ${failures.join(" ")}`);
   }
 
   return JSON.stringify({
