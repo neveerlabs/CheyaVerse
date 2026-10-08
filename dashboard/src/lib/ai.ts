@@ -613,7 +613,7 @@ function renderPromptBranch(
 }
 
 function getPromptText(userMessage: string, contextText?: string): string {
-  const promptPath = path.join(process.cwd(), "src", "lib", "ai-prompt.txt");
+  const promptPath = path.join(process.cwd(), "src", "lib", "prompt.txt");
   const rawPrompt: unknown = JSON.parse(readFileSync(promptPath, "utf8"));
   if (!isPromptDocument(rawPrompt)) {
     throw new Error("AI prompt guide has an invalid JSON structure.");

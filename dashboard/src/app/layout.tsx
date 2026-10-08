@@ -6,6 +6,7 @@ import { FeedbackReporter } from "@/components/FeedbackReporter";
 export const metadata: Metadata = {
   title: "CheyaVerse",
   description: "Personal bot webapp — CheyaVerse",
+  manifest: "/manifest.webmanifest",
 };
 
 export const viewport: Viewport = {
