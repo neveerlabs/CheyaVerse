@@ -425,6 +425,151 @@ def _group_metadata(
     )
 
 
+def _store_owner_message_in_transaction(
+    connection: Any,
+    *,
+    group_id: int,
+    owner_uid: int,
+    group_title: str,
+    message_id: int,
+    sender_name: str,
+    content: str,
+    media_types: list[str],
+    reply_to_message_id: int | None,
+    edited: bool,
+    timestamp: str | datetime | None,
+) -> str:
+    _group_metadata(connection, group_id, owner_uid, group_title)
+    existing = connection.execute(
+        """
+        SELECT id FROM telegram_ai_messages
+        WHERE group_id = ? AND telegram_message_id = ? LIMIT 1
+        """,
+        (group_id, message_id),
+    ).fetchone()
+    public_reply_id = None
+    if reply_to_message_id is not None:
+        replied = connection.execute(
+            """
+            SELECT id FROM telegram_ai_messages
+            WHERE group_id = ? AND telegram_message_id = ? LIMIT 1
+            """,
+            (group_id, reply_to_message_id),
+        ).fetchone()
+        public_reply_id = str(replied["id"]) if replied else None
+    cursor = connection.execute(
+        """
+        INSERT INTO telegram_ai_messages(
+            id, group_id, telegram_message_id, sender_uid, sender_name,
+            role, content, media_types, reply_to_message_id,
+            telegram_reply_to_message_id, timestamp
+        )
+        VALUES (?, ?, ?, ?, ?, 'admin', ?, ?, ?, ?, ?)
+        ON CONFLICT(group_id, telegram_message_id) DO UPDATE SET
+            sender_uid = excluded.sender_uid,
+            sender_name = excluded.sender_name,
+            content = excluded.content,
+            media_types = excluded.media_types,
+            reply_to_message_id = excluded.reply_to_message_id,
+            telegram_reply_to_message_id = excluded.telegram_reply_to_message_id,
+            timestamp = excluded.timestamp
+        WHERE ?
+        """,
+        (
+            str(existing["id"])
+            if existing
+            else _new_public_id(connection, "telegram_ai_messages"),
+            group_id,
+            message_id,
+            owner_uid,
+            sender_name[:120],
+            content[:4000],
+            ",".join(media_types[:8]),
+            public_reply_id,
+            reply_to_message_id,
+            _normalize_timestamp(timestamp),
+            int(edited),
+        ),
+    )
+    return "stored" if cursor.rowcount else "duplicate"
+
+
+def _store_insight_in_transaction(
+    connection: Any,
+    *,
+    group_id: int,
+    owner_uid: int,
+    group_title: str,
+    message_id: int,
+    summary: str,
+    replace: bool,
+) -> None:
+    _group_metadata(connection, group_id, owner_uid, group_title)
+    source_message = connection.execute(
+        """
+        SELECT id, timestamp FROM telegram_ai_messages
+        WHERE group_id = ? AND telegram_message_id = ? AND sender_uid = ?
+        LIMIT 1
+        """,
+        (group_id, message_id, owner_uid),
+    ).fetchone()
+    if source_message is None:
+        raise ValueError("Insight source message is not stored for this owner.")
+    existing = connection.execute(
+        """
+        SELECT id FROM telegram_ai_insights
+        WHERE group_id = ? AND telegram_message_id = ? LIMIT 1
+        """,
+        (group_id, message_id),
+    ).fetchone()
+    if not summary.strip():
+        if replace:
+            connection.execute(
+                """
+                DELETE FROM telegram_ai_insights
+                WHERE group_id = ? AND owner_uid = ? AND telegram_message_id = ?
+                """,
+                (group_id, owner_uid, message_id),
+            )
+        return
+    connection.execute(
+        """
+        INSERT INTO telegram_ai_insights(
+            id, group_id, owner_uid, telegram_message_id, summary, timestamp
+        )
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(group_id, telegram_message_id) DO UPDATE SET
+            owner_uid = excluded.owner_uid,
+            summary = excluded.summary,
+            timestamp = excluded.timestamp
+        """,
+        (
+            str(existing["id"])
+            if existing
+            else _new_public_id(connection, "telegram_ai_insights"),
+            group_id,
+            owner_uid,
+            message_id,
+            summary.strip()[:1600],
+            str(source_message["timestamp"]),
+        ),
+    )
+
+
+def owner_message_exists(group_id: int, owner_uid: int, message_id: int) -> bool:
+    initialize()
+    with database() as connection:
+        row = connection.execute(
+            """
+            SELECT 1 FROM telegram_ai_messages
+            WHERE group_id = ? AND telegram_message_id = ? AND sender_uid = ?
+            LIMIT 1
+            """,
+            (group_id, message_id, owner_uid),
+        ).fetchone()
+    return row is not None
+
+
 def store_owner_message(
     *,
     group_id: int,
@@ -441,60 +586,65 @@ def store_owner_message(
     initialize()
     with database() as connection:
         connection.execute("BEGIN IMMEDIATE")
-        _group_metadata(connection, group_id, owner_uid, group_title)
-        existing = connection.execute(
-            """
-            SELECT id FROM telegram_ai_messages
-            WHERE group_id = ? AND telegram_message_id = ? LIMIT 1
-            """,
-            (group_id, message_id),
-        ).fetchone()
-        public_reply_id = None
-        if reply_to_message_id is not None:
-            replied = connection.execute(
-                """
-                SELECT id FROM telegram_ai_messages
-                WHERE group_id = ? AND telegram_message_id = ? LIMIT 1
-                """,
-                (group_id, reply_to_message_id),
-            ).fetchone()
-            public_reply_id = str(replied["id"]) if replied else None
-        cursor = connection.execute(
-            """
-            INSERT INTO telegram_ai_messages(
-                id, group_id, telegram_message_id, sender_uid, sender_name,
-                role, content, media_types, reply_to_message_id,
-                telegram_reply_to_message_id, timestamp
-            )
-            VALUES (?, ?, ?, ?, ?, 'admin', ?, ?, ?, ?, ?)
-            ON CONFLICT(group_id, telegram_message_id) DO UPDATE SET
-                sender_uid = excluded.sender_uid,
-                sender_name = excluded.sender_name,
-                content = excluded.content,
-                media_types = excluded.media_types,
-                reply_to_message_id = excluded.reply_to_message_id,
-                telegram_reply_to_message_id = excluded.telegram_reply_to_message_id,
-                timestamp = excluded.timestamp
-            WHERE ?
-            """,
-            (
-                str(existing["id"])
-                if existing
-                else _new_public_id(connection, "telegram_ai_messages"),
-                group_id,
-                message_id,
-                owner_uid,
-                sender_name[:120],
-                content[:4000],
-                ",".join(media_types[:8]),
-                public_reply_id,
-                reply_to_message_id,
-                _normalize_timestamp(timestamp),
-                int(edited),
-            ),
+        result = _store_owner_message_in_transaction(
+            connection,
+            group_id=group_id,
+            owner_uid=owner_uid,
+            group_title=group_title,
+            message_id=message_id,
+            sender_name=sender_name,
+            content=content,
+            media_types=media_types,
+            reply_to_message_id=reply_to_message_id,
+            edited=edited,
+            timestamp=timestamp,
         )
         connection.commit()
-        return "stored" if cursor.rowcount else "duplicate"
+        return result
+
+
+def store_processed_owner_message(
+    *,
+    group_id: int,
+    owner_uid: int,
+    group_title: str,
+    message_id: int,
+    sender_name: str,
+    content: str,
+    media_types: list[str],
+    reply_to_message_id: int | None,
+    edited: bool,
+    timestamp: str | datetime | None,
+    summary: str,
+) -> str:
+    initialize()
+    with database() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        result = _store_owner_message_in_transaction(
+            connection,
+            group_id=group_id,
+            owner_uid=owner_uid,
+            group_title=group_title,
+            message_id=message_id,
+            sender_name=sender_name,
+            content=content,
+            media_types=media_types,
+            reply_to_message_id=reply_to_message_id,
+            edited=edited,
+            timestamp=timestamp,
+        )
+        if result == "stored":
+            _store_insight_in_transaction(
+                connection,
+                group_id=group_id,
+                owner_uid=owner_uid,
+                group_title=group_title,
+                message_id=message_id,
+                summary=summary,
+                replace=edited,
+            )
+        connection.commit()
+        return result
 
 
 def store_bot_message(
@@ -574,56 +724,14 @@ def store_insight(
     initialize()
     with database() as connection:
         connection.execute("BEGIN IMMEDIATE")
-        _group_metadata(connection, group_id, owner_uid, group_title)
-        source_message = connection.execute(
-            """
-            SELECT id, timestamp FROM telegram_ai_messages
-            WHERE group_id = ? AND telegram_message_id = ? AND sender_uid = ?
-            LIMIT 1
-            """,
-            (group_id, message_id, owner_uid),
-        ).fetchone()
-        if source_message is None:
-            raise ValueError("Insight source message is not stored for this owner.")
-        existing = connection.execute(
-            """
-            SELECT id FROM telegram_ai_insights
-            WHERE group_id = ? AND telegram_message_id = ? LIMIT 1
-            """,
-            (group_id, message_id),
-        ).fetchone()
-        if not summary.strip():
-            if replace:
-                connection.execute(
-                    """
-                    DELETE FROM telegram_ai_insights
-                    WHERE group_id = ? AND owner_uid = ? AND telegram_message_id = ?
-                    """,
-                    (group_id, owner_uid, message_id),
-                )
-            connection.commit()
-            return
-        connection.execute(
-            """
-            INSERT INTO telegram_ai_insights(
-                id, group_id, owner_uid, telegram_message_id, summary, timestamp
-            )
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(group_id, telegram_message_id) DO UPDATE SET
-                owner_uid = excluded.owner_uid,
-                summary = excluded.summary,
-                timestamp = excluded.timestamp
-            """,
-            (
-                str(existing["id"])
-                if existing
-                else _new_public_id(connection, "telegram_ai_insights"),
-                group_id,
-                owner_uid,
-                message_id,
-                summary.strip()[:1600],
-                str(source_message["timestamp"]),
-            ),
+        _store_insight_in_transaction(
+            connection,
+            group_id=group_id,
+            owner_uid=owner_uid,
+            group_title=group_title,
+            message_id=message_id,
+            summary=summary,
+            replace=replace,
         )
         connection.commit()
 

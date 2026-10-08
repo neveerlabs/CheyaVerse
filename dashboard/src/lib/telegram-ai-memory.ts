@@ -65,6 +65,7 @@ type MemoryResponse = {
   updated?: boolean;
   deleted?: boolean;
   imported?: number;
+  exists?: boolean;
 };
 
 function memoryEndpoint(): URL {
@@ -201,12 +202,36 @@ export async function storeTelegramOwnerMessage(input: {
   replyToMessageId: number | null;
   timestamp: string;
   edited: boolean;
+  summary?: string;
 }): Promise<{ stored: boolean; reason: string }> {
-  const result = await requestMemoryService("store_owner_message", input.ownerUid, input);
+  const action = input.summary === undefined
+    ? "store_owner_message"
+    : "store_processed_owner_message";
+  const result = await requestMemoryService(action, input.ownerUid, input);
   if (typeof result.stored !== "boolean" || typeof result.reason !== "string") {
     throw new Error("Telegram AI memory service returned an invalid store response.");
   }
   return { stored: result.stored, reason: result.reason };
+}
+
+export async function checkTelegramAiMemoryService(ownerUid: number): Promise<void> {
+  await requestMemoryService("health", ownerUid);
+}
+
+export async function telegramOwnerMessageExists(input: {
+  ownerUid: number;
+  groupId: number;
+  messageId: number;
+}): Promise<boolean> {
+  const result = await requestMemoryService(
+    "owner_message_exists",
+    input.ownerUid,
+    input,
+  );
+  if (typeof result.exists !== "boolean") {
+    throw new Error("Telegram AI memory service returned an invalid duplicate check.");
+  }
+  return result.exists;
 }
 
 export async function retrieveTelegramGroupMemory(input: {

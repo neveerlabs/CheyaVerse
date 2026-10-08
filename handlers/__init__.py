@@ -1,3 +1,3 @@
-from . import help, qr, start, unblock, web
+from . import help, qr, start, status, unblock, web
 
-__all__ = ["help", "qr", "start", "unblock", "web"]
+__all__ = ["help", "qr", "start", "status", "unblock", "web"]

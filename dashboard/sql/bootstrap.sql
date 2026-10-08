@@ -329,6 +329,20 @@ CREATE TABLE IF NOT EXISTS public.system_keepalive (
   touched_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS public.system_keepalive_runs (
+  singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton),
+  last_checked_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_heartbeat_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS public.telegram_ai_provider_rotation (
+  uid BIGINT NOT NULL,
+  provider_set TEXT NOT NULL,
+  pair_index INTEGER NOT NULL DEFAULT 0,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (uid, provider_set)
+);
+
 CREATE OR REPLACE FUNCTION public.record_user_database_activity()
 RETURNS TRIGGER
 LANGUAGE plpgsql

@@ -26,6 +26,7 @@ from handlers import help as help_handler
 from handlers import group as group_ai_handler
 from handlers import qr as qr_handler
 from handlers import start
+from handlers import status as status_handler
 from handlers import unblock as unblock_handler
 from logger import logger
 from handlers import web as web_handler
@@ -181,6 +182,7 @@ async def _run() -> int:
     dp.include_router(announcement_handler.router)
     dp.include_router(start.router)
     dp.include_router(help_handler.router)
+    dp.include_router(status_handler.router)
     dp.include_router(group_ai_handler.router)
     dp.include_router(unblock_handler.router)
     dp.include_router(qr_handler.router)

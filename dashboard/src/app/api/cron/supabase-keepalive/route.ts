@@ -32,6 +32,13 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    await getDatabase().execute(`
+      CREATE TABLE IF NOT EXISTS public.system_keepalive_runs (
+        singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton),
+        last_checked_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        last_heartbeat_at TIMESTAMPTZ
+      )
+    `);
     const activityResult = await getDatabase().execute({
       sql: `SELECT last_user_activity_at,
                    EXTRACT(EPOCH FROM (now() - last_user_activity_at)) * 1000
@@ -47,9 +54,16 @@ export async function GET(request: NextRequest) {
     }
 
     if (inactivityMs < INACTIVITY_LIMIT_MS) {
+      await getDatabase().execute({
+        sql: `INSERT INTO public.system_keepalive_runs (singleton, last_checked_at)
+              VALUES (TRUE, clock_timestamp())
+              ON CONFLICT (singleton)
+              DO UPDATE SET last_checked_at = EXCLUDED.last_checked_at`,
+      });
       return NextResponse.json({
         ok: true,
         heartbeat: false,
+        lastCheckedAt: new Date().toISOString(),
         lastUserActivityAt: new Date(
           lastActivity instanceof Date ? lastActivity : String(lastActivity),
         ).toISOString(),
@@ -66,9 +80,21 @@ export async function GET(request: NextRequest) {
       {
         sql: "DELETE FROM public.system_keepalive WHERE singleton = TRUE",
       },
+      {
+        sql: `INSERT INTO public.system_keepalive_runs
+                (singleton, last_checked_at, last_heartbeat_at)
+              VALUES (TRUE, clock_timestamp(), clock_timestamp())
+              ON CONFLICT (singleton)
+              DO UPDATE SET last_checked_at = EXCLUDED.last_checked_at,
+                            last_heartbeat_at = EXCLUDED.last_heartbeat_at`,
+      },
     ]);
 
-    return NextResponse.json({ ok: true, heartbeat: true });
+    return NextResponse.json({
+      ok: true,
+      heartbeat: true,
+      lastCheckedAt: new Date().toISOString(),
+    });
   } catch (error) {
     console.error("[supabase-keepalive] scheduled heartbeat failed:", error);
     return NextResponse.json(

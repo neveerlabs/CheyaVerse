@@ -136,6 +136,14 @@ async def _handle(request: web.Request) -> web.Response:
     owner_uid = _valid_admin(body.get("ownerUid"))
     group_id = _valid_group_id(body.get("groupId"))
 
+    if action == "health":
+        if owner_uid is None:
+            raise web.HTTPForbidden(
+                text=json.dumps({"ok": False, "error": "admin_required"}),
+                content_type="application/json",
+            )
+        return web.json_response({"ok": True})
+
     if action == "retrieve_owner_memory":
         if owner_uid is None or not isinstance(body.get("query"), str):
             raise web.HTTPBadRequest(
@@ -256,12 +264,28 @@ async def _handle(request: web.Request) -> web.Response:
             content_type="application/json",
         )
 
-    if action == "store_owner_message":
+    if action == "owner_message_exists":
+        message_id = _integer(body.get("messageId"))
+        if message_id is None:
+            raise web.HTTPBadRequest(
+                text=json.dumps({"ok": False, "error": "invalid_message_id"}),
+                content_type="application/json",
+            )
+        exists = await asyncio.to_thread(
+            memory.owner_message_exists,
+            group_id,
+            owner_uid,
+            message_id,
+        )
+        return web.json_response({"ok": True, "exists": exists})
+
+    if action in {"store_owner_message", "store_processed_owner_message"}:
         message_id = _integer(body.get("messageId"))
         sender_name = body.get("senderName")
         content = body.get("content")
         media_types = body.get("mediaTypes")
         reply_id = body.get("replyToMessageId")
+        summary = body.get("summary")
         if (
             message_id is None
             or not isinstance(sender_name, str)
@@ -276,24 +300,42 @@ async def _handle(request: web.Request) -> web.Response:
             or reply_id is not None and _integer(reply_id) is None
             or body.get("timestamp") is not None
             and _valid_timestamp(body.get("timestamp")) is None
+            or action == "store_processed_owner_message"
+            and (not isinstance(summary, str) or len(summary) > 1600)
         ):
             raise web.HTTPBadRequest(
                 text=json.dumps({"ok": False, "error": "invalid_owner_message"}),
                 content_type="application/json",
             )
-        result = await asyncio.to_thread(
-            memory.store_owner_message,
-            group_id=group_id,
-            owner_uid=owner_uid,
-            group_title=str(body.get("groupTitle") or "")[:200],
-            message_id=message_id,
-            sender_name=sender_name,
-            content=content,
-            media_types=media_types,
-            reply_to_message_id=reply_id,
-            edited=body.get("edited") is True,
-            timestamp=_valid_timestamp(body.get("timestamp")),
-        )
+        if action == "store_processed_owner_message":
+            result = await asyncio.to_thread(
+                memory.store_processed_owner_message,
+                group_id=group_id,
+                owner_uid=owner_uid,
+                group_title=str(body.get("groupTitle") or "")[:200],
+                message_id=message_id,
+                sender_name=sender_name,
+                content=content,
+                media_types=media_types,
+                reply_to_message_id=reply_id,
+                edited=body.get("edited") is True,
+                timestamp=_valid_timestamp(body.get("timestamp")),
+                summary=summary,
+            )
+        else:
+            result = await asyncio.to_thread(
+                memory.store_owner_message,
+                group_id=group_id,
+                owner_uid=owner_uid,
+                group_title=str(body.get("groupTitle") or "")[:200],
+                message_id=message_id,
+                sender_name=sender_name,
+                content=content,
+                media_types=media_types,
+                reply_to_message_id=reply_id,
+                edited=body.get("edited") is True,
+                timestamp=_valid_timestamp(body.get("timestamp")),
+            )
         return web.json_response({"ok": True, "stored": result == "stored", "reason": result})
 
     if action == "retrieve_group_memory":

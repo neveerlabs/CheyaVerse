@@ -5,6 +5,7 @@ import {
   checkTelegramGroupAiProviders,
   generateTelegramGroupReply,
 } from "@/lib/ai";
+import { getDatabase } from "@/lib/database";
 import { getTelegramFileUrl } from "@/lib/telegram";
 import {
   enableTelegramGroupAi,
@@ -14,13 +15,14 @@ import {
   setTelegramGroupAiSendPermission,
 } from "@/lib/storage";
 import {
+  checkTelegramAiMemoryService,
   managePersonalMemory,
   getTelegramStoredInsight,
   retrieveTelegramGroupMemory,
   searchPersonalMemory,
   storeTelegramBotMessage,
-  storeTelegramInsight,
   storeTelegramOwnerMessage,
+  telegramOwnerMessageExists,
 } from "@/lib/telegram-ai-memory";
 
 export const runtime = "nodejs";
@@ -287,6 +289,76 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    if (input.action === "status") {
+      const ownerUid = telegramUserId(input.ownerUid);
+      if (ownerUid === null || !config.adminTelegramIds.has(ownerUid)) {
+        return NextResponse.json({ ok: false, error: "not_authorized" }, { status: 403 });
+      }
+
+      const [aiResult, memoryResult, databaseResult] = await Promise.allSettled([
+        checkTelegramGroupAiProviders(ownerUid),
+        checkTelegramAiMemoryService(ownerUid),
+        (async () => {
+          await getDatabase().execute(`
+            CREATE TABLE IF NOT EXISTS public.system_keepalive_runs (
+              singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton),
+              last_checked_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+              last_heartbeat_at TIMESTAMPTZ
+            )
+          `);
+          const result = await getDatabase().execute({
+            sql: `SELECT clock_timestamp() AS checked_at,
+                         (SELECT last_user_activity_at
+                          FROM public.system_db_activity
+                          WHERE singleton = TRUE) AS last_user_activity_at,
+                         (SELECT last_checked_at
+                          FROM public.system_keepalive_runs
+                          WHERE singleton = TRUE) AS last_keepalive_check_at,
+                         (SELECT last_heartbeat_at
+                          FROM public.system_keepalive_runs
+                          WHERE singleton = TRUE) AS last_heartbeat_at`,
+          });
+          return result.rows[0] ?? {};
+        })(),
+      ]);
+
+      if (aiResult.status === "rejected") {
+        console.error("[internal/telegram/group-ai] AI status check failed:", aiResult.reason);
+      }
+      if (memoryResult.status === "rejected") {
+        console.error(
+          "[internal/telegram/group-ai] Local memory tunnel status check failed:",
+          memoryResult.reason,
+        );
+      }
+      if (databaseResult.status === "rejected") {
+        console.error("[internal/telegram/group-ai] Supabase status check failed:", databaseResult.reason);
+      }
+
+      const ai = aiResult.status === "fulfilled"
+        ? aiResult.value
+        : { connected: false, provider: null, model: null, pairIndex: null };
+      const database = databaseResult.status === "fulfilled"
+        ? databaseResult.value
+        : null;
+      return NextResponse.json({
+        ok: true,
+        tunnel: {
+          botToVercel: true,
+          vercelToLocalMemory: memoryResult.status === "fulfilled",
+        },
+        ai,
+        supabase: {
+          connected: database?.last_user_activity_at != null,
+          cronConfigured: Boolean(process.env.CRON_SECRET),
+          lastUserActivityAt: database?.last_user_activity_at ?? null,
+          lastKeepaliveCheckAt: database?.last_keepalive_check_at ?? null,
+          lastHeartbeatAt: database?.last_heartbeat_at ?? null,
+          checkedAt: database?.checked_at ?? null,
+        },
+      });
+    }
+
     const id = groupId(input.groupId);
     if (id === null) {
       return NextResponse.json({ ok: false, error: "invalid_group" }, { status: 400 });
@@ -394,27 +466,23 @@ export async function POST(request: NextRequest) {
       ) {
         return NextResponse.json({ ok: false, error: "invalid_message" }, { status: 400 });
       }
-      const attachments = await readAttachments(input.attachments);
       const edited = input.edited === true;
       const status = await getTelegramGroupAiStatus(id);
       if (!status.enabled || status.ownerUid !== userId) {
         return NextResponse.json({ ok: true, stored: false, reply: null });
       }
-      const stored = await storeTelegramOwnerMessage({
-        groupId: id,
-        ownerUid: userId,
-        groupTitle: typeof input.groupTitle === "string" ? input.groupTitle : "",
-        messageId,
-        senderName: name,
-        content: message.trim() ? message : `[Media attached: ${types.join(", ")}]`,
-        mediaTypes: types,
-        replyToMessageId,
-        timestamp,
-        edited,
-      });
-      if (!stored.stored) {
-        return NextResponse.json({ ok: true, stored: false, reason: stored.reason, reply: null });
+      if (
+        !edited &&
+        await telegramOwnerMessageExists({ ownerUid: userId, groupId: id, messageId })
+      ) {
+        return NextResponse.json({
+          ok: true,
+          stored: false,
+          reason: "duplicate",
+          reply: null,
+        });
       }
+      const attachments = await readAttachments(input.attachments);
       const [memory, recentWebMessages, personalMemories] = await Promise.all([
         retrieveTelegramGroupMemory({
           groupId: id,
@@ -508,6 +576,14 @@ export async function POST(request: NextRequest) {
         context,
         attachments,
       );
+      if (!generated.summary.trim()) {
+        return NextResponse.json({
+          ok: true,
+          stored: false,
+          reason: "empty_insight",
+          reply: null,
+        });
+      }
       const memoryIds = new Set(personalMemories.map((item) => item.id));
       const memoryChanges: Array<Record<string, unknown>> = [];
       const memoryActionFailureReasons: string[] = [];
@@ -536,14 +612,27 @@ export async function POST(request: NextRequest) {
         }
         memoryChanges.push(result);
       }
-      await storeTelegramInsight({
+      const stored = await storeTelegramOwnerMessage({
         groupId: id,
         ownerUid: userId,
         groupTitle: typeof input.groupTitle === "string" ? input.groupTitle : "",
         messageId,
+        senderName: name,
+        content: message.trim() ? message : `[Media attached: ${types.join(", ")}]`,
+        mediaTypes: types,
+        replyToMessageId,
+        timestamp,
+        edited,
         summary: generated.summary,
-        replace: edited,
       });
+      if (!stored.stored) {
+        return NextResponse.json({
+          ok: true,
+          stored: false,
+          reason: stored.reason,
+          reply: null,
+        });
+      }
       const reply = generated.reply?.trim() ?? "";
       return NextResponse.json({
         ok: true,
