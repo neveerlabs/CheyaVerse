@@ -59,25 +59,21 @@ TELEGRAM_AI_MEMORY_SECRET=secret_acak_yang_sama_di_bot_dan_vercel
 # Endpoint hanya bind ke loopback; Cloudflare Tunnel meneruskan HTTPS ke port ini
 TELEGRAM_AI_MEMORY_HOST=127.0.0.1
 TELEGRAM_AI_MEMORY_PORT=8765
-# Opsional: lokasi SQLite persisten, default data/telegram-ai-memory.sqlite3
-TELEGRAM_AI_MEMORY_DB_PATH=data/telegram-ai-memory.sqlite3
+# Opsional: lokasi SQLite persisten, default data/memory.sqlite3
+TELEGRAM_AI_MEMORY_DB_PATH=data/memory.sqlite3
 ```
 
 Ganti semua nilai contoh dengan nilai project Supabase dan Telegram milik sendiri. `SUPABASE_DB_URL` harus connection string PostgreSQL Session pooler yang sama dengan web. Bot membutuhkan `SUPABASE_URL` serta `SUPABASE_SERVICE_ROLE_KEY` untuk mengunggah dan menghapus berkas di bucket private. Jangan gunakan service-role key sebagai anon key atau kirim ke browser. Isi `PUBLIC_URL` dengan alamat web yang dapat dibuka pengguna; gunakan HTTPS untuk deployment.
 
-Riwayat memori AI Telegram disimpan di SQLite lokal pada `TELEGRAM_AI_MEMORY_DB_PATH`; pesan chat web dan setting/consent AI tetap di Supabase. File SQLite berada di disk komputer/server bot dan sudah diabaikan Git. Jangan simpan file itu di filesystem ephemeral atau folder yang dibersihkan otomatis. Untuk backup konsisten saat bot sedang berjalan, gunakan SQLite online backup API:
-
-```bash
-python -c 'import sqlite3; from pathlib import Path; Path("backups").mkdir(exist_ok=True); source=sqlite3.connect("data/telegram-ai-memory.sqlite3"); backup=sqlite3.connect("backups/telegram-ai-memory.sqlite3"); source.backup(backup); backup.close(); source.close()'
-```
+Riwayat memori AI Telegram disimpan di SQLite lokal pada `TELEGRAM_AI_MEMORY_DB_PATH`; pesan chat web dan setting/consent AI tetap di Supabase. File SQLite berada di disk komputer/server bot dan sudah diabaikan Git. Jangan simpan file itu di filesystem ephemeral atau folder yang dibersihkan otomatis. Untuk membuat ZIP seluruh project termasuk database SQLite, gunakan `python backup.py` dari root repository.
 
 Untuk membaca memori sebagai JSON, jalankan export manual dari root repository:
 
 ```bash
-python scripts/export_telegram_ai_memory_json.py
+python data/memory.py
 ```
 
-Perintah ini menghasilkan `backups/telegram-ai-memory-json/groups.json`, `messages.json`, dan `insights.json` sebagai snapshot terpisah. Jalankan ulang kapan pun ingin memperbaruinya; export tidak berjalan otomatis dan bukan sumber data bot. File export dan backup mengandung riwayat privat, disimpan dengan permission terbatas, dan tidak masuk Git.
+Perintah ini menghasilkan `data/backups/group.json`, `message.json`, dan `insight.json` sebagai snapshot JSON terpisah; file SQLite tidak disalin ke folder ini. Jalankan ulang kapan pun ingin memperbaruinya; export tidak berjalan otomatis dan bukan sumber data bot. File JSON mengandung riwayat privat, disimpan dengan permission terbatas, dan tidak masuk Git.
 
 Pasang dependensi dan jalankan bot dari folder utama:
 

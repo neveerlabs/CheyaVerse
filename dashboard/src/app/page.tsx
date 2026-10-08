@@ -44,7 +44,7 @@ export default async function LandingPage() {
     <main className="mx-auto max-w-[600px] px-5 min-h-screen flex flex-col items-center justify-center py-10">
       <div className="mb-5 h-20 w-20 overflow-hidden rounded-full shadow-[0_8px_24px_-8px_rgba(0,0,0,.3)]">
         <img
-          src="/push-icon.png?v=20261008"
+          src="/push.png?v=20261008"
           alt="CheyaVerse"
           draggable={false}
           className="w-full h-full object-cover"

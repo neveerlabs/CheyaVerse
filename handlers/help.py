@@ -25,12 +25,9 @@ HELP_TEXT = (
     "```\n"
     "• /start — Start CheyaVerse\n"
     "• /help — Command help\n"
-    "• /qr <text> — Generate QR code from text\n"
+    "• /qr [text] — Generate QR code from text\n"
     "• /unblock — Review and unblock your blocked devices\n"
     "• /web — URL dashboard personal\n"
-    "• AI grup/channel — Mendengarkan pesan admin dan merangkum memori\n"
-    "• /send — Izinkan AI membalas sesekali di grup/channel\n"
-    "• /up — Cabut izin balasan AI; AI kembali diam\n"
     "```\n"
 )
 

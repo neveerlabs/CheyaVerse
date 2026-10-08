@@ -23,14 +23,14 @@ from config import (
 )
 from handlers import announcement as announcement_handler
 from handlers import help as help_handler
-from handlers import group_ai as group_ai_handler
+from handlers import group as group_ai_handler
 from handlers import qr as qr_handler
 from handlers import start
 from handlers import unblock as unblock_handler
 from logger import logger
 from handlers import web as web_handler
 from telegram_retry import with_telegram_retry
-from telegram_ai_memory_server import start_server as start_telegram_ai_memory_server
+from memory_server import start_server as start_telegram_ai_memory_server
 
 CLEANUP_INTERVAL_SECONDS = 6 * 3600
 TELEGRAM_REQUEST_TIMEOUT_SECONDS = 20

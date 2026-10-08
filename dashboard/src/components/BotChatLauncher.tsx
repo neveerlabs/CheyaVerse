@@ -467,7 +467,7 @@ export function BotChatLauncher({
           className="fixed bottom-[calc(122px+env(safe-area-inset-bottom))] left-3 z-[350] flex h-10 w-10 items-center justify-center overflow-visible rounded-full border border-line bg-white p-0 text-ink shadow-lg transition-transform active:scale-95"
           style={{ left: "max(12px, calc((100vw - 600px) / 2 + 12px))" }}
         >
-          <TelegramAvatar src="/push-icon.png?v=20261008" className="h-full w-full rounded-full object-cover" />
+          <TelegramAvatar src="/push.png?v=20261008" className="h-full w-full rounded-full object-cover" />
           {unread > 0 && (
             <span className={`absolute flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[8px] font-bold leading-none text-white shadow-[0_0_0_2px_#fff] ${hasDraft ? "-bottom-1 -right-1" : "-right-1 -top-1"}`}>
               {unread > 99 ? "99+" : unread}

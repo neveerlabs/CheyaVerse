@@ -24,7 +24,7 @@ router = Router(name="qr")
 BASE_DIR = Path(__file__).resolve().parent.parent
 ASSETS_DIR = BASE_DIR / "assets"
 BACKGROUND_PATH = ASSETS_DIR / "background.png"
-LOGO_PATH = ASSETS_DIR / "cheyaverse-circle.png"
+LOGO_PATH = ASSETS_DIR / "circle.png"
 QR_X_RATIO = 0.25
 QR_Y_RATIO = 0.35
 QR_SIZE_RATIO = 0.50

@@ -13,7 +13,12 @@ from collections.abc import Iterator
 from zoneinfo import ZoneInfo
 
 
-DEFAULT_DATABASE_PATH = Path(__file__).resolve().parent / "data" / "telegram-ai-memory.sqlite3"
+DEFAULT_DATABASE_PATH = (
+    Path(__file__).resolve().parent / "data" / "memory.sqlite3"
+)
+LEGACY_DEFAULT_DATABASE_PATH = DEFAULT_DATABASE_PATH.with_name(
+    "telegram-ai-memory.sqlite3"
+)
 _schema_lock = threading.Lock()
 _PUBLIC_ID_PATTERN = re.compile(r"^\d{40}$")
 _LOCAL_TIMEZONE = ZoneInfo("Asia/Jakarta")
@@ -44,7 +49,17 @@ _MONTHS_ID = (
 
 def database_path() -> Path:
     configured = os.getenv("TELEGRAM_AI_MEMORY_DB_PATH", "").strip()
-    return Path(configured).expanduser() if configured else DEFAULT_DATABASE_PATH
+    if not configured:
+        return DEFAULT_DATABASE_PATH
+
+    target = Path(configured).expanduser()
+    if (
+        target.resolve() == LEGACY_DEFAULT_DATABASE_PATH.resolve()
+        and not target.exists()
+        and DEFAULT_DATABASE_PATH.exists()
+    ):
+        return DEFAULT_DATABASE_PATH
+    return target
 
 
 def connect(path: str | Path | None = None) -> sqlite3.Connection:
@@ -1105,8 +1120,13 @@ def export_json_files(
     os.chmod(destination, 0o700)
     data = snapshot_rows(path)
 
+    output_names = {
+        "telegram_ai_groups": "group.json",
+        "telegram_ai_messages": "message.json",
+        "telegram_ai_insights": "insight.json",
+    }
     for table, rows in data.items():
-        target = destination / f"{table.removeprefix('telegram_ai_')}.json"
+        target = destination / output_names[table]
         temporary_path: str | None = None
         try:
             with tempfile.NamedTemporaryFile(

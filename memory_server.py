@@ -8,7 +8,7 @@ from datetime import datetime
 
 from aiohttp import web
 
-import telegram_ai_memory as memory
+import memory_telegram as memory
 from config import ADMIN_TELEGRAM_IDS, TELEGRAM_AI_MEMORY_SECRET
 
 

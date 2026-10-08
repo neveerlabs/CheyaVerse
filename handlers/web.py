@@ -39,10 +39,10 @@ async def cmd_web(message: Message) -> None:
     text = (
         "Login to Webapp CheyaVerse\n"
         "────────────────────────\n"
-        "1\\. Tekan tombol *Login / Register* di bawah\\.\n"
-        "2\\. Buka bot CheyaVerse dan setujui permintaan login\\.\n\n"
-        "ID Telegram terverifikasi akan menjadi akun web kamu\\. "
-        "Jangan setujui permintaan login yang tidak kamu mulai\\."
+        "1\\. Klik *Login / Register* di bawah\\.\n"
+        "2\\. Saat muncul konfirmasi login di bot CheyaVerse, setujui permintaan login\\.\n\n"
+        "ID Telegram terverifikasi akan menjadi akun dashboard web-mu\\. "
+        "Jangan setujui permintaan login jika bukan dari kamu\\."
     )
 
     try:

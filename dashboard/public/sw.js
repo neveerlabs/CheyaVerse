@@ -1,4 +1,4 @@
-const ICON_PATH = "/push-icon.png?v=20261008";
+const ICON_PATH = "/push.png?v=20261008";
 const CACHE_NAME = "cheya-push-assets-v9";
 const DEFAULT_TITLE = "CheyaVerse · Web";
 

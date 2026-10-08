@@ -148,8 +148,8 @@ export function buildSystemPush(
   return {
     ...payload,
     title: "CheyaVerse · Web",
-    icon: "/push-icon.png?v=20261008",
-    badge: "/push-icon.png?v=20261008",
+    icon: "/push.png?v=20261008",
+    badge: "/push.png?v=20261008",
     silent: false,
     vibrate: [200, 100, 200],
   };

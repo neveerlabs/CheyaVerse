@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import telegram_ai_memory as memory
+import memory_telegram as memory
 from config import TELEGRAM_AI_MEMORY_DB_PATH
 
 
@@ -17,13 +17,16 @@ def main() -> int:
     )
     parser.add_argument(
         "--database-path",
-        default=TELEGRAM_AI_MEMORY_DB_PATH
-        or str(memory.DEFAULT_DATABASE_PATH),
+        default=str(
+            memory.database_path()
+            if TELEGRAM_AI_MEMORY_DB_PATH
+            else memory.DEFAULT_DATABASE_PATH
+        ),
         help="Source SQLite file (defaults to .env or the standard database path).",
     )
     parser.add_argument(
         "--output-dir",
-        default=str(REPOSITORY_ROOT / "backups" / "telegram-ai-memory-json"),
+        default=str(REPOSITORY_ROOT / "data" / "backups"),
         help="Directory for the private JSON snapshots.",
     )
     args = parser.parse_args()
@@ -34,8 +37,13 @@ def main() -> int:
     )
     output_directory = Path(args.output_dir).expanduser().resolve()
     print(f"JSON snapshots exported to {output_directory}:")
+    output_names = {
+        "groups": "group",
+        "messages": "message",
+        "insights": "insight",
+    }
     for name, count in counts.items():
-        print(f"  {name}.json: {count} records")
+        print(f"  {output_names[name]}.json: {count} records")
     return 0
 
 
