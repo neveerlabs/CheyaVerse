@@ -41,7 +41,7 @@ async def cmd_web(message: Message) -> None:
         "────────────────────────\n"
         "1\\. Klik *Login / Register* di bawah\\.\n"
         "2\\. Saat muncul konfirmasi login di bot CheyaVerse, setujui permintaan login\\.\n\n"
-        "ID Telegram terverifikasi akan menjadi akun dashboard web-mu\\. "
+        "ID Telegram terverifikasi akan menjadi akun dashboard web mu\\. "
         "Jangan setujui permintaan login jika bukan dari kamu\\."
     )
 
