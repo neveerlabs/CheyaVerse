@@ -171,13 +171,13 @@ async def _show_connection_status(message: Message, text: str) -> None:
                 status_message.message_id,
             )
         )
-    except TelegramAPIError as exc:
+    except Exception as exc:
         logger.error(
             f"Could not show group AI status in {message.chat.id}: {exc}"
         )
 
 
-@router.message(F.chat.type.in_(GROUP_TYPES), Command("send"))
+@router.message(F.chat.type.in_(GROUP_TYPES), F.text, Command("send"))
 async def allow_group_ai_sending(message: Message) -> None:
     if message.from_user is None:
         return
@@ -201,7 +201,7 @@ async def allow_group_ai_sending(message: Message) -> None:
     )
 
 
-@router.message(F.chat.type.in_(GROUP_TYPES), Command("up"))
+@router.message(F.chat.type.in_(GROUP_TYPES), F.text, Command("up"))
 async def stop_group_ai_sending(message: Message) -> None:
     if message.from_user is None:
         return
@@ -223,7 +223,7 @@ async def stop_group_ai_sending(message: Message) -> None:
     )
 
 
-@router.channel_post(Command("send"))
+@router.channel_post(F.text, Command("send"))
 async def allow_channel_ai_sending(message: Message) -> None:
     owner_uid = await _channel_owner_uid(message)
     if owner_uid is not None:
@@ -238,7 +238,7 @@ async def allow_channel_ai_sending(message: Message) -> None:
         )
 
 
-@router.channel_post(Command("up"))
+@router.channel_post(F.text, Command("up"))
 async def stop_channel_ai_sending(message: Message) -> None:
     owner_uid = await _channel_owner_uid(message)
     if owner_uid is not None:
@@ -379,7 +379,21 @@ def _normalized_message_text(value: str) -> str:
     return " ".join(value.casefold().split())
 
 
-async def _send_ai_reply(message: Message, reply: str, reply_mode: object) -> Message:
+async def _send_ai_reply(
+    message: Message,
+    reply: str,
+    reply_mode: object,
+    reply_links: str,
+) -> list[dict[str, object]]:
+    async def send_text(text: str) -> Message:
+        sent = (
+            await message.answer(text, parse_mode=None)
+            if message.chat.type == "channel"
+            else await message.reply(text, parse_mode=None)
+        )
+        _mark_bot_channel_post(sent)
+        return sent
+
     if reply_mode == "voice":
         if len(reply) <= MAX_VOICE_REPLY_CHARS:
             try:
@@ -394,7 +408,27 @@ async def _send_ai_reply(message: Message, reply: str, reply_mode: object) -> Me
                     else await message.reply_voice(voice=voice)
                 )
                 _mark_bot_channel_post(sent)
-                return sent
+                messages: list[dict[str, object]] = [{
+                    "messageId": sent.message_id,
+                    "content": reply,
+                    "timestamp": sent.date.isoformat(),
+                    "mediaTypes": ["voice"],
+                }]
+                if reply_links.strip():
+                    try:
+                        links_sent = await send_text(reply_links.strip()[:1800])
+                    except TelegramAPIError as exc:
+                        logger.error(
+                            f"Could not send text links after Telegram voice reply "
+                            f"{sent.message_id} in {message.chat.id}: {exc}"
+                        )
+                    else:
+                        messages.append({
+                            "messageId": links_sent.message_id,
+                            "content": reply_links.strip()[:1800],
+                            "timestamp": links_sent.date.isoformat(),
+                        })
+                return messages
             except Exception as exc:
                 logger.warning(
                     f"Voice reply failed for Telegram message {message.message_id} "
@@ -408,13 +442,15 @@ async def _send_ai_reply(message: Message, reply: str, reply_mode: object) -> Me
                 "falling back to text."
             )
 
-    sent = (
-        await message.answer(reply, parse_mode=None)
-        if message.chat.type == "channel"
-        else await message.reply(reply, parse_mode=None)
-    )
-    _mark_bot_channel_post(sent)
-    return sent
+    text_reply = reply.strip()
+    if reply_links.strip():
+        text_reply = f"{text_reply}\n\n{reply_links.strip()}".strip()
+    sent = await send_text(text_reply[:4000])
+    return [{
+        "messageId": sent.message_id,
+        "content": text_reply[:4000],
+        "timestamp": sent.date.isoformat(),
+    }]
 
 
 async def _process_owner_message_locked(
@@ -423,7 +459,7 @@ async def _process_owner_message_locked(
     edited: bool = False,
 ) -> None:
     text = message.text or message.caption or ""
-    if text.strip().startswith("/"):
+    if message.text and message.text.strip().startswith("/"):
         return
     attachments = _message_attachments(message)
     if not text.strip() and not attachments:
@@ -541,10 +577,13 @@ async def _process_owner_message_locked(
             await _rollback_staged_message(message, owner_uid)
             return
         normalized_reply = reply.strip()[:1800]
-        sent = await _send_ai_reply(
+        sent_messages = await _send_ai_reply(
             message,
             normalized_reply,
             result.get("replyMode"),
+            result.get("replyLinks")
+            if isinstance(result.get("replyLinks"), str)
+            else "",
         )
         reply_sent = True
         finalized = await _api(
@@ -553,10 +592,8 @@ async def _process_owner_message_locked(
             ownerUid=owner_uid,
             groupTitle=message.chat.title or "",
             ownerMessageId=message.message_id,
-            messageId=sent.message_id,
-            text=normalized_reply,
+            botMessages=sent_messages,
             summary=result.get("summary"),
-            timestamp=sent.date.isoformat(),
         )
         if finalized.get("stored") is not True:
             raise GroupAiApiError(

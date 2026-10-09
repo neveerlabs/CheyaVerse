@@ -680,6 +680,43 @@ def stage_owner_message(
         return "staged"
 
 
+def update_staged_owner_message(
+    group_id: int,
+    owner_uid: int,
+    message_id: int,
+    content: str,
+) -> bool:
+    if not content.strip() or len(content) > 4000:
+        raise ValueError("Staged Telegram message content must be between 1 and 4000 characters.")
+    initialize()
+    with database() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        pending = connection.execute(
+            """
+            SELECT 1 FROM telegram_ai_pending_messages
+            WHERE group_id = ? AND owner_uid = ? AND telegram_message_id = ?
+            LIMIT 1
+            """,
+            (group_id, owner_uid, message_id),
+        ).fetchone()
+        if pending is None:
+            connection.rollback()
+            return False
+        cursor = connection.execute(
+            """
+            UPDATE telegram_ai_messages
+            SET content = ?
+            WHERE group_id = ? AND telegram_message_id = ? AND sender_uid = ?
+            """,
+            (content, group_id, message_id, owner_uid),
+        )
+        if cursor.rowcount != 1:
+            connection.rollback()
+            return False
+        connection.commit()
+        return True
+
+
 def rollback_owner_message(group_id: int, owner_uid: int, message_id: int) -> bool:
     initialize()
     with database() as connection:
@@ -871,6 +908,7 @@ def _store_bot_message_in_transaction(
     content: str,
     reply_to_message_id: int | None,
     timestamp: str | datetime | None,
+    media_types: list[str] | None = None,
 ) -> None:
     existing = connection.execute(
         """
@@ -895,7 +933,7 @@ def _store_bot_message_in_transaction(
             role, content, media_types, reply_to_message_id,
             telegram_reply_to_message_id, timestamp
         )
-        VALUES (?, ?, ?, NULL, 'Cheya', 'bot', ?, '', ?, ?, ?)
+        VALUES (?, ?, ?, NULL, 'Cheya', 'bot', ?, ?, ?, ?, ?)
         ON CONFLICT(group_id, telegram_message_id) DO NOTHING
         """,
         (
@@ -905,6 +943,7 @@ def _store_bot_message_in_transaction(
             group_id,
             message_id,
             content[:4000],
+            ",".join((media_types or [])[:8]),
             str(replied["id"]) if replied else None,
             reply_to_message_id,
             _normalize_timestamp(timestamp),
@@ -919,6 +958,7 @@ def store_bot_message(
     content: str,
     reply_to_message_id: int | None,
     timestamp: str | datetime | None = None,
+    media_types: list[str] | None = None,
 ) -> None:
     initialize()
     with database() as connection:
@@ -930,6 +970,7 @@ def store_bot_message(
             content=content,
             reply_to_message_id=reply_to_message_id,
             timestamp=timestamp,
+            media_types=media_types,
         )
         connection.commit()
 
@@ -944,13 +985,37 @@ def finalize_owner_message(
     bot_message_id: int | None = None,
     bot_content: str | None = None,
     timestamp: str | datetime | None = None,
+    bot_messages: list[dict[str, Any]] | None = None,
 ) -> None:
+    if bot_messages is not None and (
+        bot_message_id is not None or bot_content is not None or timestamp is not None
+    ):
+        raise ValueError("Use either a bot message list or a single bot message.")
     if (bot_message_id is None) != (bot_content is None):
         raise ValueError("Bot message ID and content must be provided together.")
     if bot_message_id is not None and (
         bot_message_id <= 0 or not bot_content or not bot_content.strip()
     ):
         raise ValueError("A valid bot reply is required.")
+    if bot_messages is not None:
+        if not bot_messages or len(bot_messages) > 2:
+            raise ValueError("One or two finalized bot messages are required.")
+        for item in bot_messages:
+            message_id = item.get("message_id")
+            content = item.get("content")
+            media_types = item.get("media_types", [])
+            if (
+                not isinstance(message_id, int)
+                or isinstance(message_id, bool)
+                or message_id <= 0
+                or not isinstance(content, str)
+                or not content.strip()
+                or len(content) > 4000
+                or not isinstance(media_types, list)
+                or len(media_types) > 8
+                or any(not isinstance(value, str) for value in media_types)
+            ):
+                raise ValueError("A finalized bot message is invalid.")
     initialize()
     with database() as connection:
         connection.execute("BEGIN IMMEDIATE")
@@ -992,6 +1057,17 @@ def finalize_owner_message(
                 reply_to_message_id=owner_message_id,
                 timestamp=timestamp,
             )
+        if bot_messages is not None:
+            for item in bot_messages:
+                _store_bot_message_in_transaction(
+                    connection,
+                    group_id=group_id,
+                    message_id=item["message_id"],
+                    content=item["content"],
+                    reply_to_message_id=owner_message_id,
+                    timestamp=item.get("timestamp"),
+                    media_types=item.get("media_types"),
+                )
         connection.execute(
             """
             DELETE FROM telegram_ai_pending_messages

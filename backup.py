@@ -6,6 +6,7 @@ from __future__ import annotations
 import fnmatch
 import os
 import re
+import stat
 import sys
 import zipfile
 from pathlib import Path, PurePosixPath
@@ -14,7 +15,6 @@ from pathlib import Path, PurePosixPath
 PROJECT_ROOT = Path(__file__).resolve().parent
 SCRIPT_PATH = Path(__file__).resolve()
 EXCLUDED_DIRECTORY_NAMES = {
-    ".git",
     ".hg",
     ".hypothesis",
     ".mypy_cache",
@@ -51,7 +51,6 @@ EXCLUDED_FILE_PATTERNS = {
     "pnpm-debug.log*",
     "yarn-debug.log*",
     "yarn-error.log*",
-    "CheyaVerse-*.zip",
 }
 VERSION_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}\Z")
 
@@ -131,7 +130,7 @@ def is_explicitly_excluded(relative_path: str, exclusions: set[str]) -> bool:
 
 def collect_project_entries(exclusions: set[str]) -> tuple[list[Path], int]:
     included: list[Path] = []
-    skipped_symlinks = 0
+    symlink_entries = 0
 
     for current, directory_names, file_names in os.walk(PROJECT_ROOT, followlinks=False):
         current_path = Path(current)
@@ -145,8 +144,11 @@ def collect_project_entries(exclusions: set[str]) -> tuple[list[Path], int]:
             relative = (
                 f"{relative_current}/{name}" if relative_current else name
             )
+            if is_explicitly_excluded(relative, exclusions):
+                continue
             if directory.is_symlink():
-                skipped_symlinks += 1
+                included.append(directory)
+                symlink_entries += 1
             elif (
                 not is_excluded_directory(name)
                 and not is_explicitly_excluded(relative, exclusions)
@@ -158,16 +160,31 @@ def collect_project_entries(exclusions: set[str]) -> tuple[list[Path], int]:
         for name in sorted(file_names):
             path = current_path / name
             relative = f"{relative_current}/{name}" if relative_current else name
+            if is_excluded_file(name) or is_explicitly_excluded(relative, exclusions) or (
+                current_path == PROJECT_ROOT
+                and fnmatch.fnmatchcase(name, "CheyaVerse-*.zip")
+            ):
+                continue
             if path.is_symlink():
-                skipped_symlinks += 1
-                continue
-            if is_excluded_file(name):
-                continue
-            if is_explicitly_excluded(relative, exclusions):
+                included.append(path)
+                symlink_entries += 1
                 continue
             included.append(path)
 
-    return included, skipped_symlinks
+    return included, symlink_entries
+
+
+def write_archive_entry(archive: zipfile.ZipFile, path: Path) -> None:
+    relative = project_relative_path(path)
+    if path.is_symlink():
+        info = zipfile.ZipInfo(relative)
+        info.create_system = 3
+        info.external_attr = (stat.S_IFLNK | 0o777) << 16
+        archive.writestr(info, os.readlink(path))
+    elif path.is_dir():
+        archive.writestr(f"{relative}/", "")
+    else:
+        archive.write(path, arcname=relative)
 
 
 def create_archive(version: str, exclusions: set[str]) -> Path:
@@ -178,7 +195,7 @@ def create_archive(version: str, exclusions: set[str]) -> Path:
             "to avoid overwriting an existing backup."
         )
 
-    entries, skipped_symlinks = collect_project_entries(exclusions)
+    entries, symlink_entries = collect_project_entries(exclusions)
     archive_created = False
     try:
         with zipfile.ZipFile(
@@ -189,11 +206,7 @@ def create_archive(version: str, exclusions: set[str]) -> Path:
         ) as archive:
             archive_created = True
             for path in entries:
-                relative = project_relative_path(path)
-                if path.is_dir():
-                    archive.writestr(f"{relative}/", "")
-                else:
-                    archive.write(path, arcname=relative)
+                write_archive_entry(archive, path)
     except Exception:
         if archive_created:
             archive_path.unlink(missing_ok=True)
@@ -203,8 +216,8 @@ def create_archive(version: str, exclusions: set[str]) -> Path:
     print(f"Jumlah file/folder yang dimasukkan: {len(entries)}")
     if exclusions:
         print("Path tambahan yang dikecualikan: " + ", ".join(sorted(exclusions)))
-    if skipped_symlinks:
-        print(f"Symlink yang dilewati demi keamanan: {skipped_symlinks}")
+    if symlink_entries:
+        print(f"Symlink yang disertakan sebagai tautan: {symlink_entries}")
     print("File/folder tersembunyi, termasuk .env dan database, tetap disertakan.")
     return archive_path
 

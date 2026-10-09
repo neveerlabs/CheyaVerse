@@ -288,6 +288,81 @@ class TelegramMemoryCrudTests(unittest.TestCase):
             ).fetchone()[0]
         self.assertEqual(pending, 0)
 
+    def test_voice_transcript_and_multiple_replies_are_persisted(self) -> None:
+        staged = memory_telegram.stage_owner_message(
+            group_id=self.group_id,
+            owner_uid=self.owner_uid,
+            group_title="Voice test",
+            message_id=401,
+            sender_name="Owner",
+            content="[Media attached: voice]",
+            media_types=["voice"],
+            reply_to_message_id=None,
+            edited=False,
+            timestamp="2026-10-09T10:00:00Z",
+        )
+        self.assertEqual(staged, "staged")
+        self.assertTrue(
+            memory_telegram.update_staged_owner_message(
+                self.group_id,
+                self.owner_uid,
+                401,
+                "Voice note transcript: Besok aku rapat dengan tim.",
+            )
+        )
+
+        memory_telegram.finalize_owner_message(
+            group_id=self.group_id,
+            owner_uid=self.owner_uid,
+            group_title="Voice test",
+            owner_message_id=401,
+            summary="Owner mentions a meeting tomorrow.",
+            bot_messages=[
+                {
+                    "message_id": 402,
+                    "content": "Oke, semoga lancar.",
+                    "timestamp": "2026-10-09T10:01:00Z",
+                    "media_types": ["voice"],
+                },
+                {
+                    "message_id": 403,
+                    "content": "https://example.com",
+                    "timestamp": "2026-10-09T10:02:00Z",
+                    "media_types": [],
+                },
+            ],
+        )
+
+        matching = memory_telegram.retrieve_group_memory(
+            self.group_id, self.owner_uid, "rapat tim", None
+        )
+        self.assertIn(
+            "Voice note transcript: Besok aku rapat dengan tim.",
+            [item["content"] for item in matching],
+        )
+        with memory_telegram.database() as connection:
+            rows = connection.execute(
+                """
+                SELECT telegram_message_id, content, media_types
+                FROM telegram_ai_messages
+                WHERE group_id = ? AND telegram_message_id IN (401, 402, 403)
+                ORDER BY telegram_message_id
+                """,
+                (self.group_id,),
+            ).fetchall()
+        self.assertEqual(
+            [(row["telegram_message_id"], row["content"], row["media_types"]) for row in rows],
+            [
+                (401, "Voice note transcript: Besok aku rapat dengan tim.", "voice"),
+                (402, "Oke, semoga lancar.", "voice"),
+                (403, "https://example.com", ""),
+            ],
+        )
+        self.assertEqual(
+            memory_telegram.get_insight(self.group_id, self.owner_uid, 401),
+            "Owner mentions a meeting tomorrow.",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

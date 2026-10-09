@@ -230,12 +230,35 @@ export async function rollbackTelegramOwnerMessage(input: {
   await requestMemoryService("rollback_owner_message", input.ownerUid, input);
 }
 
+export async function updateStagedTelegramOwnerMessage(input: {
+  ownerUid: number;
+  groupId: number;
+  messageId: number;
+  content: string;
+}): Promise<boolean> {
+  const result = await requestMemoryService(
+    "update_staged_owner_message",
+    input.ownerUid,
+    input,
+  );
+  if (typeof result.updated !== "boolean") {
+    throw new Error("Telegram AI memory service returned an invalid staged-message update response.");
+  }
+  return result.updated;
+}
+
 export async function finalizeTelegramOwnerMessage(input: {
   ownerUid: number;
   groupId: number;
   groupTitle: string;
   ownerMessageId: number;
   summary: string;
+  botMessages?: Array<{
+    messageId: number;
+    content: string;
+    timestamp: string;
+    mediaTypes?: string[];
+  }>;
   messageId?: number;
   content?: string;
   timestamp?: string;

@@ -4,6 +4,7 @@ import { config } from "@/lib/config";
 import {
   checkTelegramGroupAiProviders,
   generateTelegramGroupReply,
+  transcribeTelegramVoiceMessage,
 } from "@/lib/ai";
 import { getDatabase } from "@/lib/database";
 import { getTelegramFileUrl } from "@/lib/telegram";
@@ -25,6 +26,7 @@ import {
   searchPersonalMemory,
   stageTelegramOwnerMessage,
   telegramOwnerMessageExists,
+  updateStagedTelegramOwnerMessage,
 } from "@/lib/telegram-ai-memory";
 
 export const runtime = "nodejs";
@@ -525,12 +527,13 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ ok: true, stored: false, reply: null });
       }
       observationOnly = !status.sendEnabled;
-      if (message.trimStart().startsWith("/")) {
+      if (message.trimStart().startsWith("/") && !hasMediaInput) {
         return NextResponse.json({
           ok: true,
           stored: false,
           reason: "command_not_processed",
           reply: null,
+          replyLinks: "",
         });
       }
       if (
@@ -542,6 +545,7 @@ export async function POST(request: NextRequest) {
           stored: false,
           reason: "duplicate",
           reply: null,
+          replyLinks: "",
         });
       }
       const previousInsight = edited
@@ -573,19 +577,59 @@ export async function POST(request: NextRequest) {
       }
       stagedMessage = { groupId: id, ownerUid: userId, messageId };
       const attachments = await readAttachments(input.attachments);
+      const hasAudio = types.includes("voice") || types.includes("audio");
+      const audioAttachments = attachments.filter((item) =>
+        item.mimeType.toLowerCase().startsWith("audio/"),
+      );
+      if (hasAudio && audioAttachments.length === 0) {
+        throw new Error("Telegram voice message did not contain a supported audio attachment.");
+      }
+      const voiceTranscript = hasAudio
+        ? await transcribeTelegramVoiceMessage(userId, audioAttachments)
+        : "";
+      const persistedMessage = [
+        message.trim() ? `Caption: ${message.trim()}` : "",
+        hasAudio
+          ? voiceTranscript
+            ? `Voice note transcript: ${voiceTranscript}`
+            : "Voice note attached; no intelligible speech was transcribed."
+          : "",
+      ]
+        .filter(Boolean)
+        .join("\n")
+        .slice(0, 4000) || `[Media attached: ${types.join(", ")}]`;
+      if (hasAudio) {
+        const updated = await updateStagedTelegramOwnerMessage({
+          groupId: id,
+          ownerUid: userId,
+          messageId,
+          content: persistedMessage,
+        });
+        if (!updated) {
+          throw new Error("The staged Telegram voice message could not be updated.");
+        }
+      }
+      const messageForContext = [
+        message.trim() ? `Owner's text or caption: ${message.trim()}` : "",
+        voiceTranscript
+          ? `Owner's voice-note transcript: ${voiceTranscript}`
+          : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
       const [memory, recentWebMessages, recentPersonalMemories] = await Promise.all([
         retrieveTelegramGroupMemory({
           groupId: id,
           ownerUid: userId,
           excludeMessageId: messageId,
-          query: message,
+          query: messageForContext || message,
           replyToMessageId,
         }),
         listRecentAiChatMessages(userId, 8),
         searchPersonalMemory(userId, "", 20),
       ]);
       const personalMemoryQuery = [
-        message,
+        messageForContext || message,
         ...recentWebMessages
           .filter((item) => item.sender === "user")
           .slice(-2)
@@ -607,7 +651,7 @@ export async function POST(request: NextRequest) {
         ).values(),
       ];
       const webMemoryQuery = [
-        message,
+        messageForContext || message,
         ...recentWebMessages
           .filter((item) => item.sender === "user")
           .slice(-2)
@@ -685,7 +729,7 @@ export async function POST(request: NextRequest) {
       ].join("\n");
       const generated = await generateTelegramGroupReply(
         userId,
-        message || "Please inspect the attached media and respond helpfully.",
+        messageForContext || "Please inspect the attached media and respond helpfully.",
         context,
         attachments,
       );
@@ -773,8 +817,8 @@ export async function POST(request: NextRequest) {
       const reply = generated.reply?.trim() ?? "";
       if (!status.sendEnabled) {
         const summary = generated.summary.trim() || (
-          message.trim()
-            ? `Observasi faktual: owner menyampaikan "${message.trim().slice(0, 900)}". Tidak ada perasaan, keputusan, atau perubahan jangka panjang yang dinyatakan secara eksplisit pada pesan ini.`
+          (messageForContext || message).trim()
+            ? `Observasi faktual: owner menyampaikan "${(messageForContext || message).trim().slice(0, 900)}". Tidak ada perasaan, keputusan, atau perubahan jangka panjang yang dinyatakan secara eksplisit pada pesan ini.`
             : `Observasi faktual: owner membagikan media (${types.join(", ") || "media"}). Media telah diteruskan untuk dianalisis; tidak ada detail isi yang disimpan karena ringkasan AI kosong.`
         );
         return NextResponse.json({
@@ -797,7 +841,7 @@ export async function POST(request: NextRequest) {
       const normalizedReply = normalizeTelegramReply(reply);
       const duplicateReply =
         normalizedReply.length > 0 &&
-        (normalizedReply === normalizeTelegramReply(message) ||
+        (normalizedReply === normalizeTelegramReply(messageForContext || message) ||
           memory.some(
             (item) =>
               item.role === "bot" &&
@@ -823,6 +867,7 @@ export async function POST(request: NextRequest) {
         sendEnabled: true,
         reply: reply.slice(0, 1800),
         replyMode: generated.replyMode,
+        replyLinks: generated.replyLinks,
         summary: generated.summary.trim(),
         summaryStored: false,
         summaryPending: Boolean(generated.summary.trim()),
@@ -854,6 +899,33 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
+    if (input.action === "update_staged_owner_message") {
+      const ownerUid = telegramUserId(input.ownerUid);
+      const messageId = safeInteger(input.messageId);
+      const content = typeof input.content === "string" ? input.content : "";
+      if (
+        ownerUid === null ||
+        !config.adminTelegramIds.has(ownerUid) ||
+        messageId === null ||
+        messageId <= 0 ||
+        !content.trim() ||
+        content.length > 4000
+      ) {
+        return NextResponse.json({ ok: false, error: "invalid_staged_owner_message" }, { status: 400 });
+      }
+      const status = await getTelegramGroupAiStatus(id);
+      if (status.ownerUid !== ownerUid) {
+        return NextResponse.json({ ok: false, error: "not_group_owner" }, { status: 403 });
+      }
+      const updated = await updateStagedTelegramOwnerMessage({
+        groupId: id,
+        ownerUid,
+        messageId,
+        content,
+      });
+      return NextResponse.json({ ok: true, updated });
+    }
+
     if (input.action === "finalize_owner_message") {
       const messageId = input.messageId == null ? null : safeInteger(input.messageId);
       const timestamp = typeof input.timestamp === "string" &&
@@ -862,8 +934,38 @@ export async function POST(request: NextRequest) {
         : undefined;
       const content = typeof input.text === "string" ? input.text : "";
       const hasBotReply = messageId !== null || content.length > 0 || timestamp !== undefined;
+      const botMessages = input.botMessages;
+      const validBotMessages =
+        botMessages === undefined ||
+        Array.isArray(botMessages) &&
+          botMessages.length >= 1 &&
+          botMessages.length <= 2 &&
+          botMessages.every((item) => {
+            const row = asRecord(item);
+            if (!row) return false;
+            const botMessageId = safeInteger(row.messageId);
+            return (
+              botMessageId !== null &&
+              botMessageId > 0 &&
+              typeof row.content === "string" &&
+              Boolean(row.content.trim()) &&
+              row.content.length <= 4000 &&
+              typeof row.timestamp === "string" &&
+              Number.isFinite(Date.parse(row.timestamp)) &&
+              (row.mediaTypes === undefined ||
+                Array.isArray(row.mediaTypes) &&
+                  row.mediaTypes.length <= 8 &&
+                  row.mediaTypes.every(
+                    (mediaType) =>
+                      typeof mediaType === "string" &&
+                      ALLOWED_MEDIA_TYPES.has(mediaType),
+                  ))
+            );
+          });
       if (
         input.messageId != null && (messageId === null || messageId <= 0) ||
+        !validBotMessages ||
+        botMessages !== undefined && hasBotReply ||
         hasBotReply &&
           (messageId === null ||
             timestamp === undefined ||
@@ -893,6 +995,7 @@ export async function POST(request: NextRequest) {
         groupTitle: typeof input.groupTitle === "string" ? input.groupTitle.slice(0, 200) : "",
         ownerMessageId,
         summary,
+        ...(Array.isArray(botMessages) ? { botMessages } : {}),
         ...(messageId !== null ? { messageId } : {}),
         ...(content.trim() ? { content } : {}),
         ...(timestamp ? { timestamp } : {}),

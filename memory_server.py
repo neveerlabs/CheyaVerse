@@ -294,6 +294,28 @@ async def _handle(request: web.Request) -> web.Response:
         )
         return web.json_response({"ok": True, "rolledBack": rolled_back})
 
+    if action == "update_staged_owner_message":
+        message_id = _integer(body.get("messageId"))
+        content = body.get("content")
+        if (
+            message_id is None
+            or not isinstance(content, str)
+            or not content.strip()
+            or len(content) > MAX_TEXT_LENGTH
+        ):
+            raise web.HTTPBadRequest(
+                text=json.dumps({"ok": False, "error": "invalid_staged_owner_message"}),
+                content_type="application/json",
+            )
+        updated = await asyncio.to_thread(
+            memory.update_staged_owner_message,
+            group_id,
+            owner_uid,
+            message_id,
+            content,
+        )
+        return web.json_response({"ok": True, "updated": updated})
+
     if action in {
         "stage_owner_message",
         "store_owner_message",
@@ -492,13 +514,61 @@ async def _handle(request: web.Request) -> web.Response:
         message_id = _integer(raw_message_id) if raw_message_id is not None else None
         summary = body.get("summary")
         content = body.get("content")
-        has_bot_message = message_id is not None or content is not None
+        raw_bot_messages = body.get("botMessages")
+        bot_messages: list[dict[str, Any]] | None = None
+        if raw_bot_messages is not None:
+            if not isinstance(raw_bot_messages, list) or not 1 <= len(raw_bot_messages) <= 2:
+                raise web.HTTPBadRequest(
+                    text=json.dumps({"ok": False, "error": "invalid_finalized_messages"}),
+                    content_type="application/json",
+                )
+            bot_messages = []
+            for item in raw_bot_messages:
+                if not isinstance(item, dict):
+                    raise web.HTTPBadRequest(
+                        text=json.dumps({"ok": False, "error": "invalid_finalized_messages"}),
+                        content_type="application/json",
+                    )
+                bot_message_id = _integer(item.get("messageId"))
+                bot_content = item.get("content")
+                bot_timestamp = _valid_timestamp(item.get("timestamp"))
+                raw_media_types = item.get("mediaTypes", [])
+                if (
+                    bot_message_id is None
+                    or bot_message_id <= 0
+                    or not isinstance(bot_content, str)
+                    or not bot_content.strip()
+                    or len(bot_content) > MAX_TEXT_LENGTH
+                    or bot_timestamp is None
+                    or not isinstance(raw_media_types, list)
+                    or len(raw_media_types) > 8
+                    or any(
+                        not isinstance(media_type, str)
+                        or media_type not in ALLOWED_MEDIA_TYPES
+                        for media_type in raw_media_types
+                    )
+                ):
+                    raise web.HTTPBadRequest(
+                        text=json.dumps({"ok": False, "error": "invalid_finalized_messages"}),
+                        content_type="application/json",
+                    )
+                bot_messages.append(
+                    {
+                        "message_id": bot_message_id,
+                        "content": bot_content,
+                        "timestamp": bot_timestamp,
+                        "media_types": raw_media_types,
+                    }
+                )
+        has_bot_message = message_id is not None or content is not None or bot_messages is not None
         if (
             owner_message_id is None
             or raw_message_id is not None and message_id is None
+            or raw_bot_messages is not None
+            and (message_id is not None or content is not None or body.get("timestamp") is not None)
             or not isinstance(summary, str)
             or len(summary) > 1600
-            or has_bot_message
+            or has_bot_message and bot_messages is None
             and (
                 message_id is None
                 or not isinstance(content, str)
@@ -522,6 +592,7 @@ async def _handle(request: web.Request) -> web.Response:
             bot_message_id=message_id,
             bot_content=content,
             timestamp=_valid_timestamp(body.get("timestamp")),
+            bot_messages=bot_messages,
         )
         return web.json_response({"ok": True})
 
