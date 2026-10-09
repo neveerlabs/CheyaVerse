@@ -32,7 +32,7 @@ START_TEXT = (
     "Purpose   : Virtual assistant\n"
     "Status    : Running\n"
     "```"
-    "──────────────────────────\n"
+    "─────────────────────────\n"
     "*Cheya running successfully\\!*\n"
     "_Type /help to view available commands_"
 )

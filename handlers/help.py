@@ -21,17 +21,17 @@ router = Router(name="help")
 
 HELP_TEXT = (
     "Available commands and quick actions\n"
-    "──────────────────────────\n"
+    "─────────────────────────\n"
     "```\n"
     "• /start — Start CheyaVerse\n"
     "• /help — Command help\n"
     "• /status — Admin service status\n"
-    "• /qr [text] — Generate QR code from text\n"
+    "• /qr [text] — Generate QR code from text or image\n"
     "• /unblock — Review and unblock your blocked devices\n"
     "• /web — URL dashboard personal\n"
     "• /pesan [message] — Admin broadcast\n"
-    "• /send — Enable CheyaVerse AI replies in this chat\n"
-    "• /up — Pause CheyaVerse AI replies in this chat\n"
+    "• /send — Enable AI replies in this chat\n"
+    "• /up — Pause AI replies in this chat\n"
     "```\n"
 )
 
@@ -45,7 +45,7 @@ def _web_url(uid: int) -> str:
 def _web_text(uid: int) -> str:
     return (
         "Redirecting to webapp CheyaVerse\n"
-        "──────────────────────────\n"
+        "─────────────────────────\n"
         f"```\n{PUBLIC_URL}/\n```\n"
         "_Akses dashboardmu dengan link di atas\\._"
     )
