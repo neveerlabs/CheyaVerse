@@ -495,7 +495,6 @@ async def _handle(request: web.Request) -> web.Response:
             owner_message_id is None
             or message_id is None
             or not isinstance(summary, str)
-            or not summary.strip()
             or len(summary) > 1600
             or not isinstance(content, str)
             or not content.strip()

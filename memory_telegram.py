@@ -940,7 +940,7 @@ def finalize_owner_message(
     owner_uid: int,
     group_title: str,
     owner_message_id: int,
-    summary: str,
+    summary: str = "",
     bot_message_id: int,
     bot_content: str,
     timestamp: str | datetime | None,
@@ -959,15 +959,24 @@ def finalize_owner_message(
         if pending is None:
             connection.rollback()
             raise ValueError("Owner message is not awaiting AI completion.")
-        _store_insight_in_transaction(
-            connection,
-            group_id=group_id,
-            owner_uid=owner_uid,
-            group_title=group_title,
-            message_id=owner_message_id,
-            summary=summary,
-            replace=True,
-        )
+        if summary.strip():
+            _store_insight_in_transaction(
+                connection,
+                group_id=group_id,
+                owner_uid=owner_uid,
+                group_title=group_title,
+                message_id=owner_message_id,
+                summary=summary,
+                replace=True,
+            )
+        else:
+            connection.execute(
+                """
+                DELETE FROM telegram_ai_insights
+                WHERE group_id = ? AND owner_uid = ? AND telegram_message_id = ?
+                """,
+                (group_id, owner_uid, owner_message_id),
+            )
         _store_bot_message_in_transaction(
             connection,
             group_id=group_id,
