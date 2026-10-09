@@ -19,6 +19,7 @@ from telegram_tts import MAX_VOICE_REPLY_CHARS, synthesize_voice_note
 router = Router(name="telegram_group_ai")
 GROUP_TYPES = {"group", "supergroup"}
 VOICE_GENERATION_TIMEOUT_SECONDS = 20
+GROUP_AI_REQUEST_TIMEOUT_SECONDS = 310
 _CHAT_PROCESSING_LOCKS: dict[int, asyncio.Lock] = {}
 _BOT_CHANNEL_POSTS: dict[tuple[int, int], float] = {}
 
@@ -54,7 +55,10 @@ def _response_preview(body: str) -> str:
 async def _api(action: str, **payload):
     if not PUBLIC_URL or not TELEGRAM_GROUP_AI_SECRET:
         raise GroupAiApiError("PUBLIC_URL or TELEGRAM_GROUP_AI_SECRET is not configured")
-    timeout = aiohttp.ClientTimeout(total=70, connect=8)
+    timeout = aiohttp.ClientTimeout(
+        total=GROUP_AI_REQUEST_TIMEOUT_SECONDS,
+        connect=8,
+    )
     url = f"{PUBLIC_URL}/api/internal/telegram/group-ai"
     try:
         async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -74,6 +78,11 @@ async def _api(action: str, **payload):
                         f"{response.status}, content-type={content_type}, "
                         f"body-preview={preview!r}"
                     )
+                    if response.status == 504 and "FUNCTION_INVOCATION_TIMEOUT" in body:
+                        raise GroupAiApiError(
+                            "Group AI API timed out in Vercel "
+                            "(FUNCTION_INVOCATION_TIMEOUT)."
+                        ) from exc
                     raise GroupAiApiError(
                         f"Group AI API returned invalid JSON (HTTP {response.status}, "
                         f"content-type {content_type})."
