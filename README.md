@@ -71,6 +71,8 @@ Riwayat memori AI Telegram disimpan di SQLite lokal pada `TELEGRAM_AI_MEMORY_DB_
 
 Untuk akun admin/pemilik yang sama, setiap permintaan AI mengambil konteks terbatas dari kedua riwayat: Telegram dapat memakai chat web dari Supabase, dan web dapat memakai pesan asli, insight, serta balasan Telegram dari SQLite. Pencarian dilakukan pada riwayat tersimpan dan menyertakan percakapan terbaru serta balasan terkait; seluruh transkrip tidak dikirim sekaligus. Pesan yang dihapus atau disembunyikan dari chat web tidak dipakai. Di Telegram, balasan otomatis tetap bergantung pada izin kirim; jika diaktifkan, AI dapat menanggapi post biasa saat ada respons yang berguna, tanpa membalas setiap post.
 
+Saat mode `/send` aktif, AI memilih apakah balasan lebih cocok dikirim sebagai teks atau voice note. Permintaan voice note langsung wajib memakai voice; balasan singkat atas voice note, percakapan personal, atau momen emosional/playful juga lebih diutamakan sebagai voice bila terasa natural. Kode, tautan, daftar, instruksi rinci, dan jawaban dengan sumber tetap berupa teks. Bot mencatat mode yang dipilih di log; voice dibuat dengan suara neural perempuan Indonesia `id-ID-GadisNeural` melalui Edge TTS tanpa API key, sehingga memerlukan koneksi internet dari server bot. Jika sintesis suara gagal atau teks terlalu panjang, bot mencatat kegagalan dan mengirim balasan yang sama sebagai teks. Mode `/up` tetap hanya menyimpan pesan dan insight, tanpa mengirim voice maupun teks.
+
 Untuk membaca memori sebagai JSON, jalankan export manual dari root repository:
 
 ```bash

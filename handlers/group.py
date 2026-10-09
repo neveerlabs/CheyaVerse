@@ -7,13 +7,15 @@ from aiogram import Bot, F, Router
 from aiogram.enums import ChatMemberStatus
 from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.types import BufferedInputFile, Message
 
 from config import ADMIN_TELEGRAM_IDS, PUBLIC_URL, TELEGRAM_GROUP_AI_SECRET
 from logger import logger
+from telegram_tts import MAX_VOICE_REPLY_CHARS, synthesize_voice_note
 
 router = Router(name="telegram_group_ai")
 GROUP_TYPES = {"group", "supergroup"}
+VOICE_GENERATION_TIMEOUT_SECONDS = 20
 _CHAT_PROCESSING_LOCKS: dict[int, asyncio.Lock] = {}
 _BOT_CHANNEL_POSTS: dict[tuple[int, int], float] = {}
 
@@ -377,6 +379,44 @@ def _normalized_message_text(value: str) -> str:
     return " ".join(value.casefold().split())
 
 
+async def _send_ai_reply(message: Message, reply: str, reply_mode: object) -> Message:
+    if reply_mode == "voice":
+        if len(reply) <= MAX_VOICE_REPLY_CHARS:
+            try:
+                audio = await asyncio.wait_for(
+                    synthesize_voice_note(reply),
+                    timeout=VOICE_GENERATION_TIMEOUT_SECONDS,
+                )
+                voice = BufferedInputFile(audio, filename="cheya-voice.mp3")
+                sent = (
+                    await message.answer_voice(voice=voice)
+                    if message.chat.type == "channel"
+                    else await message.reply_voice(voice=voice)
+                )
+                _mark_bot_channel_post(sent)
+                return sent
+            except Exception as exc:
+                logger.warning(
+                    f"Voice reply failed for Telegram message {message.message_id} "
+                    f"in {message.chat.id}; falling back to text: "
+                    f"{type(exc).__name__}: {exc}"
+                )
+        else:
+            logger.warning(
+                f"Voice reply exceeded {MAX_VOICE_REPLY_CHARS} characters for "
+                f"Telegram message {message.message_id} in {message.chat.id}; "
+                "falling back to text."
+            )
+
+    sent = (
+        await message.answer(reply, parse_mode=None)
+        if message.chat.type == "channel"
+        else await message.reply(reply, parse_mode=None)
+    )
+    _mark_bot_channel_post(sent)
+    return sent
+
+
 async def _process_owner_message_locked(
     message: Message,
     owner_uid: int,
@@ -500,12 +540,12 @@ async def _process_owner_message_locked(
             )
             await _rollback_staged_message(message, owner_uid)
             return
-        sent = (
-            await message.answer(reply.strip()[:1800], parse_mode=None)
-            if message.chat.type == "channel"
-            else await message.reply(reply.strip()[:1800], parse_mode=None)
+        normalized_reply = reply.strip()[:1800]
+        sent = await _send_ai_reply(
+            message,
+            normalized_reply,
+            result.get("replyMode"),
         )
-        _mark_bot_channel_post(sent)
         reply_sent = True
         finalized = await _api(
             "finalize_owner_message",
@@ -514,7 +554,7 @@ async def _process_owner_message_locked(
             groupTitle=message.chat.title or "",
             ownerMessageId=message.message_id,
             messageId=sent.message_id,
-            text=reply.strip()[:1800],
+            text=normalized_reply,
             summary=result.get("summary"),
             timestamp=sent.date.isoformat(),
         )

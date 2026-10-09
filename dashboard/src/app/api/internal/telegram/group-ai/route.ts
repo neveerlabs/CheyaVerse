@@ -822,6 +822,7 @@ export async function POST(request: NextRequest) {
         stored: true,
         sendEnabled: true,
         reply: reply.slice(0, 1800),
+        replyMode: generated.replyMode,
         summary: generated.summary.trim(),
         summaryStored: false,
         summaryPending: Boolean(generated.summary.trim()),
