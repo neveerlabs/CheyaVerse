@@ -74,10 +74,16 @@ def _supabase_storage_headers() -> dict[str, str]:
         raise RuntimeError(
             "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required for Supabase Storage"
         )
-    return {
-        "apikey": SUPABASE_SERVICE_ROLE_KEY,
-        "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
-    }
+    key = SUPABASE_SERVICE_ROLE_KEY
+    headers = {"apikey": key}
+    if key.startswith("sb_secret_"):
+        return headers
+    if len(key.split(".")) == 3:
+        headers["Authorization"] = f"Bearer {key}"
+        return headers
+    raise RuntimeError(
+        "SUPABASE_SERVICE_ROLE_KEY must be a Supabase sb_secret_ key or a legacy service_role JWT"
+    )
 
 
 async def _get_storage_session() -> aiohttp.ClientSession:

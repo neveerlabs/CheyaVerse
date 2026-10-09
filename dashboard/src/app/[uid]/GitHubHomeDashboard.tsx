@@ -128,10 +128,7 @@ function DashboardSkeleton() {
           <div className="h-6 w-16 rounded-full bg-slate-100" />
         </div>
         <div className="mt-3 h-3 w-3/4 max-w-full rounded-full bg-slate-100" />
-        <div
-          className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4"
-          style={{ maskImage: "linear-gradient(90deg, transparent, black 3%, black 97%, transparent)" }}
-        >
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
           {[0, 1, 2, 3].map((item) => (
             <div key={item} className="h-[68px] rounded-xl bg-slate-50 p-3">
               <div className="h-2 w-20 rounded-full bg-slate-100" />
@@ -360,7 +357,10 @@ function FeaturedProjectCard({ uid, project }: { uid: string; project: Project }
 
         <div
           className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4"
-          style={{ maskImage: "linear-gradient(90deg, transparent, black 3%, black 97%, transparent)" }}
+          style={{
+            maskImage:
+              "linear-gradient(90deg, transparent, black 4%, black 96%, transparent)",
+          }}
         >
           <div className="rounded-xl bg-violet-50/80 px-3 py-2">
             <p className="text-[8px] font-semibold uppercase tracking-wide text-violet-600">Commits · 30d</p>
