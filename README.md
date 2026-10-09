@@ -27,7 +27,7 @@ cd CheyaVerse
 1. Buat project baru di Supabase. Pilih region yang dekat dengan server aplikasi, atur password database, dan tunggu sampai status project siap.
 2. Dari **Project Settings → Database → Connect**, salin connection string **Session pooler** untuk PostgreSQL. Isi password database yang diminta. Gunakan string ini sebagai `SUPABASE_DB_URL` untuk bot dan web; jangan gunakan URL SQLite/Turso. Session pooler direkomendasikan untuk aplikasi Node/Python yang berjalan lama. Pertahankan opsi TLS/SSL seperti `sslmode=require` yang diberikan Supabase dan URL-encode password jika mengandung karakter khusus.
 3. Buka **SQL Editor → New query** di Supabase. Salin seluruh isi [dashboard/sql/bootstrap.sql](./dashboard/sql/bootstrap.sql) ke editor, lalu klik **Run**. Jalankan sekali pada project kosong. Skrip membuat skema aplikasi, kebijakan akses realtime, publication, serta private Storage bucket `user-media`. Skrip tidak menyalin data Turso lama.
-4. Dari **Project Settings → API Keys**, salin Project URL dan secret key server (`sb_secret_...`) untuk akses Supabase Storage; secret key ini dipasang pada variabel `SUPABASE_SERVICE_ROLE_KEY` di konfigurasi CheyaVerse. Legacy `service_role` JWT juga didukung. Ambil juga legacy HS256 JWT secret project dari pengaturan JWT/API; simpan sebagai `SUPABASE_JWT_SECRET` (ini bukan API key). Secret key, legacy service-role key, dan JWT secret adalah rahasia server: jangan taruh dengan prefix `NEXT_PUBLIC_`, jangan bagikan, dan jangan commit.
+4. Dari **Project Settings → API Keys**, salin Project URL dan secret key server (`sb_secret_...`) untuk akses Supabase Storage; secret key ini dipasang pada variabel `SUPABASE_SERVICE_ROLE_KEY` di konfigurasi CheyaVerse. Jika memakai secret key baru, ambil juga legacy HS256 JWT secret project dari pengaturan JWT/API dan simpan sebagai `SUPABASE_JWT_SECRET`; bot dan web menggunakannya untuk menandatangani JWT `service_role` berumur pendek yang diwajibkan Storage, sementara API key tetap dikirim melalui header `apikey`. Alternatifnya, legacy `service_role` JWT tetap didukung langsung. Secret key, legacy service-role key, dan JWT secret adalah rahasia server: jangan taruh dengan prefix `NEXT_PUBLIC_`, jangan bagikan, dan jangan commit.
 5. Di **Storage**, pastikan bucket private `user-media` dibuat oleh bootstrap dengan batas upload 50 MiB. Batas efektif tetap tunduk pada batas plan dan konfigurasi Supabase Storage.
 
 Bootstrap adalah satu-satunya skema PostgreSQL yang dipakai aplikasi web dan bot. Jalankan ulang setelah pembaruan yang mengubah skema. Ia memakai `IF NOT EXISTS` dan memperbarui kebijakan/pengaturan Storage milik CheyaVerse; ia tidak mengosongkan tabel maupun menghapus data. Skrip juga memasang pencatat aktivitas database dan tabel sementara keepalive. Jangan jalankan perintah reset/drop kecuali memang ingin menghapus seluruh data project.
@@ -50,6 +50,8 @@ BOT_TOKEN=token_dari_BotFather
 SUPABASE_DB_URL=postgresql://postgres.PROJECT_REF:PASSWORD@aws-0-REGION.pooler.supabase.com:5432/postgres
 SUPABASE_URL=https://PROJECT_REF.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=sb_secret_key_rahasia
+# Wajib untuk sb_secret_ key; ambil legacy HS256 JWT secret dari project yang sama
+SUPABASE_JWT_SECRET=legacy_jwt_signing_secret_rahasia
 PUBLIC_URL=http://localhost:8080
 MEDIA_TTL_DAYS=30
 # Opsional untuk memori AI grup: gunakan secret acak yang sama di bot dan web
@@ -63,7 +65,7 @@ TELEGRAM_AI_MEMORY_PORT=8765
 TELEGRAM_AI_MEMORY_DB_PATH=data/memory.sqlite3
 ```
 
-Ganti semua nilai contoh dengan nilai project Supabase dan Telegram milik sendiri. `SUPABASE_DB_URL` harus connection string PostgreSQL Session pooler yang sama dengan web. Bot membutuhkan `SUPABASE_URL` serta secret key Supabase di `SUPABASE_SERVICE_ROLE_KEY` untuk mengunggah dan menghapus berkas di bucket private. Secret key baru dikirim melalui header `apikey`; legacy `service_role` JWT tetap didukung. Jangan gunakan key server sebagai anon key atau kirim ke browser. Isi `PUBLIC_URL` dengan alamat web yang dapat dibuka pengguna; gunakan HTTPS untuk deployment.
+Ganti semua nilai contoh dengan nilai project Supabase dan Telegram milik sendiri. `SUPABASE_DB_URL` harus connection string PostgreSQL Session pooler yang sama dengan web. Bot membutuhkan `SUPABASE_URL` serta secret key Supabase di `SUPABASE_SERVICE_ROLE_KEY` untuk mengunggah dan menghapus berkas di bucket private. Dengan `sb_secret_` key, bot dan web memakai `SUPABASE_JWT_SECRET` untuk membuat token otorisasi `service_role` singkat dan mengirim secret key melalui header `apikey`; pastikan nilai JWT secret yang sama tersedia di `.env` bot dan environment web (misalnya Vercel). Jika memakai legacy `service_role` JWT, variabel JWT secret tambahan ini tidak diperlukan untuk Storage. Jangan gunakan key server atau JWT secret di browser. Isi `PUBLIC_URL` dengan alamat web yang dapat dibuka pengguna; gunakan HTTPS untuk deployment.
 
 Riwayat memori AI Telegram disimpan di SQLite lokal pada `TELEGRAM_AI_MEMORY_DB_PATH`; pesan chat web dan setting/consent AI tetap di Supabase. File SQLite berada di disk komputer/server bot dan sudah diabaikan Git. Jangan simpan file itu di filesystem ephemeral atau folder yang dibersihkan otomatis. Untuk membuat ZIP seluruh project termasuk database SQLite, gunakan `python backup.py` dari root repository.
 

@@ -1,12 +1,39 @@
 import "server-only";
 
-import { randomUUID } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 
 const BUCKET = "user-media";
 const SIGNED_URL_TTL_SECONDS = 60;
 
 let client: ReturnType<typeof createClient> | null = null;
+
+function createStorageAccessToken(): string {
+  const secret = process.env.SUPABASE_JWT_SECRET;
+  if (!secret) {
+    throw new Error(
+      "SUPABASE_JWT_SECRET is required with an sb_secret_ key to authorize Supabase Storage requests.",
+    );
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const encode = (value: Record<string, string | number>) =>
+    Buffer.from(JSON.stringify(value)).toString("base64url");
+  const signingInput = [
+    encode({ alg: "HS256", typ: "JWT" }),
+    encode({
+      aud: "authenticated",
+      iss: "supabase",
+      role: "service_role",
+      iat: now,
+      exp: now + 300,
+    }),
+  ].join(".");
+  const signature = createHmac("sha256", secret)
+    .update(signingInput)
+    .digest("base64url");
+  return `${signingInput}.${signature}`;
+}
 
 function getStorageClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -15,8 +42,12 @@ function getStorageClient() {
     throw new Error("Supabase Storage is not configured.");
   }
   if (!client) {
+    const accessToken = serviceRoleKey.startsWith("sb_secret_")
+      ? async () => createStorageAccessToken()
+      : undefined;
     client = createClient(url, serviceRoleKey, {
       auth: { autoRefreshToken: false, persistSession: false },
+      ...(accessToken ? { accessToken } : {}),
     });
   }
   return client;

@@ -1,9 +1,12 @@
 import asyncio
+import base64
 import hashlib
+import hmac
 import html
 import json
 import random
 import re
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
@@ -15,6 +18,7 @@ import asyncpg
 from config import (
     SUPABASE_DB_URL,
     SUPABASE_URL,
+    SUPABASE_JWT_SECRET,
     SUPABASE_SERVICE_ROLE_KEY,
     TELEGRAM_STORAGE_CHAT_ID,
     VAPID_PUBLIC_KEY,
@@ -77,6 +81,37 @@ def _supabase_storage_headers() -> dict[str, str]:
     key = SUPABASE_SERVICE_ROLE_KEY
     headers = {"apikey": key}
     if key.startswith("sb_secret_"):
+        if not SUPABASE_JWT_SECRET:
+            raise RuntimeError(
+                "SUPABASE_JWT_SECRET is required with an sb_secret_ key "
+                "to authorize Supabase Storage requests"
+            )
+        now = int(time.time())
+        encode = lambda value: base64.urlsafe_b64encode(
+            json.dumps(value, separators=(",", ":")).encode("utf-8")
+        ).rstrip(b"=").decode("ascii")
+        signing_input = ".".join(
+            (
+                encode({"alg": "HS256", "typ": "JWT"}),
+                encode({
+                    "aud": "authenticated",
+                    "iss": "supabase",
+                    "role": "service_role",
+                    "iat": now,
+                    "exp": now + 300,
+                }),
+            )
+        )
+        signature = hmac.new(
+            SUPABASE_JWT_SECRET.encode("utf-8"),
+            signing_input.encode("ascii"),
+            hashlib.sha256,
+        ).digest()
+        token = (
+            f"{signing_input}."
+            f"{base64.urlsafe_b64encode(signature).rstrip(b'=').decode('ascii')}"
+        )
+        headers["Authorization"] = f"Bearer {token}"
         return headers
     if len(key.split(".")) == 3:
         headers["Authorization"] = f"Bearer {key}"
