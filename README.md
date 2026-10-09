@@ -327,7 +327,6 @@ npm start
 ### Deployment
 
 ![Vercel](https://img.shields.io/badge/Vercel-000000?style=for-the-badge&logo=vercel&logoColor=white)
-![Suga](https://img.shields.io/badge/Suga-FF6B6B?style=for-the-badge&logo=vercel&logoColor=white)
 
 ### Tools & Utilities
 
@@ -354,7 +353,7 @@ npm start
 | **Auth / Verification** | Google reCAPTCHA v2 | Proteksi endpoint download |
 | **Realtime** | Supabase Realtime (WebSocket) | Perubahan database dikirim ke klien melalui Postgres Changes |
 | **Caching** | In-memory + IndexedDB | Cache media & thumbnail video di client |
-| **Deployment** | Vercel / Suga | Serverless hosting |
+| **Deployment** | Vercel | Serverless hosting |
 
 ---
 
@@ -372,7 +371,7 @@ npm start
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-1.7.3-blue?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-3.4.8-release-blue?style=for-the-badge)
 ![Status](https://img.shields.io/badge/status-active-success?style=for-the-badge)
 
 </div>

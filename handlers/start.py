@@ -27,7 +27,7 @@ START_TEXT = (
     "```\n"
     "Name      : CheyaVerse\n"
     "Developer : M. Syalman Al Farizi\n"
-    "Version   : v2.6.3-release\n"
+    "Version   : v3.4.8-release\n"
     "Platform  : Telegram\n"
     "Purpose   : Virtual assistant\n"
     "Status    : Running\n"

@@ -128,7 +128,10 @@ function DashboardSkeleton() {
           <div className="h-6 w-16 rounded-full bg-slate-100" />
         </div>
         <div className="mt-3 h-3 w-3/4 max-w-full rounded-full bg-slate-100" />
-        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div
+          className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4"
+          style={{ maskImage: "linear-gradient(90deg, transparent, black 3%, black 97%, transparent)" }}
+        >
           {[0, 1, 2, 3].map((item) => (
             <div key={item} className="h-[68px] rounded-xl bg-slate-50 p-3">
               <div className="h-2 w-20 rounded-full bg-slate-100" />
@@ -327,15 +330,21 @@ function ProjectCard({ uid, project }: { uid: string; project: Project }) {
 
 function FeaturedProjectCard({ uid, project }: { uid: string; project: Project }) {
   const { repository, latestCommit, latestRelease, history } = project;
+  const detailHref = projectHref(uid, project);
   const average = history.recentChanges.measuredCommits
     ? Math.round(history.recentChanges.averageLinesChanged)
     : null;
   return (
-    <article className="overflow-hidden rounded-[26px] border border-violet-100 bg-white shadow-[0_18px_48px_-34px_rgba(79,70,229,.5)]">
-      <div className="p-4 sm:p-6">
+    <article className="group relative overflow-hidden rounded-[26px] border border-violet-100 bg-white shadow-[0_18px_48px_-34px_rgba(79,70,229,.5)] transition-shadow hover:shadow-[0_22px_56px_-34px_rgba(79,70,229,.55)]">
+      <Link
+        href={detailHref}
+        aria-label={`View ${repository.fullName} project details`}
+        className="absolute inset-0 z-0 rounded-[inherit] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500"
+      />
+      <div className="pointer-events-none relative z-10 p-4 sm:p-6">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <Link href={projectHref(uid, project)} className="flex min-w-0 items-center gap-2 text-indigo-800 hover:underline">
+            <Link href={detailHref} className="pointer-events-auto flex min-w-0 items-center gap-2 text-indigo-800 hover:underline">
               <Github size={18} className="shrink-0 text-slate-500" />
               <span className="truncate text-[15px] font-bold sm:text-[18px]">{repository.fullName}</span>
             </Link>
@@ -349,7 +358,10 @@ function FeaturedProjectCard({ uid, project }: { uid: string; project: Project }
           {repository.description || "No description provided."}
         </p>
 
-        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div
+          className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4"
+          style={{ maskImage: "linear-gradient(90deg, transparent, black 3%, black 97%, transparent)" }}
+        >
           <div className="rounded-xl bg-violet-50/80 px-3 py-2">
             <p className="text-[8px] font-semibold uppercase tracking-wide text-violet-600">Commits · 30d</p>
             <p className="mt-0.5 text-[15px] font-bold text-slate-900">{formatNumber(history.commitsLastMonth)}</p>
@@ -378,22 +390,26 @@ function FeaturedProjectCard({ uid, project }: { uid: string; project: Project }
             <span className="inline-flex items-center gap-1"><GitBranch size={11} />{repository.defaultBranch}</span>
             <span>{formatDate(repository.pushedAt ?? "")}</span>
             {latestRelease && (
-              <a href={latestRelease.url} target="_blank" rel="noreferrer" className="inline-flex max-w-[150px] items-center gap-1 truncate rounded-lg bg-violet-50 px-2 py-1 font-semibold text-violet-700">
+              <a href={latestRelease.url} target="_blank" rel="noreferrer" className="pointer-events-auto inline-flex max-w-[150px] items-center gap-1 truncate rounded-lg bg-violet-50 px-2 py-1 font-semibold text-violet-700">
                 <Tag size={10} className="shrink-0" />{latestRelease.tagName}
               </a>
             )}
           </div>
         </div>
         <div className="mt-3 min-w-0">
-          <ActivitySparkline
-            activity={history.commitActivity}
-            commitCount={history.commitsLastMonth}
-            capped={history.commitsLastMonthCapped}
-            wide
-          />
+          <div
+            style={{ maskImage: "linear-gradient(90deg, transparent, black 3%, black 97%, transparent)" }}
+          >
+            <ActivitySparkline
+              activity={history.commitActivity}
+              commitCount={history.commitsLastMonth}
+              capped={history.commitsLastMonthCapped}
+              wide
+            />
+          </div>
         </div>
         {latestCommit && (
-          <a href={latestCommit.url} target="_blank" rel="noreferrer" className="mt-3 block truncate border-t border-slate-100 pt-3 text-[10px] font-medium text-slate-700 hover:text-indigo-700">
+          <a href={latestCommit.url} target="_blank" rel="noreferrer" className="pointer-events-auto mt-3 block truncate border-t border-slate-100 pt-3 text-[10px] font-medium text-slate-700 hover:text-indigo-700">
             <span className="mr-1.5 text-slate-400">{latestCommit.author} · {formatDate(latestCommit.date)}</span>
             {latestCommit.message.split("\n")[0] || "Latest commit"}
           </a>

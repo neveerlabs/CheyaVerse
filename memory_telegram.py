@@ -123,6 +123,15 @@ def initialize(path: str | Path | None = None) -> None:
                 timestamp TEXT NOT NULL,
                 UNIQUE(group_id, telegram_message_id)
             );
+            CREATE TABLE IF NOT EXISTS telegram_ai_pending_messages (
+                group_id INTEGER NOT NULL,
+                owner_uid INTEGER NOT NULL,
+                telegram_message_id INTEGER NOT NULL,
+                previous_message TEXT,
+                previous_insight TEXT,
+                staged_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY(group_id, telegram_message_id)
+            );
             CREATE TABLE IF NOT EXISTS memory (
                 id TEXT PRIMARY KEY,
                 owner_uid INTEGER NOT NULL,
@@ -563,11 +572,218 @@ def owner_message_exists(group_id: int, owner_uid: int, message_id: int) -> bool
             """
             SELECT 1 FROM telegram_ai_messages
             WHERE group_id = ? AND telegram_message_id = ? AND sender_uid = ?
+              AND NOT EXISTS (
+                SELECT 1 FROM telegram_ai_pending_messages AS pending
+                WHERE pending.group_id = telegram_ai_messages.group_id
+                  AND pending.telegram_message_id =
+                      telegram_ai_messages.telegram_message_id
+              )
             LIMIT 1
             """,
             (group_id, message_id, owner_uid),
         ).fetchone()
     return row is not None
+
+
+def stage_owner_message(
+    *,
+    group_id: int,
+    owner_uid: int,
+    group_title: str,
+    message_id: int,
+    sender_name: str,
+    content: str,
+    media_types: list[str],
+    reply_to_message_id: int | None,
+    edited: bool,
+    timestamp: str | datetime | None = None,
+) -> str:
+    cleanup_stale_owner_messages()
+    initialize()
+    with database() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        pending = connection.execute(
+            """
+            SELECT owner_uid FROM telegram_ai_pending_messages
+            WHERE group_id = ? AND telegram_message_id = ?
+            """,
+            (group_id, message_id),
+        ).fetchone()
+        if pending is not None:
+            connection.rollback()
+            return "in_progress"
+
+        previous_message = connection.execute(
+            """
+            SELECT id, group_id, telegram_message_id, sender_uid, sender_name,
+                   role, content, media_types, reply_to_message_id,
+                   telegram_reply_to_message_id, timestamp
+            FROM telegram_ai_messages
+            WHERE group_id = ? AND telegram_message_id = ? AND sender_uid = ?
+            LIMIT 1
+            """,
+            (group_id, message_id, owner_uid),
+        ).fetchone()
+        if previous_message is not None and not edited:
+            connection.rollback()
+            return "duplicate"
+
+        previous_insight = connection.execute(
+            """
+            SELECT id, group_id, owner_uid, telegram_message_id, summary, timestamp
+            FROM telegram_ai_insights
+            WHERE group_id = ? AND telegram_message_id = ? AND owner_uid = ?
+            LIMIT 1
+            """,
+            (group_id, message_id, owner_uid),
+        ).fetchone()
+        result = _store_owner_message_in_transaction(
+            connection,
+            group_id=group_id,
+            owner_uid=owner_uid,
+            group_title=group_title,
+            message_id=message_id,
+            sender_name=sender_name,
+            content=content,
+            media_types=media_types,
+            reply_to_message_id=reply_to_message_id,
+            edited=True,
+            timestamp=timestamp,
+        )
+        if result != "stored":
+            connection.rollback()
+            return result
+        connection.execute(
+            """
+            DELETE FROM telegram_ai_insights
+            WHERE group_id = ? AND owner_uid = ? AND telegram_message_id = ?
+            """,
+            (group_id, owner_uid, message_id),
+        )
+        connection.execute(
+            """
+            INSERT INTO telegram_ai_pending_messages(
+                group_id, owner_uid, telegram_message_id,
+                previous_message, previous_insight
+            )
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                group_id,
+                owner_uid,
+                message_id,
+                json.dumps(dict(previous_message)) if previous_message else None,
+                json.dumps(dict(previous_insight)) if previous_insight else None,
+            ),
+        )
+        connection.commit()
+        return "staged"
+
+
+def rollback_owner_message(group_id: int, owner_uid: int, message_id: int) -> bool:
+    initialize()
+    with database() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        pending = connection.execute(
+            """
+            SELECT previous_message, previous_insight FROM telegram_ai_pending_messages
+            WHERE group_id = ? AND owner_uid = ? AND telegram_message_id = ?
+            LIMIT 1
+            """,
+            (group_id, owner_uid, message_id),
+        ).fetchone()
+        if pending is None:
+            connection.rollback()
+            return False
+
+        connection.execute(
+            """
+            DELETE FROM telegram_ai_insights
+            WHERE group_id = ? AND owner_uid = ? AND telegram_message_id = ?
+            """,
+            (group_id, owner_uid, message_id),
+        )
+        if pending["previous_message"] is None:
+            connection.execute(
+                """
+                DELETE FROM telegram_ai_messages
+                WHERE group_id = ? AND sender_uid = ? AND telegram_message_id = ?
+                """,
+                (group_id, owner_uid, message_id),
+            )
+        else:
+            previous_message = json.loads(str(pending["previous_message"]))
+            connection.execute(
+                """
+                UPDATE telegram_ai_messages
+                SET id = ?, sender_uid = ?, sender_name = ?, role = ?, content = ?,
+                    media_types = ?, reply_to_message_id = ?,
+                    telegram_reply_to_message_id = ?, timestamp = ?
+                WHERE group_id = ? AND telegram_message_id = ?
+                """,
+                (
+                    previous_message["id"],
+                    previous_message["sender_uid"],
+                    previous_message["sender_name"],
+                    previous_message["role"],
+                    previous_message["content"],
+                    previous_message["media_types"],
+                    previous_message["reply_to_message_id"],
+                    previous_message["telegram_reply_to_message_id"],
+                    previous_message["timestamp"],
+                    group_id,
+                    message_id,
+                ),
+            )
+            if pending["previous_insight"] is not None:
+                previous_insight = json.loads(str(pending["previous_insight"]))
+                connection.execute(
+                    """
+                    INSERT INTO telegram_ai_insights(
+                        id, group_id, owner_uid, telegram_message_id, summary, timestamp
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        previous_insight["id"],
+                        previous_insight["group_id"],
+                        previous_insight["owner_uid"],
+                        previous_insight["telegram_message_id"],
+                        previous_insight["summary"],
+                        previous_insight["timestamp"],
+                    ),
+                )
+        connection.execute(
+            """
+            DELETE FROM telegram_ai_pending_messages
+            WHERE group_id = ? AND owner_uid = ? AND telegram_message_id = ?
+            """,
+            (group_id, owner_uid, message_id),
+        )
+        connection.commit()
+        return True
+
+
+def cleanup_stale_owner_messages() -> int:
+    initialize()
+    with database() as connection:
+        stale = _rows(
+            connection,
+            """
+            SELECT group_id, owner_uid, telegram_message_id
+            FROM telegram_ai_pending_messages
+            WHERE julianday(staged_at) < julianday('now', '-30 minutes')
+            """,
+            (),
+        )
+    return sum(
+        rollback_owner_message(
+            int(row["group_id"]),
+            int(row["owner_uid"]),
+            int(row["telegram_message_id"]),
+        )
+        for row in stale
+    )
 
 
 def store_owner_message(
@@ -647,6 +863,55 @@ def store_processed_owner_message(
         return result
 
 
+def _store_bot_message_in_transaction(
+    connection: sqlite3.Connection,
+    *,
+    group_id: int,
+    message_id: int,
+    content: str,
+    reply_to_message_id: int | None,
+    timestamp: str | datetime | None,
+) -> None:
+    existing = connection.execute(
+        """
+        SELECT id FROM telegram_ai_messages
+        WHERE group_id = ? AND telegram_message_id = ? LIMIT 1
+        """,
+        (group_id, message_id),
+    ).fetchone()
+    replied = None
+    if reply_to_message_id is not None:
+        replied = connection.execute(
+            """
+            SELECT id FROM telegram_ai_messages
+            WHERE group_id = ? AND telegram_message_id = ? LIMIT 1
+            """,
+            (group_id, reply_to_message_id),
+        ).fetchone()
+    connection.execute(
+        """
+        INSERT INTO telegram_ai_messages(
+            id, group_id, telegram_message_id, sender_uid, sender_name,
+            role, content, media_types, reply_to_message_id,
+            telegram_reply_to_message_id, timestamp
+        )
+        VALUES (?, ?, ?, NULL, 'Cheya', 'bot', ?, '', ?, ?, ?)
+        ON CONFLICT(group_id, telegram_message_id) DO NOTHING
+        """,
+        (
+            str(existing["id"])
+            if existing
+            else _new_public_id(connection, "telegram_ai_messages"),
+            group_id,
+            message_id,
+            content[:4000],
+            str(replied["id"]) if replied else None,
+            reply_to_message_id,
+            _normalize_timestamp(timestamp),
+        ),
+    )
+
+
 def store_bot_message(
     *,
     group_id: int,
@@ -658,43 +923,65 @@ def store_bot_message(
     initialize()
     with database() as connection:
         connection.execute("BEGIN IMMEDIATE")
-        existing = connection.execute(
+        _store_bot_message_in_transaction(
+            connection,
+            group_id=group_id,
+            message_id=message_id,
+            content=content,
+            reply_to_message_id=reply_to_message_id,
+            timestamp=timestamp,
+        )
+        connection.commit()
+
+
+def finalize_owner_message(
+    *,
+    group_id: int,
+    owner_uid: int,
+    group_title: str,
+    owner_message_id: int,
+    summary: str,
+    bot_message_id: int,
+    bot_content: str,
+    timestamp: str | datetime | None,
+) -> None:
+    initialize()
+    with database() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        pending = connection.execute(
             """
-            SELECT id FROM telegram_ai_messages
-            WHERE group_id = ? AND telegram_message_id = ? LIMIT 1
+            SELECT 1 FROM telegram_ai_pending_messages
+            WHERE group_id = ? AND owner_uid = ? AND telegram_message_id = ?
+            LIMIT 1
             """,
-            (group_id, message_id),
+            (group_id, owner_uid, owner_message_id),
         ).fetchone()
-        replied = None
-        if reply_to_message_id is not None:
-            replied = connection.execute(
-                """
-                SELECT id FROM telegram_ai_messages
-                WHERE group_id = ? AND telegram_message_id = ? LIMIT 1
-                """,
-                (group_id, reply_to_message_id),
-            ).fetchone()
+        if pending is None:
+            connection.rollback()
+            raise ValueError("Owner message is not awaiting AI completion.")
+        _store_insight_in_transaction(
+            connection,
+            group_id=group_id,
+            owner_uid=owner_uid,
+            group_title=group_title,
+            message_id=owner_message_id,
+            summary=summary,
+            replace=True,
+        )
+        _store_bot_message_in_transaction(
+            connection,
+            group_id=group_id,
+            message_id=bot_message_id,
+            content=bot_content,
+            reply_to_message_id=owner_message_id,
+            timestamp=timestamp,
+        )
         connection.execute(
             """
-            INSERT INTO telegram_ai_messages(
-                id, group_id, telegram_message_id, sender_uid, sender_name,
-                role, content, media_types, reply_to_message_id,
-                telegram_reply_to_message_id, timestamp
-            )
-            VALUES (?, ?, ?, NULL, 'Cheya', 'bot', ?, '', ?, ?, ?)
-            ON CONFLICT(group_id, telegram_message_id) DO NOTHING
+            DELETE FROM telegram_ai_pending_messages
+            WHERE group_id = ? AND owner_uid = ? AND telegram_message_id = ?
             """,
-            (
-                str(existing["id"])
-                if existing
-                else _new_public_id(connection, "telegram_ai_messages"),
-                group_id,
-                message_id,
-                content[:4000],
-                str(replied["id"]) if replied else None,
-                reply_to_message_id,
-                _normalize_timestamp(timestamp),
-            ),
+            (group_id, owner_uid, owner_message_id),
         )
         connection.commit()
 
@@ -710,6 +997,199 @@ def get_insight(group_id: int, owner_uid: int, message_id: int) -> str | None:
             (group_id, owner_uid, message_id),
         ).fetchone()
     return str(row["summary"]) if row else None
+
+
+def apply_owner_data_operation(
+    group_id: int,
+    owner_uid: int,
+    operation: str,
+    *,
+    record_id: str | None = None,
+    message_id: str | None = None,
+    content: str | None = None,
+    summary: str | None = None,
+) -> bool:
+    initialize()
+    if record_id is not None and not _PUBLIC_ID_PATTERN.fullmatch(record_id):
+        raise ValueError("A valid Telegram memory record ID is required.")
+    if message_id is not None and not _PUBLIC_ID_PATTERN.fullmatch(message_id):
+        raise ValueError("A valid source message record ID is required.")
+    if operation == "update_message":
+        if record_id is None or not isinstance(content, str) or not content.strip():
+            raise ValueError("A message record ID and replacement content are required.")
+        if len(content) > 4000:
+            raise ValueError("Message content cannot exceed 4000 characters.")
+    elif operation in {"create_insight", "update_insight"}:
+        if (
+            not isinstance(summary, str)
+            or not summary.strip()
+            or len(summary) > 1600
+        ):
+            raise ValueError("Insight summary must be between 1 and 1600 characters.")
+        if operation == "create_insight" and message_id is None:
+            raise ValueError("A source message record ID is required.")
+        if operation == "update_insight" and record_id is None:
+            raise ValueError("An insight record ID is required.")
+    elif operation not in {"delete_message", "delete_insight"} or record_id is None:
+        raise ValueError("Unsupported Telegram memory operation.")
+
+    with database() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        try:
+            if operation == "create_insight":
+                source = connection.execute(
+                    """
+                    SELECT telegram_message_id FROM telegram_ai_messages
+                    WHERE id = ? AND group_id = ? AND sender_uid = ? AND role = 'admin'
+                      AND NOT EXISTS (
+                        SELECT 1 FROM telegram_ai_pending_messages AS pending
+                        WHERE pending.group_id = telegram_ai_messages.group_id
+                          AND pending.telegram_message_id =
+                              telegram_ai_messages.telegram_message_id
+                      )
+                    LIMIT 1
+                    """,
+                    (message_id, group_id, owner_uid),
+                ).fetchone()
+                if source is None:
+                    connection.rollback()
+                    return False
+                existing = connection.execute(
+                    """
+                    SELECT 1 FROM telegram_ai_insights
+                    WHERE group_id = ? AND telegram_message_id = ? LIMIT 1
+                    """,
+                    (group_id, source["telegram_message_id"]),
+                ).fetchone()
+                if existing is not None:
+                    connection.rollback()
+                    return False
+                _store_insight_in_transaction(
+                    connection,
+                    group_id=group_id,
+                    owner_uid=owner_uid,
+                    group_title="",
+                    message_id=int(source["telegram_message_id"]),
+                    summary=summary or "",
+                    replace=False,
+                )
+                connection.commit()
+                return True
+
+            if operation == "update_message":
+                cursor = connection.execute(
+                    """
+                    UPDATE telegram_ai_messages
+                    SET content = ?
+                    WHERE id = ? AND group_id = ? AND (
+                        sender_uid = ? AND role = 'admin' OR (
+                            role = 'bot' AND EXISTS (
+                                SELECT 1 FROM telegram_ai_messages AS owner_message
+                                WHERE owner_message.group_id = telegram_ai_messages.group_id
+                                  AND owner_message.telegram_message_id =
+                                      telegram_ai_messages.telegram_reply_to_message_id
+                                  AND owner_message.sender_uid = ?
+                                  AND owner_message.role = 'admin'
+                            )
+                        )
+                    ) AND NOT EXISTS (
+                        SELECT 1 FROM telegram_ai_pending_messages AS pending
+                        WHERE pending.group_id = telegram_ai_messages.group_id
+                          AND pending.telegram_message_id =
+                              telegram_ai_messages.telegram_message_id
+                    )
+                    """,
+                    (content.strip(), record_id, group_id, owner_uid, owner_uid),
+                )
+                connection.commit()
+                return cursor.rowcount > 0
+
+            if operation == "delete_message":
+                row = connection.execute(
+                    """
+                    SELECT telegram_message_id, role FROM telegram_ai_messages
+                    WHERE id = ? AND group_id = ? AND (
+                        sender_uid = ? AND role = 'admin' OR (
+                            role = 'bot' AND EXISTS (
+                                SELECT 1 FROM telegram_ai_messages AS owner_message
+                                WHERE owner_message.group_id = telegram_ai_messages.group_id
+                                  AND owner_message.telegram_message_id =
+                                      telegram_ai_messages.telegram_reply_to_message_id
+                                  AND owner_message.sender_uid = ?
+                                  AND owner_message.role = 'admin'
+                            )
+                        )
+                    ) AND NOT EXISTS (
+                        SELECT 1 FROM telegram_ai_pending_messages AS pending
+                        WHERE pending.group_id = telegram_ai_messages.group_id
+                          AND pending.telegram_message_id =
+                              telegram_ai_messages.telegram_message_id
+                    )
+                    LIMIT 1
+                    """,
+                    (record_id, group_id, owner_uid, owner_uid),
+                ).fetchone()
+                if row is None:
+                    connection.rollback()
+                    return False
+                if row["role"] == "admin":
+                    connection.execute(
+                        """
+                        DELETE FROM telegram_ai_messages
+                        WHERE group_id = ? AND telegram_reply_to_message_id = ?
+                          AND role = 'bot'
+                        """,
+                        (group_id, row["telegram_message_id"]),
+                    )
+                    connection.execute(
+                        """
+                        DELETE FROM telegram_ai_insights
+                        WHERE group_id = ? AND owner_uid = ? AND telegram_message_id = ?
+                        """,
+                        (group_id, owner_uid, row["telegram_message_id"]),
+                    )
+                cursor = connection.execute(
+                    "DELETE FROM telegram_ai_messages WHERE id = ? AND group_id = ?",
+                    (record_id, group_id),
+                )
+                connection.commit()
+                return cursor.rowcount > 0
+
+            insight = connection.execute(
+                """
+                SELECT insight.id FROM telegram_ai_insights AS insight
+                JOIN telegram_ai_messages AS source
+                  ON source.group_id = insight.group_id
+                 AND source.telegram_message_id = insight.telegram_message_id
+                WHERE insight.id = ? AND insight.group_id = ? AND insight.owner_uid = ?
+                  AND source.sender_uid = ? AND source.role = 'admin'
+                  AND NOT EXISTS (
+                    SELECT 1 FROM telegram_ai_pending_messages AS pending
+                    WHERE pending.group_id = source.group_id
+                      AND pending.telegram_message_id = source.telegram_message_id
+                  )
+                LIMIT 1
+                """,
+                (record_id, group_id, owner_uid, owner_uid),
+            ).fetchone()
+            if insight is None:
+                connection.rollback()
+                return False
+            if operation == "update_insight":
+                cursor = connection.execute(
+                    "UPDATE telegram_ai_insights SET summary = ? WHERE id = ?",
+                    (summary.strip(), record_id),
+                )
+            else:
+                cursor = connection.execute(
+                    "DELETE FROM telegram_ai_insights WHERE id = ?",
+                    (record_id,),
+                )
+            connection.commit()
+            return cursor.rowcount > 0
+        except Exception:
+            connection.rollback()
+            raise
 
 
 def store_insight(
@@ -746,7 +1226,11 @@ def _rows(connection: sqlite3.Connection, sql: str, args: tuple[Any, ...]) -> li
 
 
 def retrieve_group_memory(
-    group_id: int, owner_uid: int, query: str, reply_to_message_id: int | None
+    group_id: int,
+    owner_uid: int,
+    query: str,
+    reply_to_message_id: int | None,
+    exclude_message_id: int | None = None,
 ) -> list[dict[str, Any]]:
     initialize()
     normalized = query.strip()[:1000]
@@ -774,61 +1258,90 @@ def retrieve_group_memory(
                     )
                 )
             )
+              AND (? IS NULL OR telegram_message_id != ?)
+              AND (role != 'bot' OR telegram_reply_to_message_id IS NULL
+               OR telegram_reply_to_message_id != ?)
             ORDER BY timestamp DESC, telegram_message_id DESC LIMIT 12
             """,
-            (group_id, owner_uid, owner_uid),
+            (
+                group_id,
+                owner_uid,
+                owner_uid,
+                exclude_message_id,
+                exclude_message_id,
+                exclude_message_id,
+            ),
         )
         relevant: list[sqlite3.Row] = []
         if fts_query:
             relevant = _rows(
                 connection,
-                """
-                SELECT message.id, message.telegram_message_id, message.sender_name,
-                       message.role, message.content, message.timestamp,
-                       message.media_types, message.reply_to_message_id
-                FROM telegram_ai_messages_fts
-                JOIN telegram_ai_messages AS message
-                  ON message.rowid = telegram_ai_messages_fts.rowid
-                WHERE telegram_ai_messages_fts MATCH ?
-                  AND message.group_id = ? AND (
-                    message.sender_uid = ? OR (
-                        message.role = 'bot' AND EXISTS (
-                            SELECT 1 FROM telegram_ai_messages AS owner_message
-                            WHERE owner_message.group_id = message.group_id
-                              AND owner_message.telegram_message_id =
-                                  message.telegram_reply_to_message_id
-                              AND owner_message.sender_uid = ?
+                    """
+                    SELECT message.id, message.telegram_message_id, message.sender_name,
+                           message.role, message.content, message.timestamp,
+                           message.media_types, message.reply_to_message_id
+                    FROM telegram_ai_messages_fts
+                    JOIN telegram_ai_messages AS message
+                      ON message.rowid = telegram_ai_messages_fts.rowid
+                    WHERE telegram_ai_messages_fts MATCH ?
+                      AND message.group_id = ? AND (
+                        message.sender_uid = ? OR (
+                            message.role = 'bot' AND EXISTS (
+                                SELECT 1 FROM telegram_ai_messages AS owner_message
+                                WHERE owner_message.group_id = message.group_id
+                                  AND owner_message.telegram_message_id =
+                                      message.telegram_reply_to_message_id
+                                  AND owner_message.sender_uid = ?
+                            )
                         )
-                    )
-                  )
-                ORDER BY bm25(telegram_ai_messages_fts), message.timestamp DESC
-                LIMIT 12
-                """,
-                (fts_query, group_id, owner_uid, owner_uid),
+                      )
+                    AND (? IS NULL OR message.telegram_message_id != ?)
+                    AND (message.role != 'bot' OR message.telegram_reply_to_message_id IS NULL
+                         OR message.telegram_reply_to_message_id != ?)
+                    ORDER BY bm25(telegram_ai_messages_fts), message.timestamp DESC
+                    LIMIT 12
+                    """,
+                (
+                    fts_query,
+                    group_id,
+                    owner_uid,
+                    owner_uid,
+                    exclude_message_id,
+                    exclude_message_id,
+                    exclude_message_id,
+                ),
             )
         replied: list[sqlite3.Row] = []
-        if reply_to_message_id is not None:
+        if reply_to_message_id is not None and reply_to_message_id != exclude_message_id:
             replied = _rows(
                 connection,
-                """
-                SELECT id, telegram_message_id, sender_name, role, content,
-                       timestamp, media_types, reply_to_message_id
-                FROM telegram_ai_messages
-                WHERE group_id = ? AND telegram_message_id = ? AND (
-                    sender_uid = ? OR (
-                        role = 'bot' AND EXISTS (
-                            SELECT 1 FROM telegram_ai_messages AS owner_message
-                            WHERE owner_message.group_id = telegram_ai_messages.group_id
-                              AND owner_message.telegram_message_id =
-                                  telegram_ai_messages.telegram_reply_to_message_id
-                              AND owner_message.sender_uid = ?
+                    """
+                    SELECT id, telegram_message_id, sender_name, role, content,
+                           timestamp, media_types, reply_to_message_id
+                    FROM telegram_ai_messages
+                    WHERE group_id = ? AND telegram_message_id = ? AND (
+                        sender_uid = ? OR (
+                            role = 'bot' AND EXISTS (
+                                SELECT 1 FROM telegram_ai_messages AS owner_message
+                                WHERE owner_message.group_id = telegram_ai_messages.group_id
+                                  AND owner_message.telegram_message_id =
+                                      telegram_ai_messages.telegram_reply_to_message_id
+                                  AND owner_message.sender_uid = ?
+                            )
                         )
                     )
+                      AND (role != 'bot' OR telegram_reply_to_message_id IS NULL
+                           OR telegram_reply_to_message_id != ?)
+                    LIMIT 1
+                    """,
+                    (
+                        group_id,
+                        reply_to_message_id,
+                        owner_uid,
+                        owner_uid,
+                        exclude_message_id,
+                    ),
                 )
-                LIMIT 1
-                """,
-                (group_id, reply_to_message_id, owner_uid, owner_uid),
-            )
         recent_insights = _rows(
             connection,
             """
@@ -839,9 +1352,10 @@ def retrieve_group_memory(
               ON source_message.group_id = insight.group_id
              AND source_message.telegram_message_id = insight.telegram_message_id
             WHERE insight.group_id = ? AND insight.owner_uid = ?
+              AND (? IS NULL OR insight.telegram_message_id != ?)
             ORDER BY insight.timestamp DESC LIMIT ?
             """,
-            (group_id, owner_uid, insight_limit),
+            (group_id, owner_uid, exclude_message_id, exclude_message_id, insight_limit),
         )
         relevant_insights: list[sqlite3.Row] = []
         if fts_query:
@@ -858,13 +1372,21 @@ def retrieve_group_memory(
                  AND source_message.telegram_message_id = insight.telegram_message_id
                 WHERE telegram_ai_insights_fts MATCH ?
                   AND insight.group_id = ? AND insight.owner_uid = ?
+                  AND (? IS NULL OR insight.telegram_message_id != ?)
                 ORDER BY bm25(telegram_ai_insights_fts), insight.timestamp DESC
                 LIMIT ?
                 """,
-                (fts_query, group_id, owner_uid, insight_limit),
+                (
+                    fts_query,
+                    group_id,
+                    owner_uid,
+                    exclude_message_id,
+                    exclude_message_id,
+                    insight_limit,
+                ),
             )
         replied_insight: list[sqlite3.Row] = []
-        if reply_to_message_id is not None:
+        if reply_to_message_id is not None and reply_to_message_id != exclude_message_id:
             replied_insight = _rows(
                 connection,
                 """
@@ -948,6 +1470,11 @@ def retrieve_owner_memory(owner_uid: int, query: str) -> list[dict[str, Any]]:
               ON source_message.group_id = insight.group_id
              AND source_message.telegram_message_id = insight.telegram_message_id
             WHERE groups.owner_uid = ? AND insight.owner_uid = ?
+              AND NOT EXISTS (
+                SELECT 1 FROM telegram_ai_pending_messages AS pending
+                WHERE pending.group_id = source_message.group_id
+                  AND pending.telegram_message_id = source_message.telegram_message_id
+              )
             ORDER BY insight.timestamp DESC LIMIT 10
             """,
             (owner_uid, owner_uid),
@@ -966,6 +1493,12 @@ def retrieve_owner_memory(owner_uid: int, query: str) -> list[dict[str, Any]]:
                 WHERE owner_message.group_id = message.group_id
                   AND owner_message.telegram_message_id = message.telegram_reply_to_message_id
                   AND owner_message.sender_uid = groups.owner_uid
+                  AND NOT EXISTS (
+                    SELECT 1 FROM telegram_ai_pending_messages AS pending
+                    WHERE pending.group_id = owner_message.group_id
+                      AND pending.telegram_message_id =
+                          owner_message.telegram_message_id
+                  )
               )
             ORDER BY message.timestamp DESC LIMIT 8
             """,
@@ -979,6 +1512,11 @@ def retrieve_owner_memory(owner_uid: int, query: str) -> list[dict[str, Any]]:
             FROM telegram_ai_groups AS groups
             JOIN telegram_ai_messages AS message ON message.group_id = groups.group_id
             WHERE groups.owner_uid = ? AND message.sender_uid = ?
+              AND NOT EXISTS (
+                SELECT 1 FROM telegram_ai_pending_messages AS pending
+                WHERE pending.group_id = message.group_id
+                  AND pending.telegram_message_id = message.telegram_message_id
+              )
             ORDER BY message.timestamp DESC, message.telegram_message_id DESC LIMIT 8
             """,
             (owner_uid, owner_uid),
@@ -1002,6 +1540,12 @@ def retrieve_owner_memory(owner_uid: int, query: str) -> list[dict[str, Any]]:
                  AND source_message.telegram_message_id = insight.telegram_message_id
                 WHERE telegram_ai_insights_fts MATCH ?
                   AND groups.owner_uid = ? AND insight.owner_uid = ?
+                  AND NOT EXISTS (
+                    SELECT 1 FROM telegram_ai_pending_messages AS pending
+                    WHERE pending.group_id = source_message.group_id
+                      AND pending.telegram_message_id =
+                          source_message.telegram_message_id
+                  )
                 ORDER BY bm25(telegram_ai_insights_fts), insight.timestamp DESC LIMIT 12
                 """,
                 (fts_query, owner_uid, owner_uid),
@@ -1023,6 +1567,12 @@ def retrieve_owner_memory(owner_uid: int, query: str) -> list[dict[str, Any]]:
                     WHERE owner_message.group_id = message.group_id
                       AND owner_message.telegram_message_id = message.telegram_reply_to_message_id
                       AND owner_message.sender_uid = groups.owner_uid
+                      AND NOT EXISTS (
+                        SELECT 1 FROM telegram_ai_pending_messages AS pending
+                        WHERE pending.group_id = owner_message.group_id
+                          AND pending.telegram_message_id =
+                              owner_message.telegram_message_id
+                      )
                   )
                 ORDER BY bm25(telegram_ai_messages_fts), message.timestamp DESC LIMIT 8
                 """,
@@ -1039,6 +1589,11 @@ def retrieve_owner_memory(owner_uid: int, query: str) -> list[dict[str, Any]]:
                 JOIN telegram_ai_groups AS groups ON groups.group_id = message.group_id
                 WHERE telegram_ai_messages_fts MATCH ?
                   AND groups.owner_uid = ? AND message.sender_uid = ?
+                  AND NOT EXISTS (
+                    SELECT 1 FROM telegram_ai_pending_messages AS pending
+                    WHERE pending.group_id = message.group_id
+                      AND pending.telegram_message_id = message.telegram_message_id
+                  )
                 ORDER BY bm25(telegram_ai_messages_fts), message.timestamp DESC
                 LIMIT 12
                 """,

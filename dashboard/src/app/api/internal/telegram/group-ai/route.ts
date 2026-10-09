@@ -16,12 +16,14 @@ import {
 } from "@/lib/storage";
 import {
   checkTelegramAiMemoryService,
+  finalizeTelegramOwnerMessage,
   managePersonalMemory,
+  manageTelegramData,
   getTelegramStoredInsight,
+  rollbackTelegramOwnerMessage,
   retrieveTelegramGroupMemory,
   searchPersonalMemory,
-  storeTelegramBotMessage,
-  storeTelegramOwnerMessage,
+  stageTelegramOwnerMessage,
   telegramOwnerMessageExists,
 } from "@/lib/telegram-ai-memory";
 
@@ -273,6 +275,14 @@ function groupAiFailure(error: unknown): { code: string; message: string } {
   };
 }
 
+function normalizeTelegramReply(value: string): string {
+  return value
+    .normalize("NFKC")
+    .toLocaleLowerCase("id-ID")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+}
+
 export async function POST(request: NextRequest) {
   if (!hasValidSecret(request)) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
@@ -288,6 +298,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: false, error: "invalid_request" }, { status: 400 });
   }
 
+  let stagedMessage: {
+    groupId: number;
+    ownerUid: number;
+    messageId: number;
+  } | null = null;
   try {
     if (input.action === "status") {
       const ownerUid = telegramUserId(input.ownerUid);
@@ -471,6 +486,14 @@ export async function POST(request: NextRequest) {
       if (!status.enabled || status.ownerUid !== userId) {
         return NextResponse.json({ ok: true, stored: false, reply: null });
       }
+      if (message.trimStart().startsWith("/")) {
+        return NextResponse.json({
+          ok: true,
+          stored: false,
+          reason: "command_not_processed",
+          reply: null,
+        });
+      }
       if (
         !edited &&
         await telegramOwnerMessageExists({ ownerUid: userId, groupId: id, messageId })
@@ -482,11 +505,40 @@ export async function POST(request: NextRequest) {
           reply: null,
         });
       }
+      const previousInsight = edited
+        ? await getTelegramStoredInsight({
+            groupId: id,
+            ownerUid: userId,
+            messageId,
+          })
+        : null;
+      const staged = await stageTelegramOwnerMessage({
+        groupId: id,
+        ownerUid: userId,
+        groupTitle: typeof input.groupTitle === "string" ? input.groupTitle : "",
+        messageId,
+        senderName: name,
+        content: message.trim() ? message : `[Media attached: ${types.join(", ")}]`,
+        mediaTypes: types,
+        replyToMessageId,
+        timestamp,
+        edited,
+      });
+      if (!staged.stored) {
+        return NextResponse.json({
+          ok: true,
+          stored: false,
+          reason: staged.reason,
+          reply: null,
+        });
+      }
+      stagedMessage = { groupId: id, ownerUid: userId, messageId };
       const attachments = await readAttachments(input.attachments);
       const [memory, recentWebMessages, personalMemories] = await Promise.all([
         retrieveTelegramGroupMemory({
           groupId: id,
           ownerUid: userId,
+          excludeMessageId: messageId,
           query: message,
           replyToMessageId,
         }),
@@ -522,13 +574,6 @@ export async function POST(request: NextRequest) {
         timeZone: "Asia/Jakarta",
         timeZoneName: "short",
       }).format(now);
-      const previousInsight = edited
-        ? await getTelegramStoredInsight({
-            groupId: id,
-            ownerUid: userId,
-            messageId,
-          })
-        : null;
       const selectedTelegramMemory = [
         ...memory.filter((item) => item.matched).slice(-14),
         ...memory.filter((item) => !item.matched).slice(-8),
@@ -576,14 +621,6 @@ export async function POST(request: NextRequest) {
         context,
         attachments,
       );
-      if (!generated.summary.trim()) {
-        return NextResponse.json({
-          ok: true,
-          stored: false,
-          reason: "empty_insight",
-          reply: null,
-        });
-      }
       const memoryIds = new Set(personalMemories.map((item) => item.id));
       const memoryChanges: Array<Record<string, unknown>> = [];
       const memoryActionFailureReasons: string[] = [];
@@ -599,7 +636,17 @@ export async function POST(request: NextRequest) {
             continue;
           }
         }
-        const result = await managePersonalMemory(userId, operation, "telegram");
+        let result: Awaited<ReturnType<typeof managePersonalMemory>>;
+        try {
+          result = await managePersonalMemory(userId, operation, "telegram");
+        } catch (error) {
+          console.error(
+            `[ai] Telegram personal-memory ${operation.operation} failed for owner ${userId}:`,
+            error,
+          );
+          memoryActionFailureReasons.push("memory_operation_failed");
+          continue;
+        }
         if (
           (operation.operation === "update" && result.updated !== true) ||
           (operation.operation === "delete" && result.deleted !== true)
@@ -612,34 +659,89 @@ export async function POST(request: NextRequest) {
         }
         memoryChanges.push(result);
       }
-      const stored = await storeTelegramOwnerMessage({
-        groupId: id,
-        ownerUid: userId,
-        groupTitle: typeof input.groupTitle === "string" ? input.groupTitle : "",
-        messageId,
-        senderName: name,
-        content: message.trim() ? message : `[Media attached: ${types.join(", ")}]`,
-        mediaTypes: types,
-        replyToMessageId,
-        timestamp,
-        edited,
-        summary: generated.summary,
-      });
-      if (!stored.stored) {
+      const telegramRecords = new Map(memory.map((item) => [item.id, item]));
+      for (const operation of generated.telegramActions) {
+        const targetId = operation.operation === "create_insight"
+          ? operation.messageId
+          : operation.recordId;
+        const target = telegramRecords.get(targetId);
+        const targetTypeAllowed =
+          operation.operation === "create_insight"
+            ? target?.role === "admin"
+            : operation.operation.endsWith("_message")
+              ? target?.role === "admin" || target?.role === "bot"
+              : target?.role === "memory";
+        if (!targetTypeAllowed) {
+          memoryActionFailureReasons.push("telegram_target_not_retrieved");
+          console.warn(
+            `[ai] Rejected Telegram data ${operation.operation} for owner ${userId}: target is not in retrieved history.`,
+          );
+          continue;
+        }
+        let changed: boolean;
+        try {
+          changed = await manageTelegramData(userId, id, operation);
+        } catch (error) {
+          console.error(
+            `[ai] Telegram data ${operation.operation} failed for owner ${userId}:`,
+            error,
+          );
+          memoryActionFailureReasons.push("telegram_operation_failed");
+          continue;
+        }
+        if (!changed) {
+          memoryActionFailureReasons.push("telegram_target_not_found");
+          console.warn(
+            `[ai] Telegram data ${operation.operation} did not find its target for owner ${userId}.`,
+          );
+          continue;
+        }
+        memoryChanges.push({
+          source: "telegram_history",
+          operation: operation.operation,
+          recordId: targetId,
+        });
+      }
+      if (!generated.summary.trim()) {
         return NextResponse.json({
           ok: true,
-          stored: false,
-          reason: stored.reason,
+          stored: true,
+          reason: "empty_insight",
           reply: null,
+          memoryChanges: memoryChanges.length,
+          memoryActionFailures: memoryActionFailureReasons.length,
+          memoryActionFailureReasons,
         });
       }
       const reply = generated.reply?.trim() ?? "";
+      const normalizedReply = normalizeTelegramReply(reply);
+      const duplicateReply =
+        normalizedReply.length > 0 &&
+        (normalizedReply === normalizeTelegramReply(message) ||
+          memory.some(
+            (item) =>
+              item.role === "bot" &&
+              normalizeTelegramReply(item.content) === normalizedReply,
+          ));
+      if (!status.sendEnabled || edited || !reply || duplicateReply) {
+        return NextResponse.json({
+          ok: true,
+          stored: true,
+          reason: duplicateReply ? "duplicate_reply" : "no_reply",
+          reply: null,
+          memoryChanges: memoryChanges.length,
+          memoryActionFailures: memoryActionFailureReasons.length,
+          memoryActionFailureReasons,
+        });
+      }
       return NextResponse.json({
         ok: true,
         stored: true,
-        sendEnabled: status.sendEnabled && !edited,
-        reply: status.sendEnabled && !edited && reply ? reply.slice(0, 1800) : null,
-        summaryStored: Boolean(generated.summary),
+        sendEnabled: true,
+        reply: reply.slice(0, 1800),
+        summary: generated.summary,
+        summaryStored: false,
+        summaryPending: true,
         memoryChanges: memoryChanges.length,
         memoryActionFailures: memoryActionFailureReasons.length,
         memoryActionFailureReasons,
@@ -648,7 +750,26 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    if (input.action === "record_bot_message") {
+    if (input.action === "rollback_owner_message") {
+      const ownerUid = telegramUserId(input.ownerUid);
+      const messageId = safeInteger(input.messageId);
+      if (
+        ownerUid === null ||
+        !config.adminTelegramIds.has(ownerUid) ||
+        messageId === null ||
+        messageId <= 0
+      ) {
+        return NextResponse.json({ ok: false, error: "invalid_owner_message" }, { status: 400 });
+      }
+      const status = await getTelegramGroupAiStatus(id);
+      if (status.ownerUid !== ownerUid) {
+        return NextResponse.json({ ok: false, error: "not_group_owner" }, { status: 403 });
+      }
+      await rollbackTelegramOwnerMessage({ groupId: id, ownerUid, messageId });
+      return NextResponse.json({ ok: true });
+    }
+
+    if (input.action === "finalize_owner_message") {
       const messageId = safeInteger(input.messageId);
       const replyToMessageId = input.replyToMessageId == null
         ? null
@@ -669,15 +790,29 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ ok: false, error: "invalid_message" }, { status: 400 });
       }
       const status = await getTelegramGroupAiStatus(id);
-      if (!status.enabled || status.ownerUid === null) {
+      if (status.ownerUid === null) {
         return NextResponse.json({ ok: true, stored: false });
       }
-      await storeTelegramBotMessage({
+      const ownerMessageId = safeInteger(input.ownerMessageId);
+      const summary = typeof input.summary === "string" ? input.summary : "";
+      const ownerUid = telegramUserId(input.ownerUid);
+      if (
+        ownerMessageId === null ||
+        !summary.trim() ||
+        summary.length > 1600 ||
+        ownerUid === null ||
+        ownerUid !== status.ownerUid
+      ) {
+        return NextResponse.json({ ok: false, error: "invalid_finalized_message" }, { status: 400 });
+      }
+      await finalizeTelegramOwnerMessage({
         groupId: id,
-        ownerUid: status.ownerUid,
+        ownerUid,
+        groupTitle: typeof input.groupTitle === "string" ? input.groupTitle.slice(0, 200) : "",
+        ownerMessageId,
+        summary,
         messageId,
         content,
-        replyToMessageId,
         timestamp,
       });
       return NextResponse.json({ ok: true, stored: true });
@@ -685,6 +820,16 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ ok: false, error: "unsupported_action" }, { status: 400 });
   } catch (error) {
+    if (stagedMessage) {
+      try {
+        await rollbackTelegramOwnerMessage(stagedMessage);
+      } catch (rollbackError) {
+        console.error(
+          "[internal/telegram/group-ai] failed to roll back staged owner message:",
+          rollbackError,
+        );
+      }
+    }
     console.error("[internal/telegram/group-ai] request failed:", error);
     const failure = groupAiFailure(error);
     return NextResponse.json(

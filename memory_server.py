@@ -279,7 +279,26 @@ async def _handle(request: web.Request) -> web.Response:
         )
         return web.json_response({"ok": True, "exists": exists})
 
-    if action in {"store_owner_message", "store_processed_owner_message"}:
+    if action == "rollback_owner_message":
+        message_id = _integer(body.get("messageId"))
+        if message_id is None:
+            raise web.HTTPBadRequest(
+                text=json.dumps({"ok": False, "error": "invalid_message_id"}),
+                content_type="application/json",
+            )
+        rolled_back = await asyncio.to_thread(
+            memory.rollback_owner_message,
+            group_id,
+            owner_uid,
+            message_id,
+        )
+        return web.json_response({"ok": True, "rolledBack": rolled_back})
+
+    if action in {
+        "stage_owner_message",
+        "store_owner_message",
+        "store_processed_owner_message",
+    }:
         message_id = _integer(body.get("messageId"))
         sender_name = body.get("senderName")
         content = body.get("content")
@@ -307,7 +326,21 @@ async def _handle(request: web.Request) -> web.Response:
                 text=json.dumps({"ok": False, "error": "invalid_owner_message"}),
                 content_type="application/json",
             )
-        if action == "store_processed_owner_message":
+        if action == "stage_owner_message":
+            result = await asyncio.to_thread(
+                memory.stage_owner_message,
+                group_id=group_id,
+                owner_uid=owner_uid,
+                group_title=str(body.get("groupTitle") or "")[:200],
+                message_id=message_id,
+                sender_name=sender_name,
+                content=content,
+                media_types=media_types,
+                reply_to_message_id=reply_id,
+                edited=body.get("edited") is True,
+                timestamp=_valid_timestamp(body.get("timestamp")),
+            )
+        elif action == "store_processed_owner_message":
             result = await asyncio.to_thread(
                 memory.store_processed_owner_message,
                 group_id=group_id,
@@ -336,7 +369,13 @@ async def _handle(request: web.Request) -> web.Response:
                 edited=body.get("edited") is True,
                 timestamp=_valid_timestamp(body.get("timestamp")),
             )
-        return web.json_response({"ok": True, "stored": result == "stored", "reason": result})
+        return web.json_response(
+            {
+                "ok": True,
+                "stored": result in {"stored", "staged"},
+                "reason": result,
+            }
+        )
 
     if action == "retrieve_group_memory":
         if not isinstance(body.get("query"), str):
@@ -350,6 +389,12 @@ async def _handle(request: web.Request) -> web.Response:
                 text=json.dumps({"ok": False, "error": "invalid_reply_id"}),
                 content_type="application/json",
             )
+        excluded_message_id = body.get("excludeMessageId")
+        if excluded_message_id is not None and _integer(excluded_message_id) is None:
+            raise web.HTTPBadRequest(
+                text=json.dumps({"ok": False, "error": "invalid_excluded_message_id"}),
+                content_type="application/json",
+            )
         return web.json_response(
             {
                 "ok": True,
@@ -359,9 +404,52 @@ async def _handle(request: web.Request) -> web.Response:
                     owner_uid,
                     body["query"],
                     reply_id,
+                    excluded_message_id,
                 ),
             }
         )
+
+    if action == "telegram_data_operation":
+        operation = body.get("operation")
+        record_id = body.get("recordId")
+        message_record_id = body.get("messageId")
+        content = body.get("content")
+        summary = body.get("summary")
+        if (
+            operation
+            not in {
+                "create_insight",
+                "update_message",
+                "delete_message",
+                "update_insight",
+                "delete_insight",
+            }
+            or record_id is not None and not isinstance(record_id, str)
+            or message_record_id is not None and not isinstance(message_record_id, str)
+            or content is not None and not isinstance(content, str)
+            or summary is not None and not isinstance(summary, str)
+        ):
+            raise web.HTTPBadRequest(
+                text=json.dumps({"ok": False, "error": "invalid_telegram_data_operation"}),
+                content_type="application/json",
+            )
+        try:
+            changed = await asyncio.to_thread(
+                memory.apply_owner_data_operation,
+                group_id,
+                owner_uid,
+                operation,
+                record_id=record_id,
+                message_id=message_record_id,
+                content=content,
+                summary=summary,
+            )
+        except ValueError as error:
+            raise web.HTTPBadRequest(
+                text=json.dumps({"ok": False, "error": str(error)}),
+                content_type="application/json",
+            ) from error
+        return web.json_response({"ok": True, "changed": changed})
 
     if action == "get_insight":
         message_id = _integer(body.get("messageId"))
@@ -395,6 +483,40 @@ async def _handle(request: web.Request) -> web.Response:
             message_id=message_id,
             summary=summary,
             replace=body.get("replace") is True,
+        )
+        return web.json_response({"ok": True})
+
+    if action == "finalize_owner_message":
+        owner_message_id = _integer(body.get("ownerMessageId"))
+        message_id = _integer(body.get("messageId"))
+        summary = body.get("summary")
+        content = body.get("content")
+        if (
+            owner_message_id is None
+            or message_id is None
+            or not isinstance(summary, str)
+            or not summary.strip()
+            or len(summary) > 1600
+            or not isinstance(content, str)
+            or not content.strip()
+            or len(content) > MAX_TEXT_LENGTH
+            or body.get("timestamp") is not None
+            and _valid_timestamp(body.get("timestamp")) is None
+        ):
+            raise web.HTTPBadRequest(
+                text=json.dumps({"ok": False, "error": "invalid_finalized_message"}),
+                content_type="application/json",
+            )
+        await asyncio.to_thread(
+            memory.finalize_owner_message,
+            group_id=group_id,
+            owner_uid=owner_uid,
+            group_title=str(body.get("groupTitle") or "")[:200],
+            owner_message_id=owner_message_id,
+            summary=summary,
+            bot_message_id=message_id,
+            bot_content=content,
+            timestamp=_valid_timestamp(body.get("timestamp")),
         )
         return web.json_response({"ok": True})
 
@@ -473,6 +595,13 @@ async def start_server(host: str, port: int) -> web.AppRunner:
         raise RuntimeError("TELEGRAM_AI_MEMORY_SECRET is required.")
     if host != "localhost" and not ipaddress.ip_address(host).is_loopback:
         raise ValueError("TELEGRAM_AI_MEMORY_HOST must be a loopback address.")
+    memory.initialize()
+    stale_messages = await asyncio.to_thread(memory.cleanup_stale_owner_messages)
+    if stale_messages:
+        logging.warning(
+            "Rolled back %s stale Telegram AI message(s) left without a reply.",
+            stale_messages,
+        )
     personal_memory.initialize()
     app = web.Application(client_max_size=2 * 1024 * 1024)
     app.router.add_post("/internal/telegram-group-ai", _handle)

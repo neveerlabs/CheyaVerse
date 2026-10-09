@@ -53,6 +53,13 @@ export type PersonalMemoryOperation =
   | { operation: "update"; memoryId: string; content?: string; tags?: string[] }
   | { operation: "delete"; memoryId: string };
 
+export type TelegramDataOperation =
+  | { operation: "create_insight"; messageId: string; summary: string }
+  | { operation: "update_message"; recordId: string; content: string }
+  | { operation: "delete_message"; recordId: string }
+  | { operation: "update_insight"; recordId: string; summary: string }
+  | { operation: "delete_insight"; recordId: string };
+
 type MemoryResponse = {
   ok?: boolean;
   error?: string;
@@ -66,7 +73,8 @@ type MemoryResponse = {
   deleted?: boolean;
   imported?: number;
   exists?: boolean;
-};
+  changed?: boolean;
+}
 
 function memoryEndpoint(): URL {
   if (!config.telegramAiMemoryUrl || !config.telegramAiMemorySecret) {
@@ -191,7 +199,7 @@ function isPersonalMemoryEntry(value: unknown): value is PersonalMemoryEntry {
   );
 }
 
-export async function storeTelegramOwnerMessage(input: {
+export async function stageTelegramOwnerMessage(input: {
   ownerUid: number;
   groupId: number;
   groupTitle: string;
@@ -202,16 +210,37 @@ export async function storeTelegramOwnerMessage(input: {
   replyToMessageId: number | null;
   timestamp: string;
   edited: boolean;
-  summary?: string;
 }): Promise<{ stored: boolean; reason: string }> {
-  const action = input.summary === undefined
-    ? "store_owner_message"
-    : "store_processed_owner_message";
-  const result = await requestMemoryService(action, input.ownerUid, input);
+  const result = await requestMemoryService(
+    "stage_owner_message",
+    input.ownerUid,
+    input,
+  );
   if (typeof result.stored !== "boolean" || typeof result.reason !== "string") {
-    throw new Error("Telegram AI memory service returned an invalid store response.");
+    throw new Error("Telegram AI memory service returned an invalid stage response.");
   }
   return { stored: result.stored, reason: result.reason };
+}
+
+export async function rollbackTelegramOwnerMessage(input: {
+  ownerUid: number;
+  groupId: number;
+  messageId: number;
+}): Promise<void> {
+  await requestMemoryService("rollback_owner_message", input.ownerUid, input);
+}
+
+export async function finalizeTelegramOwnerMessage(input: {
+  ownerUid: number;
+  groupId: number;
+  groupTitle: string;
+  ownerMessageId: number;
+  summary: string;
+  messageId: number;
+  content: string;
+  timestamp: string;
+}): Promise<void> {
+  await requestMemoryService("finalize_owner_message", input.ownerUid, input);
 }
 
 export async function checkTelegramAiMemoryService(ownerUid: number): Promise<void> {
@@ -237,6 +266,7 @@ export async function telegramOwnerMessageExists(input: {
 export async function retrieveTelegramGroupMemory(input: {
   ownerUid: number;
   groupId: number;
+  excludeMessageId?: number;
   query: string;
   replyToMessageId: number | null;
 }): Promise<TelegramGroupMemoryEntry[]> {
@@ -265,17 +295,6 @@ export async function storeTelegramInsight(input: {
   replace: boolean;
 }): Promise<void> {
   await requestMemoryService("store_insight", input.ownerUid, input);
-}
-
-export async function storeTelegramBotMessage(input: {
-  ownerUid: number;
-  groupId: number;
-  messageId: number;
-  content: string;
-  replyToMessageId: number | null;
-  timestamp: string;
-}): Promise<void> {
-  await requestMemoryService("store_bot_message", input.ownerUid, input);
 }
 
 export async function retrieveTelegramOwnerMemory(
@@ -339,6 +358,22 @@ export async function managePersonalMemory(
     throw new Error("Personal memory service returned an invalid delete result.");
   }
   return result as Record<string, unknown>;
+}
+
+export async function manageTelegramData(
+  ownerUid: number,
+  groupId: number,
+  operation: TelegramDataOperation,
+): Promise<boolean> {
+  const result = await requestMemoryService(
+    "telegram_data_operation",
+    ownerUid,
+    { groupId, ...operation },
+  );
+  if (typeof result.changed !== "boolean") {
+    throw new Error("Telegram AI memory service returned an invalid data-operation result.");
+  }
+  return result.changed;
 }
 
 export async function importTelegramGroupHistory(input: {

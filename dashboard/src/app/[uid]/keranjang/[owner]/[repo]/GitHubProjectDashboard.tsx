@@ -487,7 +487,10 @@ export function GitHubProjectDashboard({
                   </div>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3 border-t border-slate-100/80 bg-white/70 px-5 py-4 sm:grid-cols-4 sm:gap-5 sm:px-8 lg:px-10">
+              <div
+                className="grid grid-cols-2 gap-3 border-t border-slate-100/80 bg-white/70 px-5 py-4 sm:grid-cols-4 sm:gap-5 sm:px-8 lg:px-10"
+                style={{ maskImage: "linear-gradient(90deg, transparent, black 3%, black 97%, transparent)" }}
+              >
                 <Kpi icon={<Star size={15} />} label="Stars" value={formatCount(project.repository.stars)} />
                 <Kpi icon={<GitFork size={15} />} label="Forks" value={formatCount(project.repository.forks)} />
                 <Kpi icon={<Activity size={15} />} label="Open issues" value={formatCount(project.repository.openIssues)} />
@@ -708,7 +711,10 @@ export function GitHubProjectDashboard({
                     </div>
                   </div>
 
-                  <div className="mt-6 grid grid-cols-2 gap-x-5 gap-y-4 sm:grid-cols-4">
+                  <div
+                    className="mt-6 grid grid-cols-2 gap-x-5 gap-y-4 sm:grid-cols-4"
+                    style={{ maskImage: "linear-gradient(90deg, transparent, black 3%, black 97%, transparent)" }}
+                  >
                     <ChartStat label="Commits" value={historyTotals.commits} />
                     <ChartStat label="Lines added" value={historyTotals.additions} tone="green" />
                     <ChartStat label="Lines removed" value={historyTotals.deletions} tone="red" />

@@ -1,5 +1,6 @@
 import asyncio
 import mimetypes
+import time
 import aiohttp
 
 from aiogram import Bot, F, Router
@@ -13,6 +14,24 @@ from logger import logger
 
 router = Router(name="telegram_group_ai")
 GROUP_TYPES = {"group", "supergroup"}
+_CHAT_PROCESSING_LOCKS: dict[int, asyncio.Lock] = {}
+_BOT_CHANNEL_POSTS: dict[tuple[int, int], float] = {}
+
+
+def _chat_processing_lock(chat_id: int) -> asyncio.Lock:
+    return _CHAT_PROCESSING_LOCKS.setdefault(chat_id, asyncio.Lock())
+
+
+def _mark_bot_channel_post(message: Message) -> None:
+    if message.chat.type != "channel":
+        return
+    now = time.monotonic()
+    expired = [key for key, timestamp in _BOT_CHANNEL_POSTS.items() if now - timestamp > 300]
+    for key in expired:
+        _BOT_CHANNEL_POSTS.pop(key, None)
+    _BOT_CHANNEL_POSTS[(message.chat.id, message.message_id)] = now
+
+
 class GroupAiApiError(RuntimeError):
     pass
 
@@ -37,7 +56,9 @@ async def _api(action: str, **payload):
                     message = data.get("message") if isinstance(data, dict) else None
                     error = data.get("error") if isinstance(data, dict) else None
                     raise GroupAiApiError(
-                        message
+                        f"{error}: {message}"
+                        if isinstance(error, str) and isinstance(message, str)
+                        else message
                         if isinstance(message, str)
                         else f"Group AI API returned HTTP {response.status}: "
                         f"{error if isinstance(error, str) else 'request rejected'}"
@@ -69,6 +90,12 @@ async def _is_group_admin(message: Message) -> bool:
 
 async def _channel_owner_uid(message: Message) -> int | None:
     if message.chat.type != "channel" or message.bot is None:
+        return None
+    if message.from_user is not None and (
+        message.from_user.is_bot or message.from_user.id not in ADMIN_TELEGRAM_IDS
+    ):
+        return None
+    if _BOT_CHANNEL_POSTS.pop((message.chat.id, message.message_id), None) is not None:
         return None
     try:
         admins = await message.bot.get_chat_administrators(message.chat.id)
@@ -134,6 +161,7 @@ async def _show_connection_status(message: Message, text: str) -> None:
         return
     try:
         status_message = await message.answer(text, parse_mode=None)
+        _mark_bot_channel_post(status_message)
         asyncio.create_task(
             _delete_temporary_status(
                 message.bot,
@@ -229,25 +257,28 @@ async def process_group_message(message: Message) -> None:
         return
     if message.from_user.id not in ADMIN_TELEGRAM_IDS:
         return
-    if not await _is_group_admin(message):
-        return
-    await _process_owner_message(message, message.from_user.id)
+    async with _chat_processing_lock(message.chat.id):
+        if not await _is_group_admin(message):
+            return
+        await _process_owner_message_locked(message, message.from_user.id)
 
 
 @router.channel_post()
 async def process_channel_post(message: Message) -> None:
-    owner_uid = await _channel_owner_uid(message)
-    if owner_uid is None:
-        return
-    await _process_owner_message(message, owner_uid)
+    async with _chat_processing_lock(message.chat.id):
+        owner_uid = await _channel_owner_uid(message)
+        if owner_uid is None:
+            return
+        await _process_owner_message_locked(message, owner_uid)
 
 
 @router.edited_channel_post()
 async def process_edited_channel_post(message: Message) -> None:
-    owner_uid = await _channel_owner_uid(message)
-    if owner_uid is None:
-        return
-    await _process_owner_message(message, owner_uid, edited=True)
+    async with _chat_processing_lock(message.chat.id):
+        owner_uid = await _channel_owner_uid(message)
+        if owner_uid is None:
+            return
+        await _process_owner_message_locked(message, owner_uid, edited=True)
 
 
 def _message_attachments(message: Message) -> list[dict[str, object]]:
@@ -280,7 +311,26 @@ def _message_attachments(message: Message) -> list[dict[str, object]]:
     return attachments
 
 
-async def _process_owner_message(
+async def _rollback_staged_message(message: Message, owner_uid: int) -> None:
+    try:
+        await _api(
+            "rollback_owner_message",
+            groupId=message.chat.id,
+            ownerUid=owner_uid,
+            messageId=message.message_id,
+        )
+    except (GroupAiApiError, TelegramAPIError) as exc:
+        logger.error(
+            f"Could not roll back unresponded Telegram message {message.message_id} "
+            f"in {message.chat.id}: {exc}"
+        )
+
+
+def _normalized_message_text(value: str) -> str:
+    return " ".join(value.casefold().split())
+
+
+async def _process_owner_message_locked(
     message: Message,
     owner_uid: int,
     edited: bool = False,
@@ -292,6 +342,8 @@ async def _process_owner_message(
     if not text.strip() and not attachments:
         return
 
+    processing_started = False
+    reply_sent = False
     try:
         status = await _api(
             "auto_enable",
@@ -305,6 +357,7 @@ async def _process_owner_message(
                 "the owner message was not sent for digestion."
             )
             return
+        processing_started = True
         result = await _api(
             "auto_process",
             groupId=message.chat.id,
@@ -334,7 +387,10 @@ async def _process_owner_message(
                 f"{message.message_id}: {result.get('reason', 'not_stored')}."
             )
             return
-        if result.get("summaryStored") is not True:
+        if (
+            result.get("summaryStored") is not True
+            and result.get("summaryPending") is not True
+        ):
             logger.warning(
                 f"Group AI produced no durable summary for channel {message.chat.id} "
                 f"message {message.message_id}."
@@ -345,6 +401,7 @@ async def _process_owner_message(
             and not isinstance(memory_action_failures, bool)
             and memory_action_failures > 0
         ):
+            await _rollback_staged_message(message, owner_uid)
             await _notify_personal_memory_action_error(
                 message,
                 result.get("memoryActionFailureReasons"),
@@ -357,36 +414,58 @@ async def _process_owner_message(
             or not isinstance(reply, str)
             or not reply.strip()
         ):
+            await _rollback_staged_message(message, owner_uid)
+            return
+        if _normalized_message_text(reply) == _normalized_message_text(text):
+            logger.warning(
+                f"Suppressed Telegram AI reply that repeated owner message "
+                f"{message.message_id} in {message.chat.id}."
+            )
+            await _rollback_staged_message(message, owner_uid)
             return
         sent = (
             await message.answer(reply.strip()[:1800], parse_mode=None)
             if message.chat.type == "channel"
             else await message.reply(reply.strip()[:1800], parse_mode=None)
         )
-        await _api(
-            "record_bot_message",
+        _mark_bot_channel_post(sent)
+        reply_sent = True
+        finalized = await _api(
+            "finalize_owner_message",
             groupId=message.chat.id,
+            ownerUid=owner_uid,
+            groupTitle=message.chat.title or "",
+            ownerMessageId=message.message_id,
             messageId=sent.message_id,
-            replyToMessageId=message.message_id,
             text=reply.strip()[:1800],
+            summary=result.get("summary"),
             timestamp=sent.date.isoformat(),
         )
+        if finalized.get("stored") is not True:
+            raise GroupAiApiError(
+                "Telegram reply was sent, but its message memory was not finalized."
+            )
     except (GroupAiApiError, TelegramAPIError) as exc:
+        if processing_started and not reply_sent:
+            await _rollback_staged_message(message, owner_uid)
         logger.error(
             f"Group AI processing failed in {message.chat.id} "
             f"for Telegram message {message.message_id}: {exc}"
         )
-        if isinstance(exc, GroupAiApiError):
+        if isinstance(exc, GroupAiApiError) and not reply_sent:
             await _notify_processing_error(message, str(exc))
     except Exception:
+        if processing_started and not reply_sent:
+            await _rollback_staged_message(message, owner_uid)
         logger.exception(
             f"Unexpected group AI error in {message.chat.id} "
             f"for Telegram message {message.message_id}"
         )
-        await _notify_processing_error(
-            message,
-            "Terjadi kesalahan internal saat mencerna pesan. Ringkasan belum tersimpan.",
-        )
+        if not reply_sent:
+            await _notify_processing_error(
+                message,
+                "Terjadi kesalahan internal saat mencerna pesan. Ringkasan belum tersimpan.",
+            )
 
 
 def _user_facing_error(detail: str) -> str:
@@ -408,7 +487,8 @@ async def _notify_processing_error(message: Message, detail: str) -> None:
     notice = _user_facing_error(detail)
     try:
         if message.chat.type == "channel":
-            await message.answer(notice, parse_mode=None)
+            sent = await message.answer(notice, parse_mode=None)
+            _mark_bot_channel_post(sent)
         else:
             await message.reply(notice, parse_mode=None)
     except TelegramAPIError as send_error:
@@ -448,7 +528,8 @@ async def _notify_personal_memory_action_error(
         )
     try:
         if message.chat.type == "channel":
-            await message.answer(notice, parse_mode=None)
+            sent = await message.answer(notice, parse_mode=None)
+            _mark_bot_channel_post(sent)
         else:
             await message.reply(notice, parse_mode=None)
     except TelegramAPIError as send_error:
