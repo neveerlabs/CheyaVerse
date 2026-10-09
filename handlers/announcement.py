@@ -17,7 +17,7 @@ from storage import list_telegram_bot_user_ids
 
 router = Router(name="announcement")
 
-DIVIDER = "─" * 24
+DIVIDER = "─" * 23
 MAX_CONCURRENT_DELIVERIES = 10
 
 
