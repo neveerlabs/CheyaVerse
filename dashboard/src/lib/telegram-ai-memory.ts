@@ -236,9 +236,9 @@ export async function finalizeTelegramOwnerMessage(input: {
   groupTitle: string;
   ownerMessageId: number;
   summary: string;
-  messageId: number;
-  content: string;
-  timestamp: string;
+  messageId?: number;
+  content?: string;
+  timestamp?: string;
 }): Promise<void> {
   await requestMemoryService("finalize_owner_message", input.ownerUid, input);
 }

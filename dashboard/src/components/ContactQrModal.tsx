@@ -102,13 +102,13 @@ function buildSvg(
     })
     .join("");
   const logoX = logoCenter - logoSize / 2;
-  const logoUrl = escapeXml(`${origin}/assets/cheyaverse.png`);
+  const logoUrl = escapeXml(`${origin}/assets/cheyaverse.jpg`);
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="960" height="960" viewBox="0 0 ${fullSize} ${fullSize}"><defs><linearGradient id="contact-qr-gradient" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="${blend.start}"/><stop offset="100%" stop-color="${blend.end}"/></linearGradient><clipPath id="contact-qr-logo-clip"><circle cx="${logoCenter}" cy="${logoCenter}" r="${logoSize / 2}"/></clipPath></defs><rect width="${fullSize}" height="${fullSize}" fill="#fff"/>${dots.join("")}${finders}<image href="${logoUrl}" x="${logoX}" y="${logoX}" width="${logoSize}" height="${logoSize}" preserveAspectRatio="xMidYMid slice" clip-path="url(#contact-qr-logo-clip)"/></svg>`;
 }
 
 async function renderPng(svg: string): Promise<Blob> {
-  const logoResponse = await fetch("/assets/cheyaverse.png", {
+  const logoResponse = await fetch("/assets/cheyaverse.jpg", {
     cache: "force-cache",
   });
   if (!logoResponse.ok) {
@@ -118,9 +118,9 @@ async function renderPng(svg: string): Promise<Blob> {
   const logoBytes = new Uint8Array(await logoBlob.arrayBuffer());
   let logoBinary = "";
   for (const byte of logoBytes) logoBinary += String.fromCharCode(byte);
-  const logoDataUrl = `data:${logoBlob.type || "image/png"};base64,${btoa(logoBinary)}`;
+  const logoDataUrl = `data:${logoBlob.type || "image/jpeg"};base64,${btoa(logoBinary)}`;
   const inlineSvg = svg.replace(
-    /href="[^"]*\/assets\/cheyaverse\.png"/,
+    /href="[^"]*\/assets\/cheyaverse\.jpg"/,
     `href="${logoDataUrl}"`,
   );
   const image = new Image();

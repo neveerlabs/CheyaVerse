@@ -246,6 +246,48 @@ class TelegramMemoryCrudTests(unittest.TestCase):
             {"admin", "bot"},
         )
 
+    def test_finalize_observation_only_stores_message_and_insight_without_bot(self) -> None:
+        staged = memory_telegram.stage_owner_message(
+            group_id=self.group_id,
+            owner_uid=self.owner_uid,
+            group_title="Observation-only test",
+            message_id=301,
+            sender_name="Owner",
+            content="Had a difficult day but finished the project.",
+            media_types=[],
+            reply_to_message_id=None,
+            edited=False,
+            timestamp="2026-10-09T10:00:00Z",
+        )
+        self.assertEqual(staged, "staged")
+
+        memory_telegram.finalize_owner_message(
+            group_id=self.group_id,
+            owner_uid=self.owner_uid,
+            group_title="Observation-only test",
+            owner_message_id=301,
+            summary="Owner reports a difficult day and completing a project.",
+        )
+
+        self.assertEqual(
+            memory_telegram.get_insight(self.group_id, self.owner_uid, 301),
+            "Owner reports a difficult day and completing a project.",
+        )
+        records = memory_telegram.retrieve_group_memory(
+            self.group_id, self.owner_uid, "", None
+        )
+        self.assertEqual({item["role"] for item in records}, {"admin", "memory"})
+        self.assertFalse(any(item["role"] == "bot" for item in records))
+        with memory_telegram.database() as connection:
+            pending = connection.execute(
+                """
+                SELECT COUNT(*) FROM telegram_ai_pending_messages
+                WHERE group_id = ? AND owner_uid = ? AND telegram_message_id = ?
+                """,
+                (self.group_id, self.owner_uid, 301),
+            ).fetchone()[0]
+        self.assertEqual(pending, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

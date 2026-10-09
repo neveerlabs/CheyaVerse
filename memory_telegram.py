@@ -941,10 +941,16 @@ def finalize_owner_message(
     group_title: str,
     owner_message_id: int,
     summary: str = "",
-    bot_message_id: int,
-    bot_content: str,
-    timestamp: str | datetime | None,
+    bot_message_id: int | None = None,
+    bot_content: str | None = None,
+    timestamp: str | datetime | None = None,
 ) -> None:
+    if (bot_message_id is None) != (bot_content is None):
+        raise ValueError("Bot message ID and content must be provided together.")
+    if bot_message_id is not None and (
+        bot_message_id <= 0 or not bot_content or not bot_content.strip()
+    ):
+        raise ValueError("A valid bot reply is required.")
     initialize()
     with database() as connection:
         connection.execute("BEGIN IMMEDIATE")
@@ -977,14 +983,15 @@ def finalize_owner_message(
                 """,
                 (group_id, owner_uid, owner_message_id),
             )
-        _store_bot_message_in_transaction(
-            connection,
-            group_id=group_id,
-            message_id=bot_message_id,
-            content=bot_content,
-            reply_to_message_id=owner_message_id,
-            timestamp=timestamp,
-        )
+        if bot_message_id is not None and bot_content is not None:
+            _store_bot_message_in_transaction(
+                connection,
+                group_id=group_id,
+                message_id=bot_message_id,
+                content=bot_content,
+                reply_to_message_id=owner_message_id,
+                timestamp=timestamp,
+            )
         connection.execute(
             """
             DELETE FROM telegram_ai_pending_messages

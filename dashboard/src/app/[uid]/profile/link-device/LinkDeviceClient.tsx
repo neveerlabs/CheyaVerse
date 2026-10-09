@@ -271,7 +271,7 @@ export function LinkDeviceClient({ uid }: { uid: string }) {
                               </g>
                             ))}
                             <image
-                              href="/assets/cheyaverse.png"
+                              href="/assets/cheyaverse.jpg"
                               x={(qr.modules.size + 8) / 2 - qr.modules.size * 0.09}
                               y={(qr.modules.size + 8) / 2 - qr.modules.size * 0.09}
                               width={qr.modules.size * 0.18}

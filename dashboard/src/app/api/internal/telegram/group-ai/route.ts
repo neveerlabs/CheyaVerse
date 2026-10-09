@@ -42,7 +42,7 @@ const ALLOWED_MEDIA_TYPES = new Set([
   "sticker",
 ]);
 const MAX_ATTACHMENT_BYTES = 18 * 1024 * 1024;
-const ALLOWED_MEDIA_MIME = /^(image\/(jpeg|png|webp|heic|heif)|audio\/(wav|mpeg|mp3|aiff|aac|ogg|flac|webm)|video\/(mp4|mpeg|quicktime|x-msvideo|x-flv|webm|x-ms-wmv|3gpp)|application\/pdf|application\/json|text\/(plain|csv))$/i;
+const ALLOWED_MEDIA_MIME = /^(image\/(jpeg|png|webp|heic|heif)|audio\/(wav|x-wav|mpeg|mp3|mp4|opus|aiff|aac|ogg|flac|webm)|video\/(mp4|mpeg|quicktime|x-msvideo|x-flv|webm|x-ms-wmv|3gpp)|application\/pdf|application\/json|text\/(plain|csv))$/i;
 
 function formatWebChatMemory(
   recentMessages: Awaited<ReturnType<typeof listRecentAiChatMessages>>,
@@ -283,6 +283,23 @@ function normalizeTelegramReply(value: string): string {
     .trim();
 }
 
+function memoryOperationFailureCode(error: unknown, prefix: "memory" | "telegram"): string {
+  const message = error instanceof Error ? error.message.toLowerCase() : "";
+  if (
+    /http 400|invalid_personal_memory|memory content|memory tags|passwords, tokens|valid memory id|provide memory content|valid telegram memory|summary must be/.test(
+      message,
+    )
+  ) {
+    return `${prefix}_operation_rejected`;
+  }
+  if (
+    /unreachable|http 5\d\d|timeout|sqlite|database|connection/.test(message)
+  ) {
+    return `${prefix}_service_unavailable`;
+  }
+  return `${prefix}_operation_failed`;
+}
+
 function isRepeatedTelegramReply(current: string, previous: string): boolean {
   const currentText = normalizeTelegramReply(current);
   const previousText = normalizeTelegramReply(previous);
@@ -322,6 +339,7 @@ export async function POST(request: NextRequest) {
     ownerUid: number;
     messageId: number;
   } | null = null;
+  let observationOnly = false;
   try {
     if (input.action === "status") {
       const ownerUid = telegramUserId(input.ownerUid);
@@ -420,6 +438,7 @@ export async function POST(request: NextRequest) {
         ok: true,
         enabled: status.enabled && status.ownerUid === ownerUid,
         initialized: initialized && status.enabled && status.ownerUid === ownerUid,
+        sendEnabled: status.sendEnabled,
       });
     }
 
@@ -505,6 +524,7 @@ export async function POST(request: NextRequest) {
       if (!status.enabled || status.ownerUid !== userId) {
         return NextResponse.json({ ok: true, stored: false, reply: null });
       }
+      observationOnly = !status.sendEnabled;
       if (message.trimStart().startsWith("/")) {
         return NextResponse.json({
           ok: true,
@@ -637,6 +657,9 @@ export async function POST(request: NextRequest) {
       telegramMemoryRecords.reverse();
       const context = [
         `Telegram group/channel ID: ${id}. The incoming message is from the verified owner.`,
+        status.sendEnabled
+          ? "AI mode: /send is active. Reply only when useful, and create an insight only when this post is meaningfully important."
+          : "AI mode: /up observation-only is active. Do not send a conversational reply. Still analyze and retain an insight for this post. For an ordinary post, make a brief factual observation and explicitly avoid inferring unexpressed feelings; keep personal memory selective.",
         `Verified current clock: ${currentClockWib} (Asia/Jakarta, 24-hour time; machine reference ${now.toISOString()}).`,
         "Use the exact timestamp attached to a stored message for questions about when that message was sent. Use the verified current clock above only for what time it is now. Never infer either time from model knowledge or guess.",
         ...(previousInsight
@@ -689,7 +712,7 @@ export async function POST(request: NextRequest) {
             `[ai] Telegram personal-memory ${operation.operation} failed for owner ${userId}:`,
             error,
           );
-          memoryActionFailureReasons.push("memory_operation_failed");
+          memoryActionFailureReasons.push(memoryOperationFailureCode(error, "memory"));
           continue;
         }
         if (
@@ -731,7 +754,7 @@ export async function POST(request: NextRequest) {
             `[ai] Telegram data ${operation.operation} failed for owner ${userId}:`,
             error,
           );
-          memoryActionFailureReasons.push("telegram_operation_failed");
+          memoryActionFailureReasons.push(memoryOperationFailureCode(error, "telegram"));
           continue;
         }
         if (!changed) {
@@ -748,6 +771,29 @@ export async function POST(request: NextRequest) {
         });
       }
       const reply = generated.reply?.trim() ?? "";
+      if (!status.sendEnabled) {
+        const summary = generated.summary.trim() || (
+          message.trim()
+            ? `Observasi faktual: owner menyampaikan "${message.trim().slice(0, 900)}". Tidak ada perasaan, keputusan, atau perubahan jangka panjang yang dinyatakan secara eksplisit pada pesan ini.`
+            : `Observasi faktual: owner membagikan media (${types.join(", ") || "media"}). Media telah diteruskan untuk dianalisis; tidak ada detail isi yang disimpan karena ringkasan AI kosong.`
+        );
+        return NextResponse.json({
+          ok: true,
+          stored: true,
+          sendEnabled: false,
+          reply: null,
+          summary,
+          summaryStored: false,
+          summaryPending: true,
+          summarySkipped: false,
+          observationOnly: true,
+          memoryChanges: memoryChanges.length,
+          memoryActionFailures: memoryActionFailureReasons.length,
+          memoryActionFailureReasons,
+          provider: generated.provider,
+          model: generated.model,
+        });
+      }
       const normalizedReply = normalizeTelegramReply(reply);
       const duplicateReply =
         normalizedReply.length > 0 &&
@@ -757,12 +803,15 @@ export async function POST(request: NextRequest) {
               item.role === "bot" &&
               isRepeatedTelegramReply(reply, item.content),
           ));
-      if (!status.sendEnabled || edited || !reply || duplicateReply) {
+      if (edited || !reply || duplicateReply) {
         return NextResponse.json({
           ok: true,
           stored: true,
           reason: duplicateReply ? "duplicate_reply" : "no_reply",
           reply: null,
+          summaryStored: false,
+          summaryPending: false,
+          summarySkipped: true,
           memoryChanges: memoryChanges.length,
           memoryActionFailures: memoryActionFailureReasons.length,
           memoryActionFailureReasons,
@@ -774,8 +823,9 @@ export async function POST(request: NextRequest) {
         sendEnabled: true,
         reply: reply.slice(0, 1800),
         summary: generated.summary.trim(),
-        summaryStored: !generated.summary.trim(),
-        summaryPending: true,
+        summaryStored: false,
+        summaryPending: Boolean(generated.summary.trim()),
+        summarySkipped: !generated.summary.trim(),
         memoryChanges: memoryChanges.length,
         memoryActionFailures: memoryActionFailureReasons.length,
         memoryActionFailureReasons,
@@ -804,22 +854,20 @@ export async function POST(request: NextRequest) {
     }
 
     if (input.action === "finalize_owner_message") {
-      const messageId = safeInteger(input.messageId);
-      const replyToMessageId = input.replyToMessageId == null
-        ? null
-        : safeInteger(input.replyToMessageId);
+      const messageId = input.messageId == null ? null : safeInteger(input.messageId);
       const timestamp = typeof input.timestamp === "string" &&
           Number.isFinite(Date.parse(input.timestamp))
         ? input.timestamp
-        : null;
+        : undefined;
       const content = typeof input.text === "string" ? input.text : "";
+      const hasBotReply = messageId !== null || content.length > 0 || timestamp !== undefined;
       if (
-        messageId === null ||
-        messageId <= 0 ||
-        timestamp === null ||
-        replyToMessageId !== null && replyToMessageId <= 0 ||
-        !content.trim() ||
-        content.length > 4000
+        input.messageId != null && (messageId === null || messageId <= 0) ||
+        hasBotReply &&
+          (messageId === null ||
+            timestamp === undefined ||
+            !content.trim() ||
+            content.length > 4000)
       ) {
         return NextResponse.json({ ok: false, error: "invalid_message" }, { status: 400 });
       }
@@ -844,16 +892,16 @@ export async function POST(request: NextRequest) {
         groupTitle: typeof input.groupTitle === "string" ? input.groupTitle.slice(0, 200) : "",
         ownerMessageId,
         summary,
-        messageId,
-        content,
-        timestamp,
+        ...(messageId !== null ? { messageId } : {}),
+        ...(content.trim() ? { content } : {}),
+        ...(timestamp ? { timestamp } : {}),
       });
       return NextResponse.json({ ok: true, stored: true });
     }
 
     return NextResponse.json({ ok: false, error: "unsupported_action" }, { status: 400 });
   } catch (error) {
-    if (stagedMessage) {
+    if (stagedMessage && !observationOnly) {
       try {
         await rollbackTelegramOwnerMessage(stagedMessage);
       } catch (rollbackError) {

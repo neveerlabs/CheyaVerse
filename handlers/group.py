@@ -299,6 +299,8 @@ def _message_attachments(message: Message) -> list[dict[str, object]]:
         resolved_mime_type = mime_type or (
             mimetypes.guess_type(file_name)[0] if file_name else None
         )
+        if resolved_mime_type == "application/octet-stream" and file_name:
+            resolved_mime_type = mimetypes.guess_type(file_name)[0] or resolved_mime_type
         attachments.append(
             {
                 "type": media_type,
@@ -326,6 +328,51 @@ async def _rollback_staged_message(message: Message, owner_uid: int) -> None:
         )
 
 
+async def _finalize_failed_observation(
+    message: Message,
+    owner_uid: int,
+    text: str,
+    attachments: list[dict[str, object]],
+) -> bool:
+    media_types = ", ".join(str(item["type"]) for item in attachments) or "media"
+    if text.strip():
+        summary = (
+            "Observasi faktual cadangan karena analisis AI gagal: owner menyampaikan "
+            f'"{text.strip()[:900]}". Tidak ada inferensi tambahan.'
+        )
+    else:
+        summary = (
+            "Observasi faktual cadangan karena analisis AI gagal: owner mengirim "
+            f"{media_types}. Isi media tidak disimpulkan."
+        )
+    try:
+        finalized = await _api(
+            "finalize_owner_message",
+            groupId=message.chat.id,
+            ownerUid=owner_uid,
+            groupTitle=message.chat.title or "",
+            ownerMessageId=message.message_id,
+            summary=summary,
+        )
+    except (GroupAiApiError, TelegramAPIError) as exc:
+        logger.error(
+            f"Could not retain observation-only Telegram message "
+            f"{message.message_id} in {message.chat.id}: {exc}"
+        )
+        return False
+    if finalized.get("stored") is not True:
+        logger.error(
+            f"Observation-only Telegram message {message.message_id} "
+            f"in {message.chat.id} was not finalized."
+        )
+        return False
+    logger.warning(
+        f"AI analysis failed for observation-only Telegram message "
+        f"{message.message_id} in {message.chat.id}; stored a factual fallback insight."
+    )
+    return True
+
+
 def _normalized_message_text(value: str) -> str:
     return " ".join(value.casefold().split())
 
@@ -344,6 +391,7 @@ async def _process_owner_message_locked(
 
     processing_started = False
     reply_sent = False
+    observation_only = False
     try:
         status = await _api(
             "auto_enable",
@@ -357,6 +405,7 @@ async def _process_owner_message_locked(
                 "the owner message was not sent for digestion."
             )
             return
+        observation_only = status.get("sendEnabled") is False
         processing_started = True
         result = await _api(
             "auto_process",
@@ -390,23 +439,51 @@ async def _process_owner_message_locked(
         if (
             result.get("summaryStored") is not True
             and result.get("summaryPending") is not True
+            and result.get("summarySkipped") is not True
         ):
             logger.warning(
-                f"Group AI produced no durable summary for channel {message.chat.id} "
+                f"Group AI did not store an expected summary for channel {message.chat.id} "
                 f"message {message.message_id}."
             )
         memory_action_failures = result.get("memoryActionFailures", 0)
+        observation_only = result.get("observationOnly") is True
         if (
             isinstance(memory_action_failures, int)
             and not isinstance(memory_action_failures, bool)
             and memory_action_failures > 0
         ):
-            await _rollback_staged_message(message, owner_uid)
-            await _notify_personal_memory_action_error(
-                message,
-                result.get("memoryActionFailureReasons"),
-                result.get("memoryChanges"),
+            if observation_only:
+                logger.warning(
+                    f"Some memory operations failed while observing Telegram message "
+                    f"{message.message_id} in {message.chat.id}; retaining the message "
+                    f"and its insight. Reasons: {result.get('memoryActionFailureReasons')}."
+                )
+            else:
+                await _rollback_staged_message(message, owner_uid)
+                await _notify_personal_memory_action_error(
+                    message,
+                    result.get("memoryActionFailureReasons"),
+                    result.get("memoryChanges"),
+                )
+                return
+        if observation_only:
+            summary = result.get("summary")
+            if not isinstance(summary, str) or not summary.strip():
+                raise GroupAiApiError(
+                    "Observation-only mode returned without a Telegram insight."
+                )
+            finalized = await _api(
+                "finalize_owner_message",
+                groupId=message.chat.id,
+                ownerUid=owner_uid,
+                groupTitle=message.chat.title or "",
+                ownerMessageId=message.message_id,
+                summary=summary,
             )
+            if finalized.get("stored") is not True:
+                raise GroupAiApiError(
+                    "Observation-only Telegram message was not finalized."
+                )
             return
         reply = result.get("reply")
         if (
@@ -446,6 +523,15 @@ async def _process_owner_message_locked(
                 "Telegram reply was sent, but its message memory was not finalized."
             )
     except (GroupAiApiError, TelegramAPIError) as exc:
+        if observation_only and processing_started and not reply_sent:
+            await _finalize_failed_observation(
+                message, owner_uid, text, attachments
+            )
+            logger.error(
+                f"Group AI processing failed in observation-only mode for "
+                f"{message.chat.id} message {message.message_id}: {exc}"
+            )
+            return
         if processing_started and not reply_sent:
             await _rollback_staged_message(message, owner_uid)
         logger.error(
@@ -455,6 +541,15 @@ async def _process_owner_message_locked(
         if isinstance(exc, GroupAiApiError) and not reply_sent:
             await _notify_processing_error(message, str(exc))
     except Exception:
+        if observation_only and processing_started and not reply_sent:
+            await _finalize_failed_observation(
+                message, owner_uid, text, attachments
+            )
+            logger.exception(
+                f"Unexpected group AI error in observation-only mode for "
+                f"{message.chat.id} message {message.message_id}"
+            )
+            return
         if processing_started and not reply_sent:
             await _rollback_staged_message(message, owner_uid)
         logger.exception(
@@ -519,6 +614,17 @@ async def _notify_personal_memory_action_error(
             "⚠️ Aku tidak menemukan catatan yang dimaksud di hasil pencarian, "
             "jadi perubahan/penghapusan belum dilakukan. Sebutkan catatannya "
             "lebih spesifik atau minta aku mencari ingatan yang tersimpan."
+        )
+    elif {"memory_operation_rejected", "telegram_operation_rejected"} & reason_codes:
+        notice = (
+            "⚠️ Perubahan catatan ditolak karena isinya tidak valid atau melanggar "
+            "batas penyimpanan. Periksa catatannya dulu; jangan kirim ulang "
+            "informasi rahasia seperti password atau token."
+        )
+    elif {"memory_service_unavailable", "telegram_service_unavailable"} & reason_codes:
+        notice = (
+            "⚠️ Layanan penyimpanan memori sedang tidak tersedia. Tidak semua "
+            "perubahan berhasil; coba lagi setelah koneksi database pulih."
         )
     else:
         notice = (

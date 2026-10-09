@@ -488,17 +488,23 @@ async def _handle(request: web.Request) -> web.Response:
 
     if action == "finalize_owner_message":
         owner_message_id = _integer(body.get("ownerMessageId"))
-        message_id = _integer(body.get("messageId"))
+        raw_message_id = body.get("messageId")
+        message_id = _integer(raw_message_id) if raw_message_id is not None else None
         summary = body.get("summary")
         content = body.get("content")
+        has_bot_message = message_id is not None or content is not None
         if (
             owner_message_id is None
-            or message_id is None
+            or raw_message_id is not None and message_id is None
             or not isinstance(summary, str)
             or len(summary) > 1600
-            or not isinstance(content, str)
-            or not content.strip()
-            or len(content) > MAX_TEXT_LENGTH
+            or has_bot_message
+            and (
+                message_id is None
+                or not isinstance(content, str)
+                or not content.strip()
+                or len(content) > MAX_TEXT_LENGTH
+            )
             or body.get("timestamp") is not None
             and _valid_timestamp(body.get("timestamp")) is None
         ):
