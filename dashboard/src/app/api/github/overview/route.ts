@@ -3,6 +3,7 @@ import { getUserSession } from "@/lib/auth-request";
 import {
   getGitHubMessage,
   getGitHubCommitActivity,
+  getGitHubCommitActivityTimeline,
   getGitHubResponseError,
   getGitHubToken,
   GitHubCredentialError,
@@ -21,8 +22,8 @@ export const dynamic = "force-dynamic";
 const CANDIDATE_LIMIT = 24;
 const RANKING_LIMIT = 12;
 const HOME_PROJECT_LIMIT = 5;
-const COMMIT_ACTIVITY_LIMIT = 1000;
 const ACTIVITY_CONCURRENCY = 6;
+const HISTORY_ACTIVITY_CONCURRENCY = 2;
 const FEATURED_REPOSITORY = { owner: "neveerlabs", name: "CheyaVerse" };
 
 type Repository = {
@@ -79,6 +80,9 @@ type ProjectActivity = {
   history: {
     weeklyActivity: number[] | null;
     commitActivity: GitHubCommitActivityPoint[];
+    commitActivityRange: "30d" | "all";
+    commitActivityCount: number;
+    commitActivityCapped: boolean;
     commitsLastYear: number;
     commitsLastFiveWeeks: number;
     commitsLastMonth: number;
@@ -233,6 +237,9 @@ async function loadActivityCandidate(
     history: {
       weeklyActivity,
       commitActivity: [],
+      commitActivityRange: "30d",
+      commitActivityCount: monthlyCommitSummaries.length,
+      commitActivityCapped: monthlyCommitsCapped,
       commitsLastYear: weeklyActivity?.reduce((sum, count) => sum + count, 0) ?? 0,
       commitsLastFiveWeeks:
         weeklyActivity?.slice(-5).reduce((sum, count) => sum + count, 0) ?? 0,
@@ -332,20 +339,24 @@ async function addProjectInsights(
   candidates: ActivityCandidate[],
 ): Promise<ProjectActivity[]> {
   const projects: ProjectActivity[] = [];
-  for (let index = 0; index < candidates.length; index += ACTIVITY_CONCURRENCY) {
-    const group = candidates.slice(index, index + ACTIVITY_CONCURRENCY);
+  for (let index = 0; index < candidates.length; index += HISTORY_ACTIVITY_CONCURRENCY) {
+    const group = candidates.slice(index, index + HISTORY_ACTIVITY_CONCURRENCY);
     const loaded = await Promise.all(
       group.map(async (candidate) => {
         const owner = candidate.repository.fullName.split("/")[0];
         const repoPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(candidate.repository.name)}`;
         const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-        const [commitActivity, release] = await Promise.all([
+        const [recentCommitActivity, commitActivity, release] = await Promise.all([
           getGitHubCommitActivity(
             token,
             owner,
             candidate.repository.name,
             since,
-            COMMIT_ACTIVITY_LIMIT,
+          ),
+          getGitHubCommitActivityTimeline(
+            token,
+            owner,
+            candidate.repository.name,
           ),
           githubJson<GitHubRelease[]>(token, `${repoPath}/releases?per_page=1`)
             .then(({ data }) => data[0] ?? null)
@@ -356,22 +367,25 @@ async function addProjectInsights(
               throw error;
             }),
         ]);
-        const additions = commitActivity.commits.reduce(
+        const additions = recentCommitActivity.commits.reduce(
           (total, commit) => total + commit.additions,
           0,
         );
-        const deletions = commitActivity.commits.reduce(
+        const deletions = recentCommitActivity.commits.reduce(
           (total, commit) => total + commit.deletions,
           0,
         );
-        const measuredCommits = commitActivity.commits.length;
+        const measuredCommits = recentCommitActivity.commits.length;
         return {
           repository: candidate.repository,
           history: {
             ...candidate.history,
             commitActivity: commitActivity.commits,
-            commitsLastMonth: commitActivity.totalCount,
-            commitsLastMonthCapped: commitActivity.capped,
+            commitActivityRange: "all" as const,
+            commitActivityCount: commitActivity.totalCount,
+            commitActivityCapped: commitActivity.capped,
+            commitsLastMonth: recentCommitActivity.totalCount,
+            commitsLastMonthCapped: recentCommitActivity.capped,
             recentChanges: {
               measuredCommits,
               additions,

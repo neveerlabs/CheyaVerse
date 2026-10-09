@@ -43,6 +43,9 @@ type Project = {
       deletions: number;
       changedLines: number;
     }>;
+    commitActivityRange: "30d" | "all";
+    commitActivityCount: number;
+    commitActivityCapped: boolean;
     commitsLastYear: number;
     commitsLastFiveWeeks: number;
     commitsLastMonth: number;
@@ -157,21 +160,23 @@ function DashboardSkeleton() {
 
 function ActivitySparkline({
   activity,
-  commitCount,
-  capped,
+  commitActivityRange,
+  commitActivityCount,
+  commitActivityCapped,
   wide = false,
   compact = false,
 }: {
   activity: Project["history"]["commitActivity"];
-  commitCount: number;
-  capped: boolean;
+  commitActivityRange: Project["history"]["commitActivityRange"];
+  commitActivityCount: number;
+  commitActivityCapped: boolean;
   wide?: boolean;
   compact?: boolean;
 }) {
   if (activity.length === 0) {
     return (
       <p className={`${wide ? "min-w-0 flex-1" : "w-[48%] min-w-[132px] max-w-[260px] shrink-0"} text-right text-[9px] text-slate-400`}>
-        No recent updates
+        No commit history
       </p>
     );
   }
@@ -181,29 +186,53 @@ function ActivitySparkline({
     1,
     ...activity.map((commit) => Math.log1p(commit.changedLines)),
   );
-  const points = activity.map((commit, index) => ({
-    commit,
-    x: activity.length === 1 ? width / 2 : 2 + (index / (activity.length - 1)) * (width - 4),
-    y: height - 5 - (Math.log1p(commit.changedLines) / max) * 27,
-  }));
-  const line = points.map(({ x, y }) => `${x},${y}`).join(" ");
-  const area = `${points[0].x},${height} ${line} ${points[points.length - 1].x},${height}`;
+  const firstCommitTime = Date.parse(activity[0].date);
+  const now = Date.now();
+  const historySpan = Math.max(1, now - firstCommitTime);
+  const points = activity.map((commit, index) => {
+    const commitTime = Date.parse(commit.date);
+    return {
+      commit,
+      x:
+        commitActivityRange === "all" && Number.isFinite(commitTime)
+          ? 2 + (Math.max(0, commitTime - firstCommitTime) / historySpan) * (width - 4)
+          : activity.length === 1
+            ? width / 2
+            : 2 + (index / (activity.length - 1)) * (width - 4),
+      y: height - 5 - (Math.log1p(commit.changedLines) / max) * 27,
+    };
+  });
+  const lastCommitTime = Date.parse(activity[activity.length - 1].date);
+  const showInactivePeriod =
+    commitActivityRange === "all" &&
+    Number.isFinite(lastCommitTime) &&
+    now - lastCommitTime > 30 * 24 * 60 * 60 * 1000;
+  const linePoints = showInactivePeriod
+    ? [
+        ...points,
+        { x: points[points.length - 1].x, y: height - 5 },
+        { x: width - 2, y: height - 5 },
+      ]
+    : points;
+  const line = linePoints.map(({ x, y }) => `${x},${y}`).join(" ");
+  const area = `${linePoints[0].x},${height} ${line} ${linePoints[linePoints.length - 1].x},${height}`;
   const dotRadius = Math.max(0.65, Math.min(2, width / activity.length / 2));
   return (
     <div className={wide ? "min-w-0 flex-1" : "w-[48%] min-w-[132px] max-w-[260px] shrink-0"}>
       <div className="mb-0.5 flex items-center justify-between gap-2 text-[8px]">
         <p className="font-medium text-slate-500">Velocity trend</p>
-        {wide && (
-          <p className="text-slate-400">
-            {formatNumber(commitCount)} commits · last 30 days
-            {capped ? " · latest 1,000 shown" : ""}
-          </p>
-        )}
+        <p className="text-right text-slate-400">
+          {commitActivityRange === "all"
+            ? wide
+              ? `${formatNumber(commitActivityCount)} commits · all history, grouped monthly`
+              : `${formatNumber(commitActivityCount)} · all-time`
+            : `${formatNumber(commitActivityCount)} commits · last 30 days${commitActivityCapped ? " · latest 1,000 shown" : ""}`}
+        </p>
       </div>
       <svg
         viewBox={`0 0 ${width} ${height}`}
         role="img"
-        aria-label={`${formatNumber(commitCount)} commits in the last 30 days${capped ? "; chart limited to the latest 1,000 commits" : ""}; each point represents one commit and its changed lines`}
+        aria-label={`${formatNumber(commitActivityCount)} ${commitActivityRange === "all" ? "commits in repository history, grouped by month" : "commits in the last 30 days"}${commitActivityCapped ? "; chart limited to the latest 1,000 commits" : ""}; each point shows changed lines`}
         className={`block w-full overflow-visible ${compact ? "h-[30px]" : "h-[38px]"}`}
         preserveAspectRatio="none"
       >
@@ -287,8 +316,9 @@ function ProjectCard({ uid, project }: { uid: string; project: Project }) {
           ) : <span />}
           <ActivitySparkline
             activity={project.history.commitActivity}
-            commitCount={project.history.commitsLastMonth}
-            capped={project.history.commitsLastMonthCapped}
+            commitActivityRange={project.history.commitActivityRange}
+            commitActivityCount={project.history.commitActivityCount}
+            commitActivityCapped={project.history.commitActivityCapped}
             compact
           />
         </div>
@@ -301,7 +331,15 @@ function ProjectCard({ uid, project }: { uid: string; project: Project }) {
           </span>
           <span className="ml-auto">{formatDate(repository.pushedAt ?? "")}</span>
         </div>
-        <div className="mt-2 border-t border-slate-100 pt-2">
+        <div
+          className="mt-2 border-t border-slate-100 pt-2"
+          style={{
+            maskImage:
+              "linear-gradient(90deg, transparent, black 4%, black 96%, transparent)",
+            WebkitMaskImage:
+              "linear-gradient(90deg, transparent, black 4%, black 96%, transparent)",
+          }}
+        >
           <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[9px] text-slate-500">
             <span className="inline-flex items-center gap-1"><GitCommitHorizontal size={10} /> {formatNumber(project.history.commitsLastMonth)} commits / 30d</span>
             <span className="inline-flex items-center gap-1"><Activity size={10} /> {project.history.activeMonths} active months · {project.history.activityRuns} cycles</span>
@@ -402,8 +440,9 @@ function FeaturedProjectCard({ uid, project }: { uid: string; project: Project }
           >
             <ActivitySparkline
               activity={history.commitActivity}
-              commitCount={history.commitsLastMonth}
-              capped={history.commitsLastMonthCapped}
+              commitActivityRange={history.commitActivityRange}
+              commitActivityCount={history.commitActivityCount}
+              commitActivityCapped={history.commitActivityCapped}
               wide
             />
           </div>

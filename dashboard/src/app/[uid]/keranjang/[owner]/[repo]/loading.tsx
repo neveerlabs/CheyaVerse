@@ -4,35 +4,35 @@ export default function GitHubProjectLoading() {
       <div
         role="status"
         aria-label="Loading GitHub project dashboard"
-        className="mx-auto max-w-[1680px] animate-pulse"
+        className="mx-auto max-w-[1240px] animate-pulse"
       >
-        <div className="mb-6 flex items-center justify-between">
-          <div className="h-11 w-28 rounded-full bg-white shadow-sm" />
-          <div className="h-11 w-11 rounded-full bg-white shadow-sm" />
+        <div className="mb-4 flex items-center justify-between">
+          <div className="h-10 w-28 rounded-full border border-white bg-white shadow-sm" />
+          <div className="h-10 w-10 rounded-full border border-white bg-white shadow-sm" />
         </div>
-        <div className="mb-6 rounded-[28px] bg-white p-5 shadow-[0_12px_40px_-30px_rgba(15,23,42,0.28)] sm:mb-8 sm:rounded-[32px] sm:p-8">
-          <div className="flex gap-4">
-            <div className="h-14 w-14 shrink-0 rounded-[19px] bg-slate-100 sm:h-16 sm:w-16" />
+        <div className="mb-4 overflow-hidden rounded-[24px] border border-white bg-white p-4 shadow-[0_18px_48px_-38px_rgba(15,23,42,.34)] sm:p-6">
+          <div className="flex gap-3">
+            <div className="h-12 w-12 shrink-0 rounded-2xl bg-slate-100 sm:h-14 sm:w-14" />
             <div className="flex-1 space-y-3 py-1">
               <div className="h-3 w-24 rounded bg-slate-100" />
-              <div className="h-6 w-2/3 rounded bg-slate-100" />
-              <div className="h-3 w-full max-w-xl rounded bg-slate-50" />
+              <div className="h-5 w-2/3 rounded bg-slate-100" />
+              <div className="h-3 w-full max-w-lg rounded bg-slate-50" />
             </div>
           </div>
-          <div className="mt-7 grid grid-cols-2 gap-3 border-t border-slate-100/80 pt-4 sm:grid-cols-4 sm:gap-5">
+          <div className="mt-5 grid grid-cols-2 gap-2 border-t border-slate-100/80 pt-3 sm:grid-cols-4 sm:gap-4">
             {[0, 1, 2, 3].map((item) => (
-              <div key={item} className="h-12 rounded-2xl bg-slate-50" />
+              <div key={item} className="h-11 rounded-xl bg-slate-50" />
             ))}
           </div>
         </div>
-        <div className="grid gap-5 lg:grid-cols-[minmax(0,1.65fr)_minmax(320px,1fr)]">
-          <div className="space-y-5">
-            <div className="h-[340px] rounded-[26px] bg-white shadow-sm sm:rounded-[30px]" />
-            <div className="h-[310px] rounded-[26px] bg-white shadow-sm sm:rounded-[30px]" />
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1.55fr)_minmax(300px,.85fr)]">
+          <div className="space-y-4">
+            <div className="h-[300px] rounded-[22px] border border-white bg-white shadow-sm" />
+            <div className="h-[340px] rounded-[22px] border border-white bg-white shadow-sm" />
           </div>
-          <div className="space-y-5">
-            <div className="h-[330px] rounded-[26px] bg-white shadow-sm sm:rounded-[30px]" />
-            <div className="h-[280px] rounded-[26px] bg-white shadow-sm sm:rounded-[30px]" />
+          <div className="space-y-4">
+            <div className="h-[300px] rounded-[22px] border border-white bg-white shadow-sm" />
+            <div className="h-[260px] rounded-[22px] border border-white bg-white shadow-sm" />
           </div>
         </div>
         <span className="sr-only">Loading repository statistics and commit history</span>

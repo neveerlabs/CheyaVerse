@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getUserSession } from "@/lib/auth-request";
 import {
   getGitHubCommitActivity,
+  getGitHubCommitActivityTimeline,
   getGitHubMessage,
   getGitHubToken,
   GitHubCredentialError,
@@ -13,7 +14,7 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-const REPOSITORY_ACTIVITY_CONCURRENCY = 6;
+const REPOSITORY_ACTIVITY_CONCURRENCY = 2;
 
 type GitHubRepository = {
   id: number;
@@ -64,10 +65,11 @@ export async function GET(request: NextRequest) {
     >(token, path);
     const repositories = Array.isArray(data) ? data : data.items;
     const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-    const repositoryActivity = new Map<
-      number,
-      Awaited<ReturnType<typeof getGitHubCommitActivity>>
-    >();
+    type RepositoryActivity = {
+      chart: Awaited<ReturnType<typeof getGitHubCommitActivityTimeline>>;
+      recent: Awaited<ReturnType<typeof getGitHubCommitActivity>>;
+    };
+    const repositoryActivity = new Map<number, RepositoryActivity>();
     for (
       let index = 0;
       index < repositories.length;
@@ -78,14 +80,14 @@ export async function GET(request: NextRequest) {
         index + REPOSITORY_ACTIVITY_CONCURRENCY,
       );
       const activity = await Promise.all(
-        group.map((repo) =>
-          getGitHubCommitActivity(
-            token,
-            repo.full_name.split("/")[0],
-            repo.name,
-            since,
-          ),
-        ),
+        group.map(async (repo): Promise<RepositoryActivity> => {
+          const owner = repo.full_name.split("/")[0];
+          const [recent, chart] = await Promise.all([
+            getGitHubCommitActivity(token, owner, repo.name, since),
+            getGitHubCommitActivityTimeline(token, owner, repo.name),
+          ]);
+          return { chart, recent };
+        }),
       );
       activity.forEach((result, groupIndex) => {
         repositoryActivity.set(group[groupIndex].id, result);
@@ -108,26 +110,31 @@ export async function GET(request: NextRequest) {
           updatedAt: repo.updated_at,
           pushedAt: repo.pushed_at,
           activity: (() => {
-            const result = repositoryActivity.get(repo.id);
-            const commits = result?.commits ?? [];
-            const additions = commits.reduce(
+            const activity = repositoryActivity.get(repo.id);
+            const chartCommits = activity?.chart.commits ?? [];
+            const recentCommits = activity?.recent.commits ?? [];
+            const additions = recentCommits.reduce(
               (total, commit) => total + commit.additions,
               0,
             );
-            const deletions = commits.reduce(
+            const deletions = recentCommits.reduce(
               (total, commit) => total + commit.deletions,
               0,
             );
             return {
-              commitsLastMonth: result?.totalCount ?? 0,
-              commitsLastMonthCapped: result?.capped ?? false,
-              commitActivity: commits,
+              commitsLastMonth: activity?.recent.totalCount ?? 0,
+              commitsLastMonthCapped:
+                activity?.recent.capped ?? false,
+              commitActivityRange: "all",
+              commitActivityCount: activity?.chart.totalCount ?? 0,
+              commitActivityCapped: activity?.chart.capped ?? false,
+              commitActivity: chartCommits,
               additions,
               deletions,
-              measuredCommits: commits.length,
+              measuredCommits: recentCommits.length,
               averageLinesChanged:
-                commits.length > 0
-                  ? (additions + deletions) / commits.length
+                recentCommits.length > 0
+                  ? (additions + deletions) / recentCommits.length
                   : 0,
             };
           })(),

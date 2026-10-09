@@ -311,6 +311,7 @@ export type GitHubCommitActivityPoint = {
   additions: number;
   deletions: number;
   changedLines: number;
+  commitCount?: number;
 };
 
 const RECENT_COMMIT_HISTORY_QUERY = `
@@ -427,6 +428,100 @@ export async function getGitHubCommitActivity(
     totalCount: Math.max(totalCount, activity.length),
     capped: totalCount > activity.length || hasNextPage,
   };
+}
+
+export async function getGitHubCommitActivityTimeline(
+  token: string,
+  owner: string,
+  repository: string,
+): Promise<{
+  commits: GitHubCommitActivityPoint[];
+  totalCount: number;
+  capped: false;
+}> {
+  const since = "1970-01-01T00:00:00Z";
+  const months = new Map<
+    string,
+    {
+      url: string;
+      date: string;
+      additions: number;
+      deletions: number;
+      commitCount: number;
+    }
+  >();
+  let after: string | null = null;
+  let totalCount = 0;
+  let hasNextPage = false;
+
+  do {
+    const response: RecentCommitHistoryResponse =
+      await githubGraphql<RecentCommitHistoryResponse>(
+      token,
+      RECENT_COMMIT_HISTORY_QUERY,
+      { owner, name: repository, since, after },
+    );
+    const history: RecentCommitHistory | undefined =
+      response.repository?.defaultBranchRef?.target?.history;
+    if (!history) {
+      if (after !== null) {
+        throw new GitHubApiError(
+          "GitHub returned incomplete repository commit history.",
+          502,
+        );
+      }
+      return { commits: [], totalCount: 0, capped: false };
+    }
+
+    if (after === null) totalCount = history.totalCount;
+    for (const commit of history.nodes) {
+      const timestamp = Date.parse(commit.committedDate);
+      if (!Number.isFinite(timestamp)) continue;
+      const month = commit.committedDate.slice(0, 7);
+      const bucket = months.get(month);
+      if (bucket) {
+        bucket.additions += commit.additions;
+        bucket.deletions += commit.deletions;
+        bucket.commitCount += 1;
+        if (timestamp > Date.parse(bucket.date)) {
+          bucket.date = commit.committedDate;
+          bucket.url = commit.url;
+        }
+      } else {
+        months.set(month, {
+          url: commit.url,
+          date: commit.committedDate,
+          additions: commit.additions,
+          deletions: commit.deletions,
+          commitCount: 1,
+        });
+      }
+    }
+    hasNextPage = history.pageInfo.hasNextPage;
+    const nextCursor: string | null = history.pageInfo.endCursor;
+    if (hasNextPage && (!nextCursor || nextCursor === after)) {
+      throw new GitHubApiError(
+        "GitHub returned an invalid repository history cursor.",
+        502,
+      );
+    }
+    after = nextCursor;
+  } while (hasNextPage && after);
+
+  const commits = [...months.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([month, bucket]): GitHubCommitActivityPoint => ({
+      sha: month,
+      url: bucket.url,
+      message: `${bucket.commitCount} commits in ${month}`,
+      date: bucket.date,
+      additions: bucket.additions,
+      deletions: bucket.deletions,
+      changedLines: bucket.additions + bucket.deletions,
+      commitCount: bucket.commitCount,
+    }));
+
+  return { commits, totalCount, capped: false };
 }
 
 export async function getGitHubResponseError(

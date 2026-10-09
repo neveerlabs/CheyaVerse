@@ -35,6 +35,9 @@ type Repository = {
   activity: {
     commitsLastMonth: number;
     commitsLastMonthCapped: boolean;
+    commitActivityRange: "30d" | "all";
+    commitActivityCount: number;
+    commitActivityCapped: boolean;
     commitActivity: Array<{
       sha: string;
       url: string;
@@ -73,15 +76,17 @@ function formatNumber(value: number): string {
 
 function ProjectActivityChart({
   activity,
-  commitCount,
-  capped,
+  commitActivityRange,
+  commitActivityCount,
+  commitActivityCapped,
 }: {
   activity: Repository["activity"]["commitActivity"];
-  commitCount: number;
-  capped: boolean;
+  commitActivityRange: Repository["activity"]["commitActivityRange"];
+  commitActivityCount: number;
+  commitActivityCapped: boolean;
 }) {
   if (!activity.length) {
-    return <p className="text-[9px] text-ink-mute">No commits in the last 30 days</p>;
+    return <p className="text-[9px] text-ink-mute">No commit history</p>;
   }
   const width = 260;
   const height = 42;
@@ -89,26 +94,51 @@ function ProjectActivityChart({
     1,
     ...activity.map((commit) => Math.log1p(commit.changedLines)),
   );
-  const points = activity.map((commit, index) => ({
-    commit,
-    x: activity.length === 1 ? width / 2 : 2 + (index / (activity.length - 1)) * (width - 4),
-    y: height - 5 - (Math.log1p(commit.changedLines) / maximum) * 27,
-  }));
-  const line = points.map(({ x, y }) => `${x},${y}`).join(" ");
-  const area = `${points[0].x},${height} ${line} ${points[points.length - 1].x},${height}`;
+  const firstCommitTime = Date.parse(activity[0].date);
+  const now = Date.now();
+  const historySpan = Math.max(1, now - firstCommitTime);
+  const points = activity.map((commit, index) => {
+    const commitTime = Date.parse(commit.date);
+    return {
+      commit,
+      x:
+        commitActivityRange === "all" && Number.isFinite(commitTime)
+          ? 2 + (Math.max(0, commitTime - firstCommitTime) / historySpan) * (width - 4)
+          : activity.length === 1
+            ? width / 2
+            : 2 + (index / (activity.length - 1)) * (width - 4),
+      y: height - 5 - (Math.log1p(commit.changedLines) / maximum) * 27,
+    };
+  });
+  const lastCommitTime = Date.parse(activity[activity.length - 1].date);
+  const showInactivePeriod =
+    commitActivityRange === "all" &&
+    Number.isFinite(lastCommitTime) &&
+    now - lastCommitTime > 30 * 24 * 60 * 60 * 1000;
+  const linePoints = showInactivePeriod
+    ? [
+        ...points,
+        { x: points[points.length - 1].x, y: height - 5 },
+        { x: width - 2, y: height - 5 },
+      ]
+    : points;
+  const line = linePoints.map(({ x, y }) => `${x},${y}`).join(" ");
+  const area = `${linePoints[0].x},${height} ${line} ${linePoints[linePoints.length - 1].x},${height}`;
 
   return (
     <div className="min-w-0 flex-1">
       <div className="mb-0.5 flex items-center justify-between gap-2 text-[8px]">
         <span className="font-medium text-ink-mute">Velocity trend</span>
         <span className="text-ink-mute">
-          {formatNumber(commitCount)} commits · 30d{capped ? " · latest 1,000" : ""}
+          {commitActivityRange === "all"
+            ? `${formatNumber(commitActivityCount)} · all-time`
+            : `${formatNumber(commitActivityCount)} commits · 30d${commitActivityCapped ? " · latest 1,000" : ""}`}
         </span>
       </div>
       <svg
         viewBox={`0 0 ${width} ${height}`}
         role="img"
-        aria-label={`${commitCount} commits in the last 30 days; each point represents one commit`}
+        aria-label={`${commitActivityCount} ${commitActivityRange === "all" ? "commits in repository history, grouped by month" : "commits in the last 30 days"}${commitActivityCapped ? "; chart limited to the latest 1,000 commits" : ""}; each point shows changed lines`}
         className="block h-[30px] w-full"
         preserveAspectRatio="none"
       >
@@ -123,9 +153,7 @@ function ProjectActivityChart({
         />
         {points.map(({ commit, x, y }) => (
           <circle key={commit.sha} cx={x} cy={y} r="1.5" fill="#a995c5">
-            <title>
-              {`${formatDate(commit.date)} · ${commit.message} · +${formatNumber(commit.additions)} / −${formatNumber(commit.deletions)} lines`}
-            </title>
+            <title>{`${formatDate(commit.date)} · ${commit.message} · +${formatNumber(commit.additions)} / −${formatNumber(commit.deletions)} lines`}</title>
           </circle>
         ))}
       </svg>
@@ -452,11 +480,20 @@ export function GitHubProjectsClient({ uid }: { uid: string }) {
                 <div className="mt-2">
                   <ProjectActivityChart
                     activity={repository.activity.commitActivity}
-                    commitCount={repository.activity.commitsLastMonth}
-                    capped={repository.activity.commitsLastMonthCapped}
+                    commitActivityRange={repository.activity.commitActivityRange}
+                    commitActivityCount={repository.activity.commitActivityCount}
+                    commitActivityCapped={repository.activity.commitActivityCapped}
                   />
                 </div>
-                <div className="mt-2 border-t border-[#f0f0f2] pt-2">
+                <div
+                  className="mt-2 border-t border-[#f0f0f2] pt-2"
+                  style={{
+                    maskImage:
+                      "linear-gradient(90deg, transparent, black 4%, black 96%, transparent)",
+                    WebkitMaskImage:
+                      "linear-gradient(90deg, transparent, black 4%, black 96%, transparent)",
+                  }}
+                >
                   <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[9px] text-ink-mute">
                     <span className="inline-flex items-center gap-1">
                       <GitCommitHorizontal size={10} />
