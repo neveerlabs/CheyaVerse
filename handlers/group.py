@@ -523,6 +523,9 @@ async def _process_owner_message_locked(
             )
         memory_action_failures = result.get("memoryActionFailures", 0)
         observation_only = result.get("observationOnly") is True
+        memory_action_failure_reasons = result.get(
+            "memoryActionFailureReasons"
+        )
         if (
             isinstance(memory_action_failures, int)
             and not isinstance(memory_action_failures, bool)
@@ -532,16 +535,15 @@ async def _process_owner_message_locked(
                 logger.warning(
                     f"Some memory operations failed while observing Telegram message "
                     f"{message.message_id} in {message.chat.id}; retaining the message "
-                    f"and its insight. Reasons: {result.get('memoryActionFailureReasons')}."
+                    f"and its insight. Reasons: {memory_action_failure_reasons}."
                 )
             else:
-                await _rollback_staged_message(message, owner_uid)
-                await _notify_personal_memory_action_error(
-                    message,
-                    result.get("memoryActionFailureReasons"),
-                    result.get("memoryChanges"),
+                logger.warning(
+                    f"Some memory operations failed for Telegram message "
+                    f"{message.message_id} in {message.chat.id}; continuing with the "
+                    f"AI reply and message finalization. Reasons: "
+                    f"{memory_action_failure_reasons}."
                 )
-                return
         if observation_only:
             summary = result.get("summary")
             if not isinstance(summary, str) or not summary.strip():
@@ -598,6 +600,16 @@ async def _process_owner_message_locked(
         if finalized.get("stored") is not True:
             raise GroupAiApiError(
                 "Telegram reply was sent, but its message memory was not finalized."
+            )
+        if (
+            isinstance(memory_action_failures, int)
+            and not isinstance(memory_action_failures, bool)
+            and memory_action_failures > 0
+        ):
+            await _notify_personal_memory_action_error(
+                message,
+                memory_action_failure_reasons,
+                result.get("memoryChanges"),
             )
     except (GroupAiApiError, TelegramAPIError) as exc:
         if observation_only and processing_started and not reply_sent:
@@ -682,32 +694,33 @@ async def _notify_personal_memory_action_error(
         and successful_actions > 0
     ):
         notice = (
-            "⚠️ Sebagian operasi memori berhasil, tetapi ada perubahan atau "
-            "penghapusan catatan yang tidak dilakukan. Periksa dulu catatannya "
-            "sebelum mengirim ulang agar tidak membuat duplikat."
+            "⚠️ Pesan dan balasanku sudah diproses dan disimpan. Sebagian perubahan "
+            "catatan berhasil, tetapi ada operasi memori lain yang gagal. Jangan "
+            "kirim ulang pesan awal; minta aku memeriksa catatan yang tersimpan."
         )
     elif {"memory_target_not_found", "memory_target_not_retrieved"} & reason_codes:
         notice = (
-            "⚠️ Aku tidak menemukan catatan yang dimaksud di hasil pencarian, "
-            "jadi perubahan/penghapusan belum dilakukan. Sebutkan catatannya "
-            "lebih spesifik atau minta aku mencari ingatan yang tersimpan."
+            "⚠️ Pesan dan balasanku sudah diproses dan disimpan. Aku tidak menemukan "
+            "catatan yang dimaksud, jadi perubahan/penghapusan itu belum dilakukan. "
+            "Jangan kirim ulang pesan awal; minta aku memeriksa catatan yang tersimpan."
         )
     elif {"memory_operation_rejected", "telegram_operation_rejected"} & reason_codes:
         notice = (
-            "⚠️ Perubahan catatan ditolak karena isinya tidak valid atau melanggar "
-            "batas penyimpanan. Periksa catatannya dulu; jangan kirim ulang "
-            "informasi rahasia seperti password atau token."
+            "⚠️ Pesan dan balasanku sudah diproses dan disimpan, tetapi perubahan "
+            "catatan ditolak karena isinya tidak valid atau melewati batas "
+            "penyimpanan. Jangan kirim ulang pesan awal; periksa catatannya dulu."
         )
     elif {"memory_service_unavailable", "telegram_service_unavailable"} & reason_codes:
         notice = (
-            "⚠️ Layanan penyimpanan memori sedang tidak tersedia. Tidak semua "
-            "perubahan berhasil; coba lagi setelah koneksi database pulih."
+            "⚠️ Pesan dan balasanku sudah diproses dan disimpan. Layanan memori "
+            "sempat tidak tersedia sehingga sebagian perubahan catatan mungkin "
+            "belum diterapkan. Jangan kirim ulang pesan awal."
         )
     else:
         notice = (
-            "⚠️ Ada operasi memori yang tidak bisa diterapkan, jadi aku belum "
-            "menganggap perubahan itu berhasil. Coba minta aku memeriksa catatan "
-            "yang tersimpan sebelum mengirim ulang."
+            "⚠️ Pesan dan balasanku sudah diproses dan disimpan, tetapi ada "
+            "perubahan catatan yang gagal diterapkan. Jangan kirim ulang pesan "
+            "awal; minta aku memeriksa catatan yang tersimpan."
         )
     try:
         if message.chat.type == "channel":
