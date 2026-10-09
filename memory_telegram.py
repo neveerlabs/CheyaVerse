@@ -1131,7 +1131,7 @@ def apply_owner_data_operation(
             if operation == "create_insight":
                 source = connection.execute(
                     """
-                    SELECT telegram_message_id FROM telegram_ai_messages
+                    SELECT telegram_message_id, timestamp FROM telegram_ai_messages
                     WHERE id = ? AND group_id = ? AND sender_uid = ? AND role = 'admin'
                       AND NOT EXISTS (
                         SELECT 1 FROM telegram_ai_pending_messages AS pending
@@ -1148,14 +1148,28 @@ def apply_owner_data_operation(
                     return False
                 existing = connection.execute(
                     """
-                    SELECT 1 FROM telegram_ai_insights
+                    SELECT id FROM telegram_ai_insights
                     WHERE group_id = ? AND telegram_message_id = ? LIMIT 1
                     """,
                     (group_id, source["telegram_message_id"]),
                 ).fetchone()
                 if existing is not None:
-                    connection.rollback()
-                    return False
+                    connection.execute(
+                        """
+                        UPDATE telegram_ai_insights
+                        SET summary = ?, timestamp = ?
+                        WHERE id = ? AND group_id = ? AND owner_uid = ?
+                        """,
+                        (
+                            summary.strip()[:1600],
+                            str(source["timestamp"]),
+                            str(existing["id"]),
+                            group_id,
+                            owner_uid,
+                        ),
+                    )
+                    connection.commit()
+                    return True
                 _store_insight_in_transaction(
                     connection,
                     group_id=group_id,

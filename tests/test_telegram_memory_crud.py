@@ -79,10 +79,23 @@ class TelegramMemoryCrudTests(unittest.TestCase):
                 summary="Insight summary that can be searched.",
             )
         )
+        self.assertTrue(
+            memory_telegram.apply_owner_data_operation(
+                self.group_id,
+                self.owner_uid,
+                "create_insight",
+                message_id=message_record_id,
+                summary="Corrected insight summary.",
+            )
+        )
+        self.assertEqual(
+            memory_telegram.get_insight(self.group_id, self.owner_uid, 101),
+            "Corrected insight summary.",
+        )
         insight = next(
             item
             for item in memory_telegram.retrieve_group_memory(
-                self.group_id, self.owner_uid, "Insight", None
+                self.group_id, self.owner_uid, "Corrected", None
             )
             if item["role"] == "memory"
         )

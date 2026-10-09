@@ -804,7 +804,10 @@ export async function POST(request: NextRequest) {
         if (!changed) {
           memoryActionFailureReasons.push("telegram_target_not_found");
           console.warn(
-            `[ai] Telegram data ${operation.operation} did not find its target for owner ${userId}.`,
+            `[ai] Telegram data ${operation.operation} did not find its target ` +
+            `(recordId=${"recordId" in operation ? operation.recordId : "none"}, ` +
+            `messageId=${"messageId" in operation ? operation.messageId : "none"}) ` +
+            `for owner ${userId}.`,
           );
           continue;
         }
