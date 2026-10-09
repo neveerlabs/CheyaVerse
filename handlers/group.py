@@ -1,5 +1,8 @@
 import asyncio
+import html
+import json
 import mimetypes
+import re
 import time
 import aiohttp
 
@@ -38,6 +41,16 @@ class GroupAiApiError(RuntimeError):
     pass
 
 
+def _response_preview(body: str) -> str:
+    preview = html.unescape(re.sub(r"<[^>]*>", " ", body))
+    preview = re.sub(
+        r"(?i)bearer\s+[A-Za-z0-9._~+/=-]+",
+        "Bearer [redacted]",
+        preview,
+    )
+    return " ".join(preview.split())[:240]
+
+
 async def _api(action: str, **payload):
     if not PUBLIC_URL or not TELEGRAM_GROUP_AI_SECRET:
         raise GroupAiApiError("PUBLIC_URL or TELEGRAM_GROUP_AI_SECRET is not configured")
@@ -50,10 +63,21 @@ async def _api(action: str, **payload):
                 json={"action": action, **payload},
                 headers={"Authorization": f"Bearer {TELEGRAM_GROUP_AI_SECRET}"},
             ) as response:
+                body = await response.text()
                 try:
-                    data = await response.json(content_type=None)
-                except (aiohttp.ContentTypeError, ValueError) as exc:
-                    raise GroupAiApiError("Group AI API returned invalid JSON") from exc
+                    data = json.loads(body)
+                except ValueError as exc:
+                    content_type = response.headers.get("Content-Type", "unknown")
+                    preview = _response_preview(body) or "<empty response>"
+                    logger.error(
+                        f"Group AI API returned non-JSON for {action}: HTTP "
+                        f"{response.status}, content-type={content_type}, "
+                        f"body-preview={preview!r}"
+                    )
+                    raise GroupAiApiError(
+                        f"Group AI API returned invalid JSON (HTTP {response.status}, "
+                        f"content-type {content_type})."
+                    ) from exc
                 if not isinstance(data, dict) or not data.get("ok"):
                     message = data.get("message") if isinstance(data, dict) else None
                     error = data.get("error") if isinstance(data, dict) else None

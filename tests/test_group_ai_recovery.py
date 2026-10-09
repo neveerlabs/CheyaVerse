@@ -7,6 +7,18 @@ from handlers import group
 
 
 class GroupAiRecoveryTests(unittest.IsolatedAsyncioTestCase):
+    def test_non_json_response_preview_is_bounded_and_redacts_bearer_tokens(self) -> None:
+        preview = group._response_preview(
+            "<html><title>Gateway Error</title>"
+            "<p>Bearer super-secret-token upstream timeout</p></html>"
+        )
+
+        self.assertEqual(
+            preview,
+            "Gateway Error Bearer [redacted] upstream timeout",
+        )
+        self.assertLessEqual(len(group._response_preview("x" * 500)), 240)
+
     async def test_memory_action_failure_does_not_discard_message_or_reply(self) -> None:
         events: list[str] = []
 
