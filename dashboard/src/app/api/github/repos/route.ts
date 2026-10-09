@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { getUserSession } from "@/lib/auth-request";
 import {
   getGitHubCommitActivity,
-  getGitHubCommitActivityTimeline,
   getGitHubMessage,
   getGitHubToken,
   GitHubCredentialError,
@@ -14,7 +13,7 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-const REPOSITORY_ACTIVITY_CONCURRENCY = 2;
+const REPOSITORY_ACTIVITY_CONCURRENCY = 6;
 
 type GitHubRepository = {
   id: number;
@@ -66,8 +65,9 @@ export async function GET(request: NextRequest) {
     const repositories = Array.isArray(data) ? data : data.items;
     const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
     type RepositoryActivity = {
-      chart: Awaited<ReturnType<typeof getGitHubCommitActivityTimeline>>;
+      chart: Awaited<ReturnType<typeof getGitHubCommitActivity>>;
       recent: Awaited<ReturnType<typeof getGitHubCommitActivity>>;
+      range: "30d" | "all";
     };
     const repositoryActivity = new Map<number, RepositoryActivity>();
     for (
@@ -80,13 +80,24 @@ export async function GET(request: NextRequest) {
         index + REPOSITORY_ACTIVITY_CONCURRENCY,
       );
       const activity = await Promise.all(
-        group.map(async (repo): Promise<RepositoryActivity> => {
+        group.map(async (repo) => {
           const owner = repo.full_name.split("/")[0];
-          const [recent, chart] = await Promise.all([
-            getGitHubCommitActivity(token, owner, repo.name, since),
-            getGitHubCommitActivityTimeline(token, owner, repo.name),
-          ]);
-          return { chart, recent };
+          const recent = await getGitHubCommitActivity(
+            token,
+            owner,
+            repo.name,
+            since,
+          );
+          if (recent.totalCount > 0) {
+            return { chart: recent, recent, range: "30d" as const };
+          }
+          const historical = await getGitHubCommitActivity(
+            token,
+            owner,
+            repo.name,
+            "1970-01-01T00:00:00Z",
+          );
+          return { chart: historical, recent, range: "all" as const };
         }),
       );
       activity.forEach((result, groupIndex) => {
@@ -125,7 +136,7 @@ export async function GET(request: NextRequest) {
               commitsLastMonth: activity?.recent.totalCount ?? 0,
               commitsLastMonthCapped:
                 activity?.recent.capped ?? false,
-              commitActivityRange: "all",
+              commitActivityRange: activity?.range ?? "30d",
               commitActivityCount: activity?.chart.totalCount ?? 0,
               commitActivityCapped: activity?.chart.capped ?? false,
               commitActivity: chartCommits,

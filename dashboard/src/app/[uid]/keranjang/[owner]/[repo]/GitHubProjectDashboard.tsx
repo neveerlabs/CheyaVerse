@@ -388,9 +388,9 @@ export function GitHubProjectDashboard({
   );
 
   return (
-    <div className="relative left-1/2 w-screen -translate-x-1/2 bg-[linear-gradient(145deg,#f8f9fc_0%,#f1f3f8_55%,#f7f8fc_100%)] pb-12 text-slate-900">
-      <div className="min-h-[calc(100dvh-56px)] w-full px-4 pb-10 pt-4 sm:px-6 sm:pt-5 lg:px-8">
-        <header className="mx-auto mb-4 flex w-full max-w-[1240px] flex-wrap items-center justify-between gap-3">
+    <div className="relative left-1/2 w-screen -translate-x-1/2 bg-[#f4f5f9] pb-12 text-slate-900">
+      <div className="min-h-[calc(100dvh-56px)] w-full px-4 pb-12 pt-4 sm:px-6 sm:pt-6 lg:px-10">
+        <header className="mx-auto mb-5 flex w-full max-w-[1680px] flex-wrap items-center justify-between gap-3 sm:mb-7">
           <Link
             href={`/${uid}/project`}
             className="inline-flex min-h-11 items-center gap-2 rounded-full bg-white px-4 py-2.5 text-[13px] font-semibold text-slate-600 shadow-sm shadow-slate-900/[0.03] transition hover:text-slate-950"
@@ -415,7 +415,7 @@ export function GitHubProjectDashboard({
         </header>
 
         {error && (
-          <div role="alert" className="mx-auto mb-4 flex max-w-[1240px] items-start justify-between gap-3 rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-[13px] leading-relaxed text-red-800">
+          <div role="alert" className="mx-auto mb-5 flex max-w-[1680px] items-start justify-between gap-3 rounded-2xl bg-red-50 px-4 py-3 text-[13px] leading-relaxed text-red-800">
             <span>{error}</span>
             <button type="button" onClick={() => setReloadKey((key) => key + 1)} aria-label="Retry" className="shrink-0">
               <RefreshCw size={14} />
@@ -425,8 +425,8 @@ export function GitHubProjectDashboard({
 
         {project ? (
           <>
-            <section className="mx-auto mb-4 w-full max-w-[1240px] overflow-hidden rounded-[24px] border border-white/80 bg-white shadow-[0_18px_48px_-38px_rgba(15,23,42,0.34)] sm:mb-5 sm:rounded-[26px]">
-              <div className="relative overflow-hidden px-4 py-5 sm:px-6 sm:py-6 lg:px-7">
+            <section className="mx-auto mb-6 w-full max-w-[1680px] overflow-hidden rounded-[28px] bg-white shadow-[0_12px_40px_-30px_rgba(15,23,42,0.28)] sm:mb-8 sm:rounded-[32px]">
+              <div className="relative overflow-hidden px-5 py-6 sm:px-8 sm:py-8 lg:px-10">
                 <div aria-hidden="true" className="pointer-events-none absolute -right-16 -top-24 h-72 w-72 rounded-full bg-indigo-100/65 blur-3xl" />
                 <div aria-hidden="true" className="pointer-events-none absolute -bottom-32 left-1/3 h-56 w-56 rounded-full bg-sky-100/60 blur-3xl" />
                 <div className="relative flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
@@ -460,13 +460,13 @@ export function GitHubProjectDashboard({
                           <span className="rounded-full bg-red-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-red-700">Disabled</span>
                         )}
                       </div>
-                      <h1 className="min-w-0 break-words text-[22px] font-bold leading-tight tracking-[-.04em] text-slate-950 sm:text-[26px] lg:text-[29px]">
+                      <h1 className="min-w-0 break-words text-[23px] font-bold leading-tight tracking-[-.04em] text-slate-950 sm:text-[30px] lg:text-[34px]">
                         {project.repository.name}
                       </h1>
                       <p className="mt-1 break-all font-mono text-[12px] text-slate-500 sm:text-[13px]">
                         {project.repository.fullName}
                       </p>
-                      <p className="mt-2 max-w-[680px] text-[13px] leading-relaxed text-slate-600 sm:text-[14px]">
+                      <p className="mt-3 max-w-[760px] text-[14px] leading-relaxed text-slate-600 sm:text-[15px]">
                         {project.repository.description || "No project description provided."}
                       </p>
                     </div>
@@ -488,7 +488,7 @@ export function GitHubProjectDashboard({
                 </div>
               </div>
               <div
-                className="grid grid-cols-2 gap-2 border-t border-slate-100/80 bg-slate-50/55 px-4 py-3 sm:grid-cols-4 sm:gap-4 sm:px-6 lg:px-7"
+                className="grid grid-cols-2 gap-3 border-t border-slate-100/80 bg-white/70 px-5 py-4 sm:grid-cols-4 sm:gap-5 sm:px-8 lg:px-10"
                 style={{ maskImage: "linear-gradient(90deg, transparent, black 3%, black 97%, transparent)" }}
               >
                 <Kpi icon={<Star size={15} />} label="Stars" value={formatCount(project.repository.stars)} />
@@ -499,7 +499,7 @@ export function GitHubProjectDashboard({
             </section>
 
             {project.releases.length > 0 && (
-              <section className="mx-auto mb-4 w-full max-w-[1240px] rounded-[22px] border border-white/80 bg-white px-4 py-4 shadow-[0_14px_38px_-32px_rgba(15,23,42,0.35)] sm:mb-5 sm:px-5 sm:py-5">
+              <section className="mx-auto mb-6 w-full max-w-[1680px] rounded-[26px] bg-white px-5 py-5 shadow-[0_12px_40px_-32px_rgba(15,23,42,0.3)] sm:mb-8 sm:rounded-[30px] sm:px-8 sm:py-7 lg:px-10">
                 <SectionHeading
                   icon={<Tag size={16} />}
                   eyebrow="Versions"
@@ -657,9 +657,9 @@ export function GitHubProjectDashboard({
               </section>
             )}
 
-            <div className="mx-auto grid w-full max-w-[1240px] grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1.55fr)_minmax(300px,.85fr)]">
-              <main className="min-w-0 space-y-4">
-                <section className="rounded-[22px] border border-white/80 bg-white p-4 shadow-[0_14px_38px_-32px_rgba(15,23,42,0.35)] sm:p-5">
+            <div className="mx-auto grid w-full max-w-[1680px] grid-cols-1 items-start gap-5 lg:grid-cols-[minmax(0,1.65fr)_minmax(320px,1fr)]">
+              <main className="min-w-0 space-y-5">
+                <section className="rounded-[26px] bg-white p-5 shadow-[0_12px_40px_-32px_rgba(15,23,42,0.3)] sm:rounded-[30px] sm:p-7 lg:p-8">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <SectionHeading
@@ -758,7 +758,7 @@ export function GitHubProjectDashboard({
                   <p className="mt-2 text-center text-[11px] leading-relaxed text-slate-400">{historyNote}</p>
                 </section>
 
-                <section className="rounded-[22px] border border-white/80 bg-white p-4 shadow-[0_14px_38px_-32px_rgba(15,23,42,0.35)] sm:p-5">
+                <section className="rounded-[26px] bg-white p-5 shadow-[0_12px_40px_-32px_rgba(15,23,42,0.3)] sm:rounded-[30px] sm:p-7 lg:p-8">
                   <SectionHeading
                     icon={<GitCommit size={16} />}
                     eyebrow="Recent changes"
@@ -787,119 +787,66 @@ export function GitHubProjectDashboard({
                   </div>
                   ) : history.length > 0 ? (
                     <div className="mt-4">
-                      {history.map((commit, index) => {
-                        const olderCommit = history[index + 1];
-                        const changedLines = commit.additions + commit.deletions;
-                        const olderChangedLines = olderCommit
-                          ? olderCommit.additions + olderCommit.deletions
-                          : null;
-                        const lineDelta =
-                          olderChangedLines === null
-                            ? null
-                            : changedLines - olderChangedLines;
-                        const fileDelta = olderCommit
-                          ? commit.changedFiles.length - olderCommit.changedFiles.length
-                          : null;
-                        const changeRatio =
-                          olderChangedLines && lineDelta !== null
-                            ? Math.round((lineDelta / olderChangedLines) * 100)
-                            : null;
-
-                        return (
-                          <article key={commit.sha} className="border-t border-slate-100 py-4 first:border-0 first:pt-0 last:pb-0">
-                            <div className="flex items-start gap-3">
-                              <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-50 text-indigo-600">
-                                <GitCommit size={15} />
-                              </span>
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-start justify-between gap-2">
-                                  <a href={commit.url} target="_blank" rel="noreferrer" className="break-words text-[14px] font-semibold leading-relaxed text-slate-900 hover:text-indigo-700 sm:text-[15px]">
-                                    {commit.message.split("\n")[0] || "Commit"}
-                                  </a>
-                                  <a href={commit.url} target="_blank" rel="noreferrer" aria-label="Open commit on GitHub" className="shrink-0 rounded-lg p-1 text-slate-400 hover:bg-slate-50 hover:text-slate-700">
-                                    <ArrowUpRight size={14} />
-                                  </a>
-                                </div>
-                                <p className="mt-1 text-[11px] text-slate-500 sm:text-[12px]">
-                                  <span className="font-medium text-slate-700">{commit.author}</span>
-                                  <span className="mx-1.5 text-slate-300">·</span>{formatDate(commit.date, true)}
-                                  <span className="mx-1.5 text-slate-300">·</span>
-                                  <span className="font-mono">{commit.sha.slice(0, 8)}</span>
-                                </p>
+                      {history.map((commit) => (
+                        <article key={commit.sha} className="border-t border-slate-100 py-5 first:border-0 first:pt-0 last:pb-0">
+                          <div className="flex items-start gap-3">
+                            <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-50 text-indigo-600">
+                              <GitCommit size={15} />
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-start justify-between gap-2">
+                                <a href={commit.url} target="_blank" rel="noreferrer" className="break-words text-[14px] font-semibold leading-relaxed text-slate-900 hover:text-indigo-700 sm:text-[15px]">
+                                  {commit.message.split("\n")[0] || "Commit"}
+                                </a>
+                                <a href={commit.url} target="_blank" rel="noreferrer" aria-label="Open commit on GitHub" className="shrink-0 rounded-lg p-1 text-slate-400 hover:bg-slate-50 hover:text-slate-700">
+                                  <ArrowUpRight size={14} />
+                                </a>
                               </div>
+                              <p className="mt-1 text-[11px] text-slate-500 sm:text-[12px]">
+                                <span className="font-medium text-slate-700">{commit.author}</span>
+                                <span className="mx-1.5 text-slate-300">·</span>{formatDate(commit.date, true)}
+                                <span className="mx-1.5 text-slate-300">·</span>
+                                <span className="font-mono">{commit.sha.slice(0, 8)}</span>
+                              </p>
                             </div>
-                            <div className="ml-11 mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
-                              <span className="text-slate-500">{commit.changedFiles.length} files</span>
-                              <span className="font-semibold text-emerald-700">+{formatCount(commit.additions)}</span>
-                              <span className="font-semibold text-rose-600">−{formatCount(commit.deletions)}</span>
-                            </div>
-                            <div className="ml-11 mt-2 grid grid-cols-2 gap-2">
-                              <div className="rounded-xl bg-slate-50 px-3 py-2">
-                                <p className="text-[9px] font-semibold uppercase tracking-wide text-slate-400">Changed lines vs older commit</p>
-                                <p className={`mt-1 text-[11px] font-semibold ${
-                                  lineDelta === null
-                                    ? "text-slate-500"
-                                    : lineDelta > 0
-                                      ? "text-amber-700"
-                                      : lineDelta < 0
-                                        ? "text-emerald-700"
-                                        : "text-slate-600"
-                                }`}>
-                                  {lineDelta === null
-                                    ? "Load older history to compare"
-                                    : `${lineDelta > 0 ? "+" : ""}${formatCount(lineDelta)} lines${
-                                        olderChangedLines === 0
-                                          ? changedLines > 0
-                                            ? " · new activity"
-                                            : " · unchanged"
-                                          : changeRatio !== null
-                                            ? ` · ${changeRatio > 0 ? "+" : ""}${changeRatio}%`
-                                            : " · unchanged"
-                                      }`}
-                                </p>
+                          </div>
+                          <div className="ml-11 mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
+                            <span className="text-slate-500">{commit.changedFiles.length} files</span>
+                            <span className="font-semibold text-emerald-700">+{formatCount(commit.additions)}</span>
+                            <span className="font-semibold text-rose-600">−{formatCount(commit.deletions)}</span>
+                          </div>
+                          {commit.changedFiles.length > 0 && (
+                            <details className="ml-11 mt-3">
+                              <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[11px] font-semibold text-slate-500 hover:text-slate-800">
+                                Browse changed files <ChevronDown size={12} />
+                              </summary>
+                              <div className="mt-2 space-y-1.5">
+                                {commit.changedFiles.map((file, index) => (
+                                  <details key={file.filename} className="rounded-lg">
+                                    <summary className="flex cursor-pointer list-none items-center gap-2 px-2.5 py-2">
+                                      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${file.status === "added" ? "bg-emerald-500" : file.status === "removed" ? "bg-rose-500" : "bg-indigo-500"}`} />
+                                      <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-slate-600 sm:text-[11px]">{file.filename}</span>
+                                      <span className="shrink-0 text-[10px] text-emerald-700">+{file.additions}</span>
+                                      <span className="shrink-0 text-[10px] text-rose-600">−{file.deletions}</span>
+                                    </summary>
+                                    {file.patch && index < 20 && (
+                                      <pre className="max-h-[280px] overflow-auto rounded-xl bg-slate-950 p-3 text-[10px] leading-relaxed text-slate-200">
+                                        <code>{file.patch}</code>
+                                      </pre>
+                                    )}
+                                  </details>
+                                ))}
+                                {commit.filesTruncated && (
+                                  <p className="text-[10px] text-slate-400">GitHub capped this commit’s file list. Open GitHub for the complete diff.</p>
+                                )}
+                                {commit.changedFiles.length > 20 && (
+                                  <p className="text-[10px] text-slate-400">Diff previews are shown for up to 20 files per commit.</p>
+                                )}
                               </div>
-                              <div className="rounded-xl bg-slate-50 px-3 py-2">
-                                <p className="text-[9px] font-semibold uppercase tracking-wide text-slate-400">Files changed vs older commit</p>
-                                <p className="mt-1 text-[11px] font-semibold text-slate-700">
-                                  {fileDelta === null
-                                    ? "Load older history to compare"
-                                    : `${fileDelta > 0 ? "+" : ""}${formatCount(fileDelta)} files`}
-                                </p>
-                              </div>
-                            </div>
-                            {commit.changedFiles.length > 0 && (
-                              <details className="ml-11 mt-3">
-                                <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[11px] font-semibold text-slate-500 hover:text-slate-800">
-                                  Browse changed files <ChevronDown size={12} />
-                                </summary>
-                                <div className="mt-2 space-y-1.5">
-                                  {commit.changedFiles.map((file, fileIndex) => (
-                                    <details key={file.filename} className="rounded-lg">
-                                      <summary className="flex cursor-pointer list-none items-center gap-2 px-2.5 py-2">
-                                        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${file.status === "added" ? "bg-emerald-500" : file.status === "removed" ? "bg-rose-500" : "bg-indigo-500"}`} />
-                                        <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-slate-600 sm:text-[11px]">{file.filename}</span>
-                                        <span className="shrink-0 text-[10px] text-emerald-700">+{file.additions}</span>
-                                        <span className="shrink-0 text-[10px] text-rose-600">−{file.deletions}</span>
-                                      </summary>
-                                      {file.patch && fileIndex < 20 && (
-                                        <pre className="max-h-[280px] overflow-auto rounded-xl bg-slate-950 p-3 text-[10px] leading-relaxed text-slate-200">
-                                          <code>{file.patch}</code>
-                                        </pre>
-                                      )}
-                                    </details>
-                                  ))}
-                                  {commit.filesTruncated && (
-                                    <p className="text-[10px] text-slate-400">GitHub capped this commit’s file list. Open GitHub for the complete diff.</p>
-                                  )}
-                                  {commit.changedFiles.length > 20 && (
-                                    <p className="text-[10px] text-slate-400">Diff previews are shown for up to 20 files per commit.</p>
-                                  )}
-                                </div>
-                              </details>
-                            )}
-                          </article>
-                        );
-                      })}
+                            </details>
+                          )}
+                        </article>
+                      ))}
                     </div>
                   ) : (
                     <p className="py-8 text-center text-[11px] text-slate-500">
@@ -920,8 +867,8 @@ export function GitHubProjectDashboard({
                 </section>
               </main>
 
-              <aside className="min-w-0 space-y-4">
-                <section className="rounded-[22px] border border-white/80 bg-white p-4 shadow-[0_14px_38px_-32px_rgba(15,23,42,0.35)] sm:p-5">
+              <aside className="min-w-0 space-y-5">
+                <section className="rounded-[26px] bg-white p-5 shadow-[0_12px_40px_-32px_rgba(15,23,42,0.3)] sm:rounded-[30px] sm:p-7 lg:p-8">
                   <SectionHeading
                     icon={<Eye size={16} />}
                     eyebrow="Audience"
@@ -968,7 +915,7 @@ export function GitHubProjectDashboard({
                   )}
                 </section>
 
-                <section className="rounded-[22px] border border-white/80 bg-white p-4 shadow-[0_14px_38px_-32px_rgba(15,23,42,0.35)] sm:p-5">
+                <section className="rounded-[26px] bg-white p-5 shadow-[0_12px_40px_-32px_rgba(15,23,42,0.3)] sm:rounded-[30px] sm:p-7 lg:p-8">
                   <SectionHeading
                     icon={<Rocket size={16} />}
                     eyebrow="Delivery"
@@ -1045,7 +992,7 @@ export function GitHubProjectDashboard({
                   )}
                 </section>
 
-                <section className="rounded-[22px] border border-white/80 bg-white p-4 shadow-[0_14px_38px_-32px_rgba(15,23,42,0.35)] sm:p-5">
+                <section className="rounded-[26px] bg-white p-5 shadow-[0_12px_40px_-32px_rgba(15,23,42,0.3)] sm:rounded-[30px] sm:p-7 lg:p-8">
                   <SectionHeading
                     icon={<FileCode2 size={16} />}
                     eyebrow="Codebase"
@@ -1082,7 +1029,7 @@ export function GitHubProjectDashboard({
                   </div>
                 </section>
 
-                <section className="rounded-[22px] border border-white/80 bg-white p-4 shadow-[0_14px_38px_-32px_rgba(15,23,42,0.35)] sm:p-5">
+                <section className="rounded-[26px] bg-white p-5 shadow-[0_12px_40px_-32px_rgba(15,23,42,0.3)] sm:rounded-[30px] sm:p-7 lg:p-8">
                   <div className="flex items-start justify-between gap-2">
                     <SectionHeading
                       icon={<FileCode2 size={16} />}
@@ -1132,17 +1079,17 @@ export function GitHubProjectDashboard({
               </aside>
             </div>
 
-            <footer             className="mx-auto mt-4 flex w-full max-w-[1240px] flex-wrap items-center justify-between gap-2 px-1 text-[11px] leading-relaxed text-slate-400">
+            <footer className="mx-auto mt-5 flex w-full max-w-[1680px] flex-wrap items-center justify-between gap-2 px-1 text-[11px] leading-relaxed text-slate-400">
               <span className="inline-flex items-center gap-1.5"><Github size={12} /> Live data from GitHub API</span>
               <span>Traffic is aggregate-only · 14-day window · no visitor identities</span>
             </footer>
           </>
         ) : summaryLoading ? (
-          <div role="status" className="mx-auto grid w-full max-w-[1240px] grid-cols-1 gap-4 lg:grid-cols-2">
+          <div role="status" className="mx-auto grid w-full max-w-[1680px] grid-cols-1 gap-4 lg:grid-cols-2">
             {[0, 1, 2, 3].map((item) => <div key={item} className="h-64 animate-pulse bg-white/50" />)}
           </div>
         ) : (
-          <div className="mx-auto max-w-[1240px] rounded-[24px] bg-white px-5 py-12 text-center shadow-sm">
+          <div className="mx-auto max-w-[1680px] rounded-[28px] bg-white px-5 py-12 text-center shadow-sm">
             <Github size={25} className="mx-auto text-slate-400" />
             <p className="mt-3 text-[13px] font-semibold text-slate-900">Project details unavailable</p>
             <Link href={`/${uid}/profile/settings`} className="mt-3 inline-block text-[11px] font-semibold text-indigo-700 underline">Check GitHub connection</Link>
@@ -1164,8 +1111,8 @@ function Kpi({
 }) {
   return (
     <div className="min-w-0 py-3.5">
-      <span className="flex items-center gap-1.5 text-[10px] font-medium text-slate-500 sm:text-[11px]">{icon}{label}</span>
-      <span className="mt-1 block truncate text-[16px] font-bold tabular-nums text-slate-900 sm:text-[18px]">{value}</span>
+      <span className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500 sm:text-[12px]">{icon}{label}</span>
+      <span className="mt-1.5 block truncate text-[18px] font-bold tabular-nums text-slate-900 sm:text-[20px]">{value}</span>
     </div>
   );
 }
@@ -1183,11 +1130,11 @@ function SectionHeading({
 }) {
   return (
     <div className="flex items-start gap-2.5">
-      <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">{icon}</span>
+      <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600">{icon}</span>
       <div className="min-w-0">
-        <p className="text-[9px] font-bold uppercase tracking-[.11em] text-slate-400">{eyebrow}</p>
-        <h2 className="mt-0.5 text-[16px] font-bold tracking-tight text-slate-900 sm:text-[17px]">{title}</h2>
-        <p className="mt-1 text-[10px] leading-relaxed text-slate-500 sm:text-[11px]">{detail}</p>
+        <p className="text-[10px] font-bold uppercase tracking-[.11em] text-slate-400">{eyebrow}</p>
+        <h2 className="mt-0.5 text-[17px] font-bold tracking-tight text-slate-900 sm:text-[19px]">{title}</h2>
+        <p className="mt-1 text-[11px] leading-relaxed text-slate-500 sm:text-[12px]">{detail}</p>
       </div>
     </div>
   );
@@ -1205,8 +1152,8 @@ function ChartStat({
   const color = tone === "green" ? "text-emerald-700" : tone === "red" ? "text-rose-600" : "text-slate-900";
   return (
     <div>
-      <p className="truncate text-[10px] text-slate-500 sm:text-[11px]">{label}</p>
-      <p className={`mt-1 text-[19px] font-bold tracking-tight tabular-nums sm:text-[21px] ${color}`}>{formatCount(value)}</p>
+      <p className="truncate text-[11px] text-slate-500 sm:text-[12px]">{label}</p>
+      <p className={`mt-1 text-[21px] font-bold tracking-tight tabular-nums sm:text-[23px] ${color}`}>{formatCount(value)}</p>
     </div>
   );
 }

@@ -131,14 +131,14 @@ function ProjectActivityChart({
         <span className="font-medium text-ink-mute">Velocity trend</span>
         <span className="text-ink-mute">
           {commitActivityRange === "all"
-            ? `${formatNumber(commitActivityCount)} · all-time`
+            ? `${formatNumber(commitActivityCount)} commits · all history${commitActivityCapped ? " · latest 1,000 shown" : ""}`
             : `${formatNumber(commitActivityCount)} commits · 30d${commitActivityCapped ? " · latest 1,000" : ""}`}
         </span>
       </div>
       <svg
         viewBox={`0 0 ${width} ${height}`}
         role="img"
-        aria-label={`${commitActivityCount} ${commitActivityRange === "all" ? "commits in repository history, grouped by month" : "commits in the last 30 days"}${commitActivityCapped ? "; chart limited to the latest 1,000 commits" : ""}; each point shows changed lines`}
+        aria-label={`${commitActivityCount} ${commitActivityRange === "all" ? "commits in repository history" : "commits in the last 30 days"}${commitActivityCapped ? "; chart limited to the latest 1,000 commits" : ""}; each point represents one commit and its changed lines`}
         className="block h-[30px] w-full"
         preserveAspectRatio="none"
       >
@@ -153,7 +153,9 @@ function ProjectActivityChart({
         />
         {points.map(({ commit, x, y }) => (
           <circle key={commit.sha} cx={x} cy={y} r="1.5" fill="#a995c5">
-            <title>{`${formatDate(commit.date)} · ${commit.message} · +${formatNumber(commit.additions)} / −${formatNumber(commit.deletions)} lines`}</title>
+            <title>
+              {`${formatDate(commit.date)} · ${commit.message} · +${formatNumber(commit.additions)} / −${formatNumber(commit.deletions)} lines`}
+            </title>
           </circle>
         ))}
       </svg>

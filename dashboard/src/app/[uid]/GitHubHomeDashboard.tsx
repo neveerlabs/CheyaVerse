@@ -221,18 +221,18 @@ function ActivitySparkline({
     <div className={wide ? "min-w-0 flex-1" : "w-[48%] min-w-[132px] max-w-[260px] shrink-0"}>
       <div className="mb-0.5 flex items-center justify-between gap-2 text-[8px]">
         <p className="font-medium text-slate-500">Velocity trend</p>
-        <p className="text-right text-slate-400">
-          {commitActivityRange === "all"
-            ? wide
-              ? `${formatNumber(commitActivityCount)} commits · all history, grouped monthly`
-              : `${formatNumber(commitActivityCount)} · all-time`
-            : `${formatNumber(commitActivityCount)} commits · last 30 days${commitActivityCapped ? " · latest 1,000 shown" : ""}`}
-        </p>
+        {wide && (
+          <p className="text-slate-400">
+            {commitActivityRange === "all"
+              ? `${formatNumber(commitActivityCount)} commits · all history${commitActivityCapped ? " · latest 1,000 shown" : ""}`
+              : `${formatNumber(commitActivityCount)} commits · last 30 days${commitActivityCapped ? " · latest 1,000 shown" : ""}`}
+          </p>
+        )}
       </div>
       <svg
         viewBox={`0 0 ${width} ${height}`}
         role="img"
-        aria-label={`${formatNumber(commitActivityCount)} ${commitActivityRange === "all" ? "commits in repository history, grouped by month" : "commits in the last 30 days"}${commitActivityCapped ? "; chart limited to the latest 1,000 commits" : ""}; each point shows changed lines`}
+        aria-label={`${formatNumber(commitActivityCount)} ${commitActivityRange === "all" ? "commits in repository history" : "commits in the last 30 days"}${commitActivityCapped ? "; chart limited to the latest 1,000 commits" : ""}; each point represents one commit and its changed lines`}
         className={`block w-full overflow-visible ${compact ? "h-[30px]" : "h-[38px]"}`}
         preserveAspectRatio="none"
       >

@@ -3,7 +3,6 @@ import { getUserSession } from "@/lib/auth-request";
 import {
   getGitHubMessage,
   getGitHubCommitActivity,
-  getGitHubCommitActivityTimeline,
   getGitHubResponseError,
   getGitHubToken,
   GitHubCredentialError,
@@ -22,8 +21,8 @@ export const dynamic = "force-dynamic";
 const CANDIDATE_LIMIT = 24;
 const RANKING_LIMIT = 12;
 const HOME_PROJECT_LIMIT = 5;
+const COMMIT_ACTIVITY_LIMIT = 1000;
 const ACTIVITY_CONCURRENCY = 6;
-const HISTORY_ACTIVITY_CONCURRENCY = 2;
 const FEATURED_REPOSITORY = { owner: "neveerlabs", name: "CheyaVerse" };
 
 type Repository = {
@@ -339,24 +338,20 @@ async function addProjectInsights(
   candidates: ActivityCandidate[],
 ): Promise<ProjectActivity[]> {
   const projects: ProjectActivity[] = [];
-  for (let index = 0; index < candidates.length; index += HISTORY_ACTIVITY_CONCURRENCY) {
-    const group = candidates.slice(index, index + HISTORY_ACTIVITY_CONCURRENCY);
+  for (let index = 0; index < candidates.length; index += ACTIVITY_CONCURRENCY) {
+    const group = candidates.slice(index, index + ACTIVITY_CONCURRENCY);
     const loaded = await Promise.all(
       group.map(async (candidate) => {
         const owner = candidate.repository.fullName.split("/")[0];
         const repoPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(candidate.repository.name)}`;
         const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-        const [recentCommitActivity, commitActivity, release] = await Promise.all([
+        const [recentCommitActivity, release] = await Promise.all([
           getGitHubCommitActivity(
             token,
             owner,
             candidate.repository.name,
             since,
-          ),
-          getGitHubCommitActivityTimeline(
-            token,
-            owner,
-            candidate.repository.name,
+            COMMIT_ACTIVITY_LIMIT,
           ),
           githubJson<GitHubRelease[]>(token, `${repoPath}/releases?per_page=1`)
             .then(({ data }) => data[0] ?? null)
@@ -367,6 +362,19 @@ async function addProjectInsights(
               throw error;
             }),
         ]);
+        const commitActivity =
+          recentCommitActivity.totalCount > 0
+            ? { ...recentCommitActivity, range: "30d" as const }
+            : {
+                ...(await getGitHubCommitActivity(
+                  token,
+                  owner,
+                  candidate.repository.name,
+                  "1970-01-01T00:00:00Z",
+                  COMMIT_ACTIVITY_LIMIT,
+                )),
+                range: "all" as const,
+              };
         const additions = recentCommitActivity.commits.reduce(
           (total, commit) => total + commit.additions,
           0,
@@ -381,7 +389,7 @@ async function addProjectInsights(
           history: {
             ...candidate.history,
             commitActivity: commitActivity.commits,
-            commitActivityRange: "all" as const,
+            commitActivityRange: commitActivity.range,
             commitActivityCount: commitActivity.totalCount,
             commitActivityCapped: commitActivity.capped,
             commitsLastMonth: recentCommitActivity.totalCount,
