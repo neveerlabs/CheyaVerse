@@ -98,7 +98,7 @@ export const DEFAULT_PUSH_ACTIONS: PushAction[] = [
 ];
 
 export function circularAvatarUrl(contactId: string): string {
-  return `/api/avatar/${encodeURIComponent(contactId)}/circular?v=20261008`;
+  return `/api/avatar/${encodeURIComponent(contactId)}/circular?v=20261009`;
 }
 
 export function buildPushNotification(opts: BuildPushOptions): PushPayload {
@@ -138,7 +138,7 @@ export function buildSystemPush(
     contact: {
       id: "system",
       name: "CheyaVerse",
-      avatarUrl: "/icon.png",
+      avatarUrl: "/icon.png?v=20261009",
     },
     body,
     url: `/${uid}/chat/system`,
@@ -148,8 +148,8 @@ export function buildSystemPush(
   return {
     ...payload,
     title: "CheyaVerse · Web",
-    icon: "/push.png?v=20261008",
-    badge: "/push.png?v=20261008",
+    icon: "/push.png?v=20261009",
+    badge: "/push.png?v=20261009",
     silent: false,
     vibrate: [200, 100, 200],
   };

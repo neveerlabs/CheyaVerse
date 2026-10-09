@@ -435,7 +435,7 @@ export function ChatRoomClient({
     }
     const notification = new window.Notification("CheyaVerse", {
       body: chatPreviewText(message.content).slice(0, 180) || "Pesan baru",
-      icon: "/icon.png",
+      icon: "/icon.png?v=20261009",
       tag: `cheyaverse-message-${message.id}`,
     });
     notification.onclick = () => {
@@ -1684,7 +1684,7 @@ export function ChatRoomClient({
           <div className="flex items-center gap-2">
             <div className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-full border border-[#dfe3e8] bg-white px-1.5">
               <span className="-ml-1 flex h-9 w-9 flex-shrink-0 items-center justify-center overflow-hidden rounded-full">
-                <TelegramAvatar src="/push.png?v=20261008" />
+                <TelegramAvatar src="/push.png?v=20261009" />
               </span>
               <span className="flex min-w-0 flex-1 flex-col justify-center self-stretch">
                 <VerifiedName

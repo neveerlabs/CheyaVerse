@@ -70,8 +70,8 @@ export function DeviceNotifications({ uid }: { uid: string }) {
       try {
         const n = new Notification(title, {
           body,
-          icon: "/icon.png",
-          badge: "/icon.png",
+          icon: "/icon.png?v=20261009",
+          badge: "/icon.png?v=20261009",
           tag: `cheyaverse-${uid}`,
         });
         n.onclick = () => {

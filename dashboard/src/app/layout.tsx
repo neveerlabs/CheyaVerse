@@ -21,7 +21,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="id">
       <head>
-        <link rel="apple-touch-icon" href="/apple.png" />
+        <link rel="apple-touch-icon" href="/apple.png?v=20261009" />
         <link rel="preload" href="/sounds/sent.mp3" as="audio" type="audio/mpeg" />
         <link rel="preload" href="/sounds/received.mp3" as="audio" type="audio/mpeg" />
       </head>

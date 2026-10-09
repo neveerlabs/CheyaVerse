@@ -737,7 +737,7 @@ async def _notify_expired_media(
     payload = {
         "title": "CheyaVerse",
         "body": f"Masa expired media {filename[:60]} berakhir; data telah dihapus.",
-        "icon": "/icon.png",
+        "icon": "/icon.png?v=20261009",
         "tag": f"cheya-system-expiry-{notification_id}",
         "renotify": True,
         "data": {
