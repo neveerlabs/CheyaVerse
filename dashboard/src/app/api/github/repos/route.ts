@@ -82,21 +82,15 @@ export async function GET(request: NextRequest) {
       const activity = await Promise.all(
         group.map(async (repo) => {
           const owner = repo.full_name.split("/")[0];
-          const recent = await getGitHubCommitActivity(
-            token,
-            owner,
-            repo.name,
-            since,
-          );
-          if (recent.totalCount > 0) {
-            return { chart: recent, recent, range: "30d" as const };
-          }
-          const historical = await getGitHubCommitActivity(
-            token,
-            owner,
-            repo.name,
-            "1970-01-01T00:00:00Z",
-          );
+          const [recent, historical] = await Promise.all([
+            getGitHubCommitActivity(token, owner, repo.name, since),
+            getGitHubCommitActivity(
+              token,
+              owner,
+              repo.name,
+              "1970-01-01T00:00:00Z",
+            ),
+          ]);
           return { chart: historical, recent, range: "all" as const };
         }),
       );

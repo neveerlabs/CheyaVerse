@@ -345,12 +345,19 @@ async function addProjectInsights(
         const owner = candidate.repository.fullName.split("/")[0];
         const repoPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(candidate.repository.name)}`;
         const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-        const [recentCommitActivity, release] = await Promise.all([
+        const [recentCommitActivity, allCommitActivity, release] = await Promise.all([
           getGitHubCommitActivity(
             token,
             owner,
             candidate.repository.name,
             since,
+            COMMIT_ACTIVITY_LIMIT,
+          ),
+          getGitHubCommitActivity(
+            token,
+            owner,
+            candidate.repository.name,
+            "1970-01-01T00:00:00Z",
             COMMIT_ACTIVITY_LIMIT,
           ),
           githubJson<GitHubRelease[]>(token, `${repoPath}/releases?per_page=1`)
@@ -362,19 +369,6 @@ async function addProjectInsights(
               throw error;
             }),
         ]);
-        const commitActivity =
-          recentCommitActivity.totalCount > 0
-            ? { ...recentCommitActivity, range: "30d" as const }
-            : {
-                ...(await getGitHubCommitActivity(
-                  token,
-                  owner,
-                  candidate.repository.name,
-                  "1970-01-01T00:00:00Z",
-                  COMMIT_ACTIVITY_LIMIT,
-                )),
-                range: "all" as const,
-              };
         const additions = recentCommitActivity.commits.reduce(
           (total, commit) => total + commit.additions,
           0,
@@ -388,10 +382,10 @@ async function addProjectInsights(
           repository: candidate.repository,
           history: {
             ...candidate.history,
-            commitActivity: commitActivity.commits,
-            commitActivityRange: commitActivity.range,
-            commitActivityCount: commitActivity.totalCount,
-            commitActivityCapped: commitActivity.capped,
+            commitActivity: allCommitActivity.commits,
+            commitActivityRange: "all" as const,
+            commitActivityCount: allCommitActivity.totalCount,
+            commitActivityCapped: allCommitActivity.capped,
             commitsLastMonth: recentCommitActivity.totalCount,
             commitsLastMonthCapped: recentCommitActivity.capped,
             recentChanges: {

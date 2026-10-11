@@ -1056,7 +1056,22 @@ export function GitHubProjectDashboard({
                           const depth = Math.min(entry.path.split("/").length - 1, 4);
                           const name = entry.path.split("/").at(-1) || entry.path;
                           return (
-                            <div key={entry.path} className="flex min-w-0 items-center gap-2 py-2" style={{ paddingLeft: `${depth * 13}px` }}>
+                            <div key={entry.path} className="relative flex min-w-0 items-center gap-2 py-2" style={{ paddingLeft: `${depth * 13}px` }}>
+                              {Array.from({ length: depth }, (_, level) => (
+                                <span
+                                  key={`${entry.path}-guide-${level}`}
+                                  aria-hidden="true"
+                                  className="absolute inset-y-0 w-px bg-slate-200"
+                                  style={{ left: `${level * 13 + 6}px` }}
+                                />
+                              ))}
+                              {depth > 0 && (
+                                <span
+                                  aria-hidden="true"
+                                  className="absolute h-px bg-slate-200"
+                                  style={{ left: `${(depth - 1) * 13 + 6}px`, top: "50%", width: "7px" }}
+                                />
+                              )}
                               <span className={`shrink-0 ${entry.type === "tree" ? "text-amber-500" : "text-slate-400"}`}>
                                 {entry.type === "tree" ? <FolderIcon /> : <FileCode2 size={13} />}
                               </span>

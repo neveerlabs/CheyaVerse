@@ -95,14 +95,19 @@ function ProjectActivityChart({
     ...activity.map((commit) => Math.log1p(commit.changedLines)),
   );
   const firstCommitTime = Date.parse(activity[0].date);
-  const now = Date.now();
-  const historySpan = Math.max(1, now - firstCommitTime);
+  const lastCommitTime = Date.parse(activity[activity.length - 1].date);
+  const historySpan = Math.max(1, lastCommitTime - firstCommitTime);
   const points = activity.map((commit, index) => {
     const commitTime = Date.parse(commit.date);
     return {
       commit,
       x:
-        commitActivityRange === "all" && Number.isFinite(commitTime)
+        commitActivityRange === "all" &&
+        activity.length > 1 &&
+        Number.isFinite(commitTime) &&
+        Number.isFinite(firstCommitTime) &&
+        Number.isFinite(lastCommitTime) &&
+        lastCommitTime > firstCommitTime
           ? 2 + (Math.max(0, commitTime - firstCommitTime) / historySpan) * (width - 4)
           : activity.length === 1
             ? width / 2
@@ -110,20 +115,8 @@ function ProjectActivityChart({
       y: height - 5 - (Math.log1p(commit.changedLines) / maximum) * 27,
     };
   });
-  const lastCommitTime = Date.parse(activity[activity.length - 1].date);
-  const showInactivePeriod =
-    commitActivityRange === "all" &&
-    Number.isFinite(lastCommitTime) &&
-    now - lastCommitTime > 30 * 24 * 60 * 60 * 1000;
-  const linePoints = showInactivePeriod
-    ? [
-        ...points,
-        { x: points[points.length - 1].x, y: height - 5 },
-        { x: width - 2, y: height - 5 },
-      ]
-    : points;
-  const line = linePoints.map(({ x, y }) => `${x},${y}`).join(" ");
-  const area = `${linePoints[0].x},${height} ${line} ${linePoints[linePoints.length - 1].x},${height}`;
+  const line = points.map(({ x, y }) => `${x},${y}`).join(" ");
+  const area = `${points[0].x},${height} ${line} ${points[points.length - 1].x},${height}`;
 
   return (
     <div className="min-w-0 flex-1">
