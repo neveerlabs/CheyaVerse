@@ -4,6 +4,8 @@ import json
 import mimetypes
 import re
 import time
+from dataclasses import dataclass, field
+
 import aiohttp
 
 from aiogram import Bot, F, Router
@@ -20,8 +22,21 @@ router = Router(name="telegram_group_ai")
 GROUP_TYPES = {"group", "supergroup"}
 VOICE_GENERATION_TIMEOUT_SECONDS = 20
 GROUP_AI_REQUEST_TIMEOUT_SECONDS = 310
+MEDIA_GROUP_SETTLE_SECONDS = 1.0
+MAX_MEDIA_GROUP_ITEMS = 10
 _CHAT_PROCESSING_LOCKS: dict[int, asyncio.Lock] = {}
 _BOT_CHANNEL_POSTS: dict[tuple[int, int], float] = {}
+
+
+@dataclass
+class _MediaGroupBuffer:
+    owner_uid: int
+    edited: bool
+    messages: dict[int, Message] = field(default_factory=dict)
+    task: asyncio.Task[None] | None = None
+
+
+_MEDIA_GROUP_BUFFERS: dict[tuple[int, str], _MediaGroupBuffer] = {}
 
 
 def _chat_processing_lock(chat_id: int) -> asyncio.Lock:
@@ -121,6 +136,69 @@ async def _is_group_admin(message: Message) -> bool:
         logger.warning(f"Could not verify group admin for {message.chat.id}: {exc}")
         return False
     return member.status in {ChatMemberStatus.CREATOR, ChatMemberStatus.ADMINISTRATOR}
+
+
+async def _queue_media_group_message(
+    message: Message,
+    owner_uid: int,
+    *,
+    edited: bool = False,
+) -> None:
+    media_group_id = message.media_group_id
+    if not media_group_id:
+        await _process_owner_message_locked(message, owner_uid, edited=edited)
+        return
+
+    key = (message.chat.id, media_group_id)
+    buffer = _MEDIA_GROUP_BUFFERS.get(key)
+    if buffer is None:
+        buffer = _MediaGroupBuffer(owner_uid=owner_uid, edited=edited)
+        _MEDIA_GROUP_BUFFERS[key] = buffer
+    elif buffer.owner_uid != owner_uid or buffer.edited != edited:
+        logger.error(
+            f"Rejected inconsistent Telegram media group {media_group_id} "
+            f"in {message.chat.id}."
+        )
+        return
+
+    if message.message_id not in buffer.messages:
+        if len(buffer.messages) >= MAX_MEDIA_GROUP_ITEMS:
+            logger.error(
+                f"Telegram media group {media_group_id} in {message.chat.id} "
+                f"exceeded the {MAX_MEDIA_GROUP_ITEMS}-item limit."
+            )
+            return
+        buffer.messages[message.message_id] = message
+
+    if buffer.task is not None:
+        buffer.task.cancel()
+    buffer.task = asyncio.create_task(_flush_media_group(key, buffer))
+
+
+async def _flush_media_group(
+    key: tuple[int, str],
+    buffer: _MediaGroupBuffer,
+) -> None:
+    try:
+        await asyncio.sleep(MEDIA_GROUP_SETTLE_SECONDS)
+    except asyncio.CancelledError:
+        return
+
+    if _MEDIA_GROUP_BUFFERS.get(key) is not buffer:
+        return
+    _MEDIA_GROUP_BUFFERS.pop(key, None)
+    messages = sorted(buffer.messages.values(), key=lambda item: item.message_id)
+    if not messages:
+        return
+
+    anchor = messages[0]
+    async with _chat_processing_lock(anchor.chat.id):
+        await _process_owner_message_locked(
+            anchor,
+            buffer.owner_uid,
+            edited=buffer.edited,
+            media_group_messages=messages,
+        )
 
 
 async def _channel_owner_uid(message: Message) -> int | None:
@@ -292,6 +370,11 @@ async def process_group_message(message: Message) -> None:
         return
     if message.from_user.id not in ADMIN_TELEGRAM_IDS:
         return
+    if message.media_group_id:
+        if not await _is_group_admin(message):
+            return
+        await _queue_media_group_message(message, message.from_user.id)
+        return
     async with _chat_processing_lock(message.chat.id):
         if not await _is_group_admin(message):
             return
@@ -300,19 +383,25 @@ async def process_group_message(message: Message) -> None:
 
 @router.channel_post()
 async def process_channel_post(message: Message) -> None:
+    owner_uid = await _channel_owner_uid(message)
+    if owner_uid is None:
+        return
+    if message.media_group_id:
+        await _queue_media_group_message(message, owner_uid)
+        return
     async with _chat_processing_lock(message.chat.id):
-        owner_uid = await _channel_owner_uid(message)
-        if owner_uid is None:
-            return
         await _process_owner_message_locked(message, owner_uid)
 
 
 @router.edited_channel_post()
 async def process_edited_channel_post(message: Message) -> None:
+    owner_uid = await _channel_owner_uid(message)
+    if owner_uid is None:
+        return
+    if message.media_group_id:
+        await _queue_media_group_message(message, owner_uid, edited=True)
+        return
     async with _chat_processing_lock(message.chat.id):
-        owner_uid = await _channel_owner_uid(message)
-        if owner_uid is None:
-            return
         await _process_owner_message_locked(message, owner_uid, edited=True)
 
 
@@ -490,11 +579,21 @@ async def _process_owner_message_locked(
     message: Message,
     owner_uid: int,
     edited: bool = False,
+    media_group_messages: list[Message] | None = None,
 ) -> None:
-    text = message.text or message.caption or ""
+    source_messages = media_group_messages or [message]
+    text = "\n".join(
+        candidate.text or candidate.caption or ""
+        for candidate in source_messages
+        if (candidate.text or candidate.caption or "").strip()
+    )
     if message.text and message.text.strip().startswith("/"):
         return
-    attachments = _message_attachments(message)
+    attachments = [
+        attachment
+        for candidate in source_messages
+        for attachment in _message_attachments(candidate)
+    ]
     if not text.strip() and not attachments:
         return
 
@@ -536,6 +635,9 @@ async def _process_owner_message_locked(
             text=text,
             mediaTypes=[str(item["type"]) for item in attachments],
             attachments=attachments,
+            mediaGroupSize=(
+                len(source_messages) if media_group_messages is not None else None
+            ),
             edited=edited,
             timestamp=message.date.isoformat(),
         )

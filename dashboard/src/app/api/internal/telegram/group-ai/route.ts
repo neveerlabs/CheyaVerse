@@ -116,7 +116,7 @@ async function readAttachments(value: unknown): Promise<Array<{
   if (value === undefined) return [];
   if (
     !Array.isArray(value) ||
-    value.length > 4 ||
+    value.length > 10 ||
     !value.every((item) => {
       const attachment = asRecord(item);
       return (
@@ -507,6 +507,9 @@ export async function POST(request: NextRequest) {
         : "Owner";
       const message = typeof input.text === "string" ? input.text : "";
       const types = mediaTypes(input.mediaTypes);
+      const mediaGroupSize = input.mediaGroupSize == null
+        ? null
+        : safeInteger(input.mediaGroupSize);
       const hasMediaInput = Array.isArray(input.attachments) && input.attachments.length > 0;
       if (
         userId === null ||
@@ -517,6 +520,15 @@ export async function POST(request: NextRequest) {
         timestamp === null ||
         replyToMessageId !== null && replyToMessageId <= 0 ||
         message.length > 4000 ||
+        input.mediaGroupSize != null &&
+          (
+            mediaGroupSize === null ||
+            mediaGroupSize < 2 ||
+            mediaGroupSize > 10 ||
+            !hasMediaInput ||
+            !Array.isArray(input.attachments) ||
+            mediaGroupSize !== input.attachments.length
+          ) ||
         (!message.trim() && !hasMediaInput)
       ) {
         return NextResponse.json({ ok: false, error: "invalid_message" }, { status: 400 });
@@ -561,7 +573,14 @@ export async function POST(request: NextRequest) {
         groupTitle: typeof input.groupTitle === "string" ? input.groupTitle : "",
         messageId,
         senderName: name,
-        content: message.trim() ? message : `[Media attached: ${types.join(", ")}]`,
+        content: [
+          mediaGroupSize !== null
+            ? `[Telegram media album: ${mediaGroupSize} items]`
+            : "",
+          message.trim() ? message : `[Media attached: ${types.join(", ")}]`,
+        ]
+          .filter(Boolean)
+          .join("\n"),
         mediaTypes: types,
         replyToMessageId,
         timestamp,
@@ -588,6 +607,9 @@ export async function POST(request: NextRequest) {
         ? await transcribeTelegramVoiceMessage(userId, audioAttachments)
         : "";
       const persistedMessage = [
+        mediaGroupSize !== null
+          ? `Telegram media album containing ${mediaGroupSize} items.`
+          : "",
         message.trim() ? `Caption: ${message.trim()}` : "",
         hasAudio
           ? voiceTranscript
@@ -610,6 +632,9 @@ export async function POST(request: NextRequest) {
         }
       }
       const messageForContext = [
+        mediaGroupSize !== null
+          ? `Owner sent one Telegram media album containing ${mediaGroupSize} items. Analyze all attached items together as one post and produce at most one reply and one insight for the entire album.`
+          : "",
         message.trim() ? `Owner's text or caption: ${message.trim()}` : "",
         voiceTranscript
           ? `Owner's voice-note transcript: ${voiceTranscript}`

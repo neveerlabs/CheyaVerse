@@ -7,6 +7,66 @@ from handlers import group
 
 
 class GroupAiRecoveryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_media_group_is_sent_as_one_ai_request_with_all_captions_and_media(self) -> None:
+        requests: list[tuple[str, dict[str, object]]] = []
+
+        async def api(action: str, **payload: object) -> dict[str, object]:
+            requests.append((action, payload))
+            if action == "auto_enable":
+                return {"enabled": True, "sendEnabled": True}
+            if action == "auto_process":
+                return {"stored": False, "reason": "test"}
+            self.fail(f"Unexpected API action: {action}")
+
+        chat = SimpleNamespace(id=-100123, title="Stories", type="channel")
+        media_group = [
+            SimpleNamespace(
+                chat=chat,
+                message_id=50,
+                text=None,
+                caption="Look at these together",
+                reply_to_message=None,
+                from_user=None,
+                date=datetime.now(timezone.utc),
+            ),
+            SimpleNamespace(
+                chat=chat,
+                message_id=51,
+                text=None,
+                caption=None,
+                reply_to_message=None,
+                from_user=None,
+                date=datetime.now(timezone.utc),
+            ),
+        ]
+        attachments_by_message = {
+            50: [{"type": "photo", "fileId": "photo-1", "mimeType": "image/jpeg", "fileSize": 10}],
+            51: [{"type": "video", "fileId": "video-1", "mimeType": "video/mp4", "fileSize": 20}],
+        }
+        with (
+            patch.object(group, "_api", new=AsyncMock(side_effect=api)),
+            patch.object(
+                group,
+                "_message_attachments",
+                side_effect=lambda item: attachments_by_message[item.message_id],
+            ),
+        ):
+            await group._process_owner_message_locked(
+                media_group[0],
+                owner_uid=123,
+                media_group_messages=media_group,
+            )
+
+        auto_process = [payload for action, payload in requests if action == "auto_process"]
+        self.assertEqual(len(auto_process), 1)
+        self.assertEqual(auto_process[0]["messageId"], 50)
+        self.assertEqual(auto_process[0]["text"], "Look at these together")
+        self.assertEqual(auto_process[0]["mediaGroupSize"], 2)
+        self.assertEqual(
+            [item["fileId"] for item in auto_process[0]["attachments"]],
+            ["photo-1", "video-1"],
+        )
+
     def test_non_json_response_preview_is_bounded_and_redacts_bearer_tokens(self) -> None:
         preview = group._response_preview(
             "<html><title>Gateway Error</title>"
