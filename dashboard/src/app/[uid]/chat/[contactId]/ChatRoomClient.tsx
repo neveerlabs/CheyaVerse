@@ -192,6 +192,7 @@ function pushChatHistoryMarker() {
 
 export function ChatRoomClient({
   uid,
+  contactId = "system",
   notifications,
   initialMessages,
   user,
@@ -201,6 +202,7 @@ export function ChatRoomClient({
   onClose,
 }: {
   uid: string;
+  contactId?: string;
   notifications: Notification[];
   initialMessages: ChatMessage[];
   user: TelegramUser | null;
@@ -320,6 +322,59 @@ export function ChatRoomClient({
       window.removeEventListener("offline", updateOnline);
     };
   }, []);
+
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+
+    let active = true;
+    let registration: ServiceWorkerRegistration | null = null;
+    const isVisible = () =>
+      active &&
+      document.visibilityState === "visible" &&
+      document.hasFocus();
+    const postRoomState = (roomIsVisible: boolean) => {
+      if (!registration?.active) return;
+      registration.active.postMessage({
+        type: "cheya:chat-room-state",
+        uid,
+        contactId,
+        active: roomIsVisible,
+      });
+    };
+    const onWorkerMessage = (event: MessageEvent) => {
+      if (event.data?.type !== "cheya:get-active-chat") return;
+      event.ports[0]?.postMessage({
+        active: isVisible(),
+        uid,
+        contactId,
+      });
+    };
+    const updateRoomVisibility = () => postRoomState(isVisible());
+
+    navigator.serviceWorker.addEventListener("message", onWorkerMessage);
+    window.addEventListener("focus", updateRoomVisibility);
+    window.addEventListener("blur", updateRoomVisibility);
+    document.addEventListener("visibilitychange", updateRoomVisibility);
+
+    void navigator.serviceWorker.ready
+      .then((readyRegistration) => {
+        if (!active) return;
+        registration = readyRegistration;
+        postRoomState(isVisible());
+      })
+      .catch((error) => {
+        console.error("[chat-room] failed to connect to notification service worker:", error);
+      });
+
+    return () => {
+      active = false;
+      postRoomState(false);
+      navigator.serviceWorker.removeEventListener("message", onWorkerMessage);
+      window.removeEventListener("focus", updateRoomVisibility);
+      window.removeEventListener("blur", updateRoomVisibility);
+      document.removeEventListener("visibilitychange", updateRoomVisibility);
+    };
+  }, [contactId, uid]);
 
   useEffect(() => {
     if (!reportCategoryOpen || isModal) return;

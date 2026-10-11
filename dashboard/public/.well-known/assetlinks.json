@@ -5,7 +5,7 @@
     ],
     "target": {
       "namespace": "android_app",
-      "package_name": "com.neverlabs.cheyaverse",
+      "package_name": "com.cheyaverse",
       "sha256_cert_fingerprints": [
         "3D:80:8D:87:A1:12:A3:CB:5D:92:F9:76:5A:D6:30:4E:F4:2A:49:77:DB:B8:3C:E9:17:15:D6:27:4E:0B:E5:23"
       ]

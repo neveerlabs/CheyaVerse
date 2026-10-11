@@ -21,7 +21,7 @@ plugins {
 }
 
 def twaManifest = [
-    applicationId: 'com.neverlabs.cheyaverse',
+    applicationId: 'com.cheyaverse',
     hostName: 'cheyaverse.vercel.app', // The domain being opened in the TWA.
     launchUrl: '/', // The start path for the TWA. Must be relative to the domain.
     name: 'Cheya', // The application name.
@@ -52,13 +52,13 @@ def twaManifest = [
 
 android {
     compileSdkVersion 36
-    namespace "com.neverlabs.cheyaverse"
+    namespace "com.cheyaverse"
     defaultConfig {
-        applicationId "com.neverlabs.cheyaverse"
+        applicationId "com.cheyaverse"
         minSdkVersion 24
         targetSdkVersion 36
-        versionCode 3
-        versionName "3.4.8-release"
+        versionCode 4
+        versionName "v3.4.8-release"
 
         // The name for the application
         resValue "string", "appName", twaManifest.name

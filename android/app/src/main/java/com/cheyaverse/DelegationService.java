@@ -1,4 +1,4 @@
-package com.neverlabs.cheyaverse;
+package com.cheyaverse;
 
 
 

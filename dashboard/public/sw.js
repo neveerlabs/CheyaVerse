@@ -1,5 +1,5 @@
 const ICON_PATH = "/push.png?v=20261009";
-const CACHE_NAME = "cheya-push-assets-v10";
+const CACHE_NAME = "cheya-push-assets-v11";
 const DEFAULT_TITLE = "CheyaVerse";
 
 function absoluteUrl(path) {
@@ -53,6 +53,59 @@ async function markAllRead(uid) {
   } catch {}
 }
 
+async function closeNotificationsForChat(uid, contactId) {
+  const notifications = await self.registration.getNotifications();
+  for (const notification of notifications) {
+    const data = notification.data || {};
+    if (
+      String(data.uid) === String(uid) &&
+      data.contactId === contactId
+    ) {
+      notification.close();
+    }
+  }
+}
+
+function isChatRoomVisible(client, uid, contactId) {
+  return new Promise((resolve) => {
+    const channel = new MessageChannel();
+    const timeout = setTimeout(() => {
+      channel.port1.close();
+      resolve(false);
+    }, 500);
+    channel.port1.onmessage = (event) => {
+      clearTimeout(timeout);
+      channel.port1.close();
+      resolve(
+        event.data?.active === true &&
+        String(event.data.uid) === String(uid) &&
+        event.data.contactId === contactId,
+      );
+    };
+    try {
+      client.postMessage({ type: "cheya:get-active-chat" }, [channel.port2]);
+    } catch {
+      clearTimeout(timeout);
+      channel.port1.close();
+      resolve(false);
+    }
+  });
+}
+
+async function isChatRoomOpen(uid, contactId) {
+  const clients = await self.clients.matchAll({
+    type: "window",
+    includeUncontrolled: true,
+  });
+  const visibleClients = clients.filter(
+    (client) => client.visibilityState === "visible" && client.focused,
+  );
+  const states = await Promise.all(
+    visibleClients.map((client) => isChatRoomVisible(client, uid, contactId)),
+  );
+  return states.some(Boolean);
+}
+
 function isBrowserNotificationMuted(uid) {
   if (!uid || !self.indexedDB) return Promise.resolve(false);
   return new Promise((resolve, reject) => {
@@ -86,6 +139,19 @@ function isBrowserNotificationMuted(uid) {
 
 self.addEventListener("message", (event) => {
   const data = event.data || {};
+  if (
+    data.type === "cheya:chat-room-state" &&
+    /^\d+$/.test(String(data.uid)) &&
+    typeof data.contactId === "string" &&
+    data.active === true
+  ) {
+    event.waitUntil(
+      closeNotificationsForChat(data.uid, data.contactId).catch((error) => {
+        console.error("[service-worker] failed to clear open-chat notifications:", error);
+      }),
+    );
+    return;
+  }
   if (
     data.type !== "cheya:browser-notifications-preference" ||
     !/^\d+$/.test(String(data.uid)) ||
@@ -161,6 +227,16 @@ self.addEventListener("push", (event) => {
     : ICON_PATH;
 
   event.waitUntil((async () => {
+    const uid = data.uid;
+    const contactId = typeof data.contactId === "string" ? data.contactId : "";
+    if (
+      uid !== undefined &&
+      contactId &&
+      await isChatRoomOpen(uid, contactId)
+    ) {
+      await closeNotificationsForChat(uid, contactId);
+      return;
+    }
     try {
       if (await isBrowserNotificationMuted(data.uid)) return;
     } catch (error) {
