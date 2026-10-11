@@ -452,6 +452,25 @@ async def _rollback_staged_message(message: Message, owner_uid: int) -> None:
         )
 
 
+async def _finalize_unanswered_message(
+    message: Message,
+    owner_uid: int,
+    summary: object,
+) -> None:
+    finalized = await _api(
+        "finalize_owner_message",
+        groupId=message.chat.id,
+        ownerUid=owner_uid,
+        groupTitle=message.chat.title or "",
+        ownerMessageId=message.message_id,
+        summary=summary if isinstance(summary, str) else "",
+    )
+    if finalized.get("stored") is not True:
+        raise GroupAiApiError(
+            f"Unanswered Telegram message {message.message_id} was not finalized."
+        )
+
+
 async def _finalize_failed_observation(
     message: Message,
     owner_uid: int,
@@ -704,14 +723,23 @@ async def _process_owner_message_locked(
             or not isinstance(reply, str)
             or not reply.strip()
         ):
-            await _rollback_staged_message(message, owner_uid)
+            await _finalize_unanswered_message(
+                message,
+                owner_uid,
+                result.get("summary"),
+            )
             return
         if _normalized_message_text(reply) == _normalized_message_text(text):
             logger.warning(
-                f"Suppressed Telegram AI reply that repeated owner message "
-                f"{message.message_id} in {message.chat.id}."
+                f"Suppressed duplicate Telegram AI reply for message "
+                f"{message.message_id} in {message.chat.id}; retaining the owner "
+                "message and its insight."
             )
-            await _rollback_staged_message(message, owner_uid)
+            await _finalize_unanswered_message(
+                message,
+                owner_uid,
+                result.get("summary"),
+            )
             return
         normalized_reply = reply.strip()[:1800]
         sent_messages = await _send_ai_reply(

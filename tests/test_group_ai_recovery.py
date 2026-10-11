@@ -7,6 +7,53 @@ from handlers import group
 
 
 class GroupAiRecoveryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_no_reply_still_finalizes_owner_message_and_insight(self) -> None:
+        events: list[tuple[str, dict[str, object]]] = []
+
+        async def api(action: str, **payload: object) -> dict[str, object]:
+            events.append((action, payload))
+            if action == "auto_enable":
+                return {"enabled": True, "sendEnabled": True}
+            if action == "auto_process":
+                return {
+                    "stored": True,
+                    "sendEnabled": True,
+                    "reply": None,
+                    "summary": "Owner clearly decided to end the discussion for now.",
+                    "summaryPending": True,
+                }
+            if action == "finalize_owner_message":
+                return {"stored": True}
+            self.fail(f"Unexpected API action: {action}")
+
+        message = SimpleNamespace(
+            text="Segitu aja, makasih.",
+            caption=None,
+            chat=SimpleNamespace(id=-100123, title="Stories", type="channel"),
+            message_id=44,
+            reply_to_message=None,
+            from_user=None,
+            date=datetime.now(timezone.utc),
+        )
+        with (
+            patch.object(group, "_api", new=AsyncMock(side_effect=api)),
+            patch.object(group, "_message_attachments", return_value=[]),
+            patch.object(group, "_send_ai_reply", new=AsyncMock()) as send_reply,
+            patch.object(group, "_rollback_staged_message", new=AsyncMock()) as rollback,
+        ):
+            await group._process_owner_message_locked(message, owner_uid=123)
+
+        finalize_payloads = [
+            payload for action, payload in events if action == "finalize_owner_message"
+        ]
+        self.assertEqual(len(finalize_payloads), 1)
+        self.assertEqual(
+            finalize_payloads[0]["summary"],
+            "Owner clearly decided to end the discussion for now.",
+        )
+        send_reply.assert_not_awaited()
+        rollback.assert_not_awaited()
+
     async def test_media_group_is_sent_as_one_ai_request_with_all_captions_and_media(self) -> None:
         requests: list[tuple[str, dict[str, object]]] = []
 

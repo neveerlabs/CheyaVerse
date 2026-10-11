@@ -727,7 +727,7 @@ export async function POST(request: NextRequest) {
       const context = [
         `Telegram group/channel ID: ${id}. The incoming message is from the verified owner.`,
         status.sendEnabled
-          ? "AI mode: /send is active. Reply only when useful, and create an insight only when this post is meaningfully important."
+          ? "AI mode: /send is active. Reply only when the current post genuinely invites a response or would benefit from a specific, natural reply. A brief acknowledgment, sign-off, satisfied wrap-up, or other cue that the owner is done for now should normally have shouldReply=false and an empty reply; do not prolong a concluded exchange. Do not let this silence rule suppress direct questions, explicit tasks, meaningful new disclosures, or clear invitations. Save a summary only for a meaningful event, decision, boundary, resolution, or change; ordinary closing words alone are not an insight."
           : "AI mode: /up observation-only is active. Do not send a conversational reply. Still analyze and retain an insight for this post. For an ordinary post, make a brief factual observation and explicitly avoid inferring unexpressed feelings; keep personal memory selective.",
         `Verified current clock: ${currentClockWib} (Asia/Jakarta, 24-hour time; machine reference ${now.toISOString()}).`,
         "Use the exact timestamp attached to a stored message for questions about when that message was sent. Use the verified current clock above only for what time it is now. Never infer either time from model knowledge or guess.",
