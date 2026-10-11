@@ -19,6 +19,7 @@ build/
 /android/app-release-*.apk
 /android/app-release-*.aab
 /android/app-release-*.apk.idsig
+/android/cheyaverse.apk
 /android/local.properties
 **/.gradle/
 **/local.properties

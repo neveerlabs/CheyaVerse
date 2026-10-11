@@ -106,7 +106,7 @@ export function buildPushNotification(opts: BuildPushOptions): PushPayload {
   const targetUrl = opts.url ?? `/${opts.uid}/chat/${opts.contact.id}`;
   const tag = opts.tag ?? uniqueTag(opts.contact.id);
   return {
-    title: "CheyaVerse · Web",
+    title: "CheyaVerse",
     body: truncateBody(
       opts.contact.id === "system"
         ? opts.body
@@ -147,7 +147,7 @@ export function buildSystemPush(
   });
   return {
     ...payload,
-    title: "CheyaVerse · Web",
+    title: "CheyaVerse",
     icon: "/push.png?v=20261009",
     badge: "/push.png?v=20261009",
     silent: false,

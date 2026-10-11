@@ -1,8 +1,8 @@
 {
   "packageId": "com.neverlabs.cheyaverse",
   "host": "cheyaverse.vercel.app",
-  "name": "CheyaVerse",
-  "launcherName": "CheyaVerse",
+  "name": "Cheya",
+  "launcherName": "Cheya",
   "display": "standalone",
   "themeColor": "#FFFFFF",
   "themeColorDark": "#000000",
@@ -19,8 +19,8 @@
     "path": "./cheyaverse-signing.p12",
     "alias": "cheyaverse"
   },
-  "appVersionName": "2",
-  "appVersionCode": 2,
+  "appVersionName": "3.4.8-release",
+  "appVersionCode": 3,
   "shortcuts": [],
   "generatorApp": "bubblewrap-cli",
   "webManifestUrl": "https://cheyaverse.vercel.app/manifest.webmanifest",
@@ -42,5 +42,5 @@
   "fileHandlers": [],
   "launchHandlerClientMode": "",
   "displayOverride": [],
-  "appVersion": "2"
+  "appVersion": "3.4.8-release"
 }
