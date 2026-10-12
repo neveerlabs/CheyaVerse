@@ -39,7 +39,6 @@ class GroupAiRecoveryTests(unittest.IsolatedAsyncioTestCase):
             patch.object(group, "_api", new=AsyncMock(side_effect=api)),
             patch.object(group, "_message_attachments", return_value=[]),
             patch.object(group, "_send_ai_reply", new=AsyncMock()) as send_reply,
-            patch.object(group, "_rollback_staged_message", new=AsyncMock()) as rollback,
         ):
             await group._process_owner_message_locked(message, owner_uid=123)
 
@@ -52,7 +51,6 @@ class GroupAiRecoveryTests(unittest.IsolatedAsyncioTestCase):
             "Owner clearly decided to end the discussion for now.",
         )
         send_reply.assert_not_awaited()
-        rollback.assert_not_awaited()
 
     async def test_media_group_is_sent_as_one_ai_request_with_all_captions_and_media(self) -> None:
         requests: list[tuple[str, dict[str, object]]] = []
@@ -170,7 +168,6 @@ class GroupAiRecoveryTests(unittest.IsolatedAsyncioTestCase):
                     or [{"messageId": 46, "content": "Aku paham.", "timestamp": "now"}]
                 ),
             ),
-            patch.object(group, "_rollback_staged_message", new=AsyncMock()) as rollback,
             patch.object(
                 group,
                 "_notify_personal_memory_action_error",
@@ -182,8 +179,89 @@ class GroupAiRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("reply", events)
         self.assertIn("finalize_owner_message", events)
         self.assertEqual(events[-1], "notice")
-        rollback.assert_not_awaited()
         notify.assert_awaited_once()
+
+    async def test_failed_ai_request_never_rolls_back_staged_owner_message(self) -> None:
+        actions: list[str] = []
+
+        async def api(action: str, **_payload: object) -> dict[str, object]:
+            actions.append(action)
+            if action == "auto_enable":
+                return {"enabled": True, "sendEnabled": True}
+            raise group.GroupAiApiError(
+                "telegram_memory_database_error: SQLite temporarily unavailable",
+                failure_code="telegram_memory_database_error",
+                failure_stage="telegram_memory_sqlite_search",
+                owner_message_retained=False,
+            )
+
+        message = SimpleNamespace(
+            text="Pesan yang tidak boleh dihapus saat SQLite gagal.",
+            caption=None,
+            chat=SimpleNamespace(id=-100123, title="Stories", type="channel"),
+            message_id=47,
+            reply_to_message=None,
+            from_user=None,
+            date=datetime.now(timezone.utc),
+        )
+        with (
+            patch.object(group, "_api", new=AsyncMock(side_effect=api)),
+            patch.object(group, "_message_attachments", return_value=[]),
+            patch.object(group, "_notify_processing_error", new=AsyncMock()),
+            patch.object(group.logger, "warning") as warning,
+            patch.object(group.logger, "error") as error,
+        ):
+            await group._process_owner_message_locked(message, owner_uid=123)
+
+        self.assertEqual(actions, ["auto_enable", "auto_process"])
+        self.assertTrue(
+            any("rollback=skipped" in call.args[0] for call in warning.call_args_list)
+        )
+        self.assertTrue(
+            any(
+                "stage=telegram_memory_sqlite_search" in call.args[0]
+                and "code=telegram_memory_database_error" in call.args[0]
+                for call in error.call_args_list
+            )
+        )
+
+    async def test_voice_reply_falls_back_to_text_when_tts_fails(self) -> None:
+        chat = SimpleNamespace(id=-100123, title="Stories", type="channel")
+        sent = SimpleNamespace(
+            message_id=49,
+            date=datetime.now(timezone.utc),
+            chat=chat,
+        )
+        message = SimpleNamespace(
+            chat=chat,
+            message_id=48,
+            answer=AsyncMock(return_value=sent),
+        )
+        with patch.object(
+            group,
+            "synthesize_voice_note",
+            new=AsyncMock(side_effect=RuntimeError("TTS provider unavailable")),
+        ):
+            stored = await group._send_ai_reply(
+                message,
+                "Aku akan mengingatnya.",
+                "voice",
+                "",
+            )
+
+        message.answer.assert_awaited_once_with(
+            "Aku akan mengingatnya.",
+            parse_mode=None,
+        )
+        self.assertEqual(stored[0]["messageId"], 49)
+        self.assertEqual(stored[0]["content"], "Aku akan mengingatnya.")
+
+    def test_database_error_notice_names_the_failing_dependency(self) -> None:
+        notice = group._user_facing_error(
+            "web_chat_database_error: Database Supabase gagal mencari riwayat."
+        )
+        self.assertIn("Supabase", notice)
+        self.assertIn("riwayat chat web", notice)
 
 
 if __name__ == "__main__":

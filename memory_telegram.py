@@ -220,6 +220,22 @@ def initialize(path: str | Path | None = None) -> None:
         )
 
 
+def health_check() -> None:
+    initialize()
+    with database() as connection:
+        result = connection.execute("PRAGMA quick_check(1)").fetchone()
+        if result is None or str(result[0]).lower() != "ok":
+            raise RuntimeError(
+                f"Telegram AI SQLite integrity check failed: {result[0] if result else 'no result'}."
+            )
+        connection.execute(
+            "SELECT 1 FROM telegram_ai_messages_fts LIMIT 1"
+        ).fetchone()
+        connection.execute(
+            "SELECT 1 FROM telegram_ai_insights_fts LIMIT 1"
+        ).fetchone()
+
+
 def _normalize_timestamp(value: str | datetime | None = None) -> str:
     if value is None:
         parsed = datetime.now(timezone.utc)
@@ -1386,13 +1402,14 @@ def retrieve_group_memory(
             )
               AND (? IS NULL OR telegram_message_id != ?)
               AND (role != 'bot' OR telegram_reply_to_message_id IS NULL
-               OR telegram_reply_to_message_id != ?)
+               OR ? IS NULL OR telegram_reply_to_message_id != ?)
             ORDER BY timestamp DESC, telegram_message_id DESC LIMIT 12
             """,
             (
                 group_id,
                 owner_uid,
                 owner_uid,
+                exclude_message_id,
                 exclude_message_id,
                 exclude_message_id,
                 exclude_message_id,
@@ -1423,7 +1440,7 @@ def retrieve_group_memory(
                       )
                     AND (? IS NULL OR message.telegram_message_id != ?)
                     AND (message.role != 'bot' OR message.telegram_reply_to_message_id IS NULL
-                         OR message.telegram_reply_to_message_id != ?)
+                         OR ? IS NULL OR message.telegram_reply_to_message_id != ?)
                     ORDER BY bm25(telegram_ai_messages_fts), message.timestamp DESC
                     LIMIT 12
                     """,
@@ -1432,6 +1449,7 @@ def retrieve_group_memory(
                     group_id,
                     owner_uid,
                     owner_uid,
+                    exclude_message_id,
                     exclude_message_id,
                     exclude_message_id,
                     exclude_message_id,
@@ -1457,7 +1475,7 @@ def retrieve_group_memory(
                         )
                     )
                       AND (role != 'bot' OR telegram_reply_to_message_id IS NULL
-                           OR telegram_reply_to_message_id != ?)
+                           OR ? IS NULL OR telegram_reply_to_message_id != ?)
                     LIMIT 1
                     """,
                     (
@@ -1465,6 +1483,7 @@ def retrieve_group_memory(
                         reply_to_message_id,
                         owner_uid,
                         owner_uid,
+                        exclude_message_id,
                         exclude_message_id,
                     ),
                 )

@@ -46,6 +46,24 @@ const ALLOWED_MEDIA_TYPES = new Set([
 const MAX_ATTACHMENT_BYTES = 18 * 1024 * 1024;
 const ALLOWED_MEDIA_MIME = /^(image\/(jpeg|png|webp|heic|heif)|audio\/(wav|x-wav|mpeg|mp3|mp4|opus|aiff|aac|ogg|flac|webm)|video\/(mp4|mpeg|quicktime|x-msvideo|x-flv|webm|x-ms-wmv|3gpp)|application\/pdf|application\/json|text\/(plain|csv))$/i;
 
+class GroupAiStageError extends Error {
+  constructor(
+    readonly stage: string,
+    readonly original: unknown,
+  ) {
+    super(original instanceof Error ? original.message : String(original));
+    this.name = "GroupAiStageError";
+  }
+}
+
+async function atStage<T>(stage: string, operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    throw new GroupAiStageError(stage, error);
+  }
+}
+
 function formatWebChatMemory(
   recentMessages: Awaited<ReturnType<typeof listRecentAiChatMessages>>,
   memoryMatches: Awaited<ReturnType<typeof searchAiChatHistory>>,
@@ -224,7 +242,10 @@ function mediaTypes(value: unknown): string[] {
   ).slice(0, 8);
 }
 
-function groupAiFailure(error: unknown): { code: string; message: string } {
+function groupAiFailure(
+  error: unknown,
+  stage: string,
+): { code: string; message: string } {
   const detail = error instanceof Error ? error.message : "";
   const normalized = detail.toLowerCase();
   if (/telegram ai memory service is unreachable|telegram ai memory service rejected .*http 50[234]/.test(normalized)) {
@@ -245,24 +266,54 @@ function groupAiFailure(error: unknown): { code: string; message: string } {
       message: "Provider AI menolak kredensial atau izin API. Periksa API key dan konfigurasi provider.",
     };
   }
+  if (stage === "group_settings_database") {
+    return {
+      code: "group_settings_database_error",
+      message: "Database Supabase gagal membaca atau memperbarui pengaturan AI grup.",
+    };
+  }
+  if (stage === "web_chat_database") {
+    return {
+      code: "web_chat_database_error",
+      message: "Database Supabase gagal mencari riwayat chat web untuk konteks AI.",
+    };
+  }
+  if (stage.startsWith("telegram_memory_sqlite") || stage === "personal_memory_sqlite") {
+    return {
+      code: "telegram_memory_database_error",
+      message: "SQLite memori Telegram gagal membaca atau menyimpan data pesan.",
+    };
+  }
+  if (stage === "telegram_media_download") {
+    return {
+      code: "telegram_media_download_error",
+      message: "Bot gagal mengunduh media dari Telegram untuk dianalisis.",
+    };
+  }
+  if (stage === "voice_transcription") {
+    return {
+      code: "voice_transcription_error",
+      message: "Provider AI gagal mentranskripsi voice note Telegram.",
+    };
+  }
+  if (/web search|brave search|duckduckgo|search result|public source|public page/.test(normalized)) {
+    return {
+      code: "web_search_failed",
+      message: "Pencarian web atau pembacaan sumber publik gagal. Pesan tetap diproses tanpa hasil pencarian tersebut.",
+    };
+  }
+  if (stage === "ai_generation") {
+    return {
+      code: "ai_generation_error",
+      message: "Provider AI gagal menganalisis pesan Telegram atau membuat balasan.",
+    };
+  }
   if (/unsupported_media|media_too_large/.test(normalized)) {
     return {
       code: normalized.includes("media_too_large") ? "media_too_large" : "unsupported_media",
       message: normalized.includes("media_too_large")
         ? "Media melebihi batas total 18 MiB."
         : "Format atau media ini belum didukung untuk dianalisis.",
-    };
-  }
-  if (/web search|brave search|duckduckgo|search result|public source|public page/.test(normalized)) {
-    return {
-      code: "web_search_failed",
-      message: "Pencarian web atau pembacaan sumber publik gagal. Memori pesan ini belum diperbarui; coba lagi nanti.",
-    };
-  }
-  if (/telegram ai memory|sqlite|database|postgres|supabase|query|sql|pool|connection terminated/.test(normalized)) {
-    return {
-      code: "database_error",
-      message: "Database gagal menyimpan atau membaca memori pesan. Coba lagi setelah koneksi database pulih.",
     };
   }
   if (/telegram_file|failed to fetch|fetch failed|timeout|timed out|econn|enotfound|network|aborterror/.test(normalized)) {
@@ -279,7 +330,7 @@ function groupAiFailure(error: unknown): { code: string; message: string } {
   }
   return {
     code: "group_ai_unavailable",
-    message: "AI gagal mencerna pesan karena kesalahan internal. Pesan ini belum masuk ke memori.",
+    message: `AI gagal mencerna pesan pada tahap ${stage}. Periksa log Vercel untuk detail teknis; pesan owner dipertahankan jika sudah berhasil di-stage.`,
   };
 }
 
@@ -347,7 +398,9 @@ export async function POST(request: NextRequest) {
     ownerUid: number;
     messageId: number;
   } | null = null;
+  let stagedMessageRetained = false;
   let observationOnly = false;
+  let processingStage = "request_validation";
   try {
     if (input.action === "status") {
       const ownerUid = telegramUserId(input.ownerUid);
@@ -435,12 +488,21 @@ export async function POST(request: NextRequest) {
       ) {
         return NextResponse.json({ ok: false, error: "not_authorized" }, { status: 403 });
       }
-      let status = await getTelegramGroupAiStatus(id);
+      let status = await atStage(
+        "group_settings_database",
+        () => getTelegramGroupAiStatus(id),
+      );
       let initialized = false;
       if (status.ownerUid === null || status.ownerUid === ownerUid) {
         initialized = status.ownerUid === null;
-        await enableTelegramGroupAi(id, ownerUid, title, ownerUid);
-        status = await getTelegramGroupAiStatus(id);
+        await atStage(
+          "group_settings_database",
+          () => enableTelegramGroupAi(id, ownerUid, title, ownerUid),
+        );
+        status = await atStage(
+          "group_settings_database",
+          () => getTelegramGroupAiStatus(id),
+        );
       }
       return NextResponse.json({
         ok: true,
@@ -456,15 +518,24 @@ export async function POST(request: NextRequest) {
       if (ownerUid === null || !config.adminTelegramIds.has(ownerUid)) {
         return NextResponse.json({ ok: false, error: "not_authorized" }, { status: 403 });
       }
-      let status = await getTelegramGroupAiStatus(id);
+      let status = await atStage(
+        "group_settings_database",
+        () => getTelegramGroupAiStatus(id),
+      );
       if (status.ownerUid === null || status.ownerUid === ownerUid) {
-        await enableTelegramGroupAi(
-          id,
-          ownerUid,
-          typeof input.groupTitle === "string" ? input.groupTitle.slice(0, 200) : "",
-          ownerUid,
+        await atStage(
+          "group_settings_database",
+          () => enableTelegramGroupAi(
+            id,
+            ownerUid,
+            typeof input.groupTitle === "string" ? input.groupTitle.slice(0, 200) : "",
+            ownerUid,
+          ),
         );
-        status = await getTelegramGroupAiStatus(id);
+        status = await atStage(
+          "group_settings_database",
+          () => getTelegramGroupAiStatus(id),
+        );
       }
       if (status.ownerUid !== ownerUid || !status.enabled) {
         return NextResponse.json({ ok: false, error: "not_group_owner" }, { status: 403 });
@@ -486,7 +557,10 @@ export async function POST(request: NextRequest) {
           });
         }
       }
-      const updated = await setTelegramGroupAiSendPermission(id, ownerUid, enabled);
+      const updated = await atStage(
+        "group_settings_database",
+        () => setTelegramGroupAiSendPermission(id, ownerUid, enabled),
+      );
       if (!updated) {
         return NextResponse.json({ ok: false, error: "permission_update_failed" }, { status: 409 });
       }
@@ -540,7 +614,10 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ ok: false, error: "invalid_message" }, { status: 400 });
       }
       const edited = input.edited === true;
-      const status = await getTelegramGroupAiStatus(id);
+      const status = await atStage(
+        "group_settings_database",
+        () => getTelegramGroupAiStatus(id),
+      );
       if (!status.enabled || status.ownerUid !== userId) {
         return NextResponse.json({ ok: true, stored: false, reply: null });
       }
@@ -556,7 +633,10 @@ export async function POST(request: NextRequest) {
       }
       if (
         !edited &&
-        await telegramOwnerMessageExists({ ownerUid: userId, groupId: id, messageId })
+        await atStage(
+          "telegram_memory_sqlite_duplicate_check",
+          () => telegramOwnerMessageExists({ ownerUid: userId, groupId: id, messageId }),
+        )
       ) {
         return NextResponse.json({
           ok: true,
@@ -567,31 +647,37 @@ export async function POST(request: NextRequest) {
         });
       }
       const previousInsight = edited
-        ? await getTelegramStoredInsight({
-            groupId: id,
-            ownerUid: userId,
-            messageId,
-          })
+        ? await atStage(
+            "telegram_memory_sqlite_read",
+            () => getTelegramStoredInsight({
+              groupId: id,
+              ownerUid: userId,
+              messageId,
+            }),
+          )
         : null;
-      const staged = await stageTelegramOwnerMessage({
-        groupId: id,
-        ownerUid: userId,
-        groupTitle: typeof input.groupTitle === "string" ? input.groupTitle : "",
-        messageId,
-        senderName: name,
-        content: [
-          mediaGroupSize !== null
-            ? `[Telegram media album: ${mediaGroupSize} items]`
-            : "",
-          message.trim() ? message : `[Media attached: ${types.join(", ")}]`,
-        ]
-          .filter(Boolean)
-          .join("\n"),
-        mediaTypes: types,
-        replyToMessageId,
-        timestamp,
-        edited,
-      });
+      const staged = await atStage(
+        "telegram_memory_sqlite_stage",
+        () => stageTelegramOwnerMessage({
+          groupId: id,
+          ownerUid: userId,
+          groupTitle: typeof input.groupTitle === "string" ? input.groupTitle : "",
+          messageId,
+          senderName: name,
+          content: [
+            mediaGroupSize !== null
+              ? `[Telegram media album: ${mediaGroupSize} items]`
+              : "",
+            message.trim() ? message : `[Media attached: ${types.join(", ")}]`,
+          ]
+            .filter(Boolean)
+            .join("\n"),
+          mediaTypes: types,
+          replyToMessageId,
+          timestamp,
+          edited,
+        }),
+      );
       if (!staged.stored) {
         return NextResponse.json({
           ok: true,
@@ -601,7 +687,10 @@ export async function POST(request: NextRequest) {
         });
       }
       stagedMessage = { groupId: id, ownerUid: userId, messageId };
-      const attachments = await readAttachments(input.attachments);
+      const attachments = await atStage(
+        "telegram_media_download",
+        () => readAttachments(input.attachments),
+      );
       const hasAudio = types.includes("voice") || types.includes("audio");
       const audioAttachments = attachments.filter((item) =>
         item.mimeType.toLowerCase().startsWith("audio/"),
@@ -610,7 +699,10 @@ export async function POST(request: NextRequest) {
         throw new Error("Telegram voice message did not contain a supported audio attachment.");
       }
       const voiceTranscript = hasAudio
-        ? await transcribeTelegramVoiceMessage(userId, audioAttachments)
+        ? await atStage(
+            "voice_transcription",
+            () => transcribeTelegramVoiceMessage(userId, audioAttachments),
+          )
         : "";
       const persistedMessage = [
         mediaGroupSize !== null
@@ -627,12 +719,15 @@ export async function POST(request: NextRequest) {
         .join("\n")
         .slice(0, 4000) || `[Media attached: ${types.join(", ")}]`;
       if (hasAudio) {
-        const updated = await updateStagedTelegramOwnerMessage({
-          groupId: id,
-          ownerUid: userId,
-          messageId,
-          content: persistedMessage,
-        });
+        const updated = await atStage(
+          "telegram_memory_sqlite_stage_update",
+          () => updateStagedTelegramOwnerMessage({
+            groupId: id,
+            ownerUid: userId,
+            messageId,
+            content: persistedMessage,
+          }),
+        );
         if (!updated) {
           throw new Error("The staged Telegram voice message could not be updated.");
         }
@@ -648,17 +743,48 @@ export async function POST(request: NextRequest) {
       ]
         .filter(Boolean)
         .join("\n");
-      const [memory, recentWebMessages, recentPersonalMemories] = await Promise.all([
-        retrieveTelegramGroupMemory({
-          groupId: id,
-          ownerUid: userId,
-          excludeMessageId: messageId,
-          query: messageForContext || message,
-          replyToMessageId,
-        }),
-        listRecentAiChatMessages(userId, 8),
-        searchPersonalMemory(userId, "", 20),
+      const [
+        telegramMemoryResult,
+        recentWebMessagesResult,
+        recentPersonalMemoriesResult,
+      ] = await Promise.allSettled([
+        atStage(
+          "telegram_memory_sqlite_search",
+          () => retrieveTelegramGroupMemory({
+            groupId: id,
+            ownerUid: userId,
+            excludeMessageId: messageId,
+            query: messageForContext || message,
+            replyToMessageId,
+          }),
+        ),
+        atStage(
+          "web_chat_database",
+          () => listRecentAiChatMessages(userId, 8),
+        ),
+        atStage(
+          "personal_memory_sqlite",
+          () => searchPersonalMemory(userId, "", 20),
+        ),
       ]);
+      if (telegramMemoryResult.status === "rejected") {
+        throw telegramMemoryResult.reason;
+      }
+      if (recentPersonalMemoriesResult.status === "rejected") {
+        throw recentPersonalMemoriesResult.reason;
+      }
+      const memory = telegramMemoryResult.value;
+      const recentPersonalMemories = recentPersonalMemoriesResult.value;
+      const recentWebMessages = recentWebMessagesResult.status === "fulfilled"
+        ? recentWebMessagesResult.value
+        : [];
+      if (recentWebMessagesResult.status === "rejected") {
+        console.error(
+          `[internal/telegram/group-ai] optional web-chat context unavailable; ` +
+          `continuing with Telegram SQLite memory (group_id=${id}, message_id=${messageId}).`,
+          recentWebMessagesResult.reason,
+        );
+      }
       const personalMemoryQuery = [
         messageForContext || message,
         ...recentWebMessages
@@ -670,10 +796,9 @@ export async function POST(request: NextRequest) {
           .slice(-4)
           .map((item) => item.content),
       ].join(" ").slice(0, 1600);
-      const relevantPersonalMemories = await searchPersonalMemory(
-        userId,
-        personalMemoryQuery,
-        40,
+      const relevantPersonalMemories = await atStage(
+        "personal_memory_sqlite",
+        () => searchPersonalMemory(userId, personalMemoryQuery, 40),
       );
       const personalMemories = [
         ...new Map(
@@ -688,7 +813,19 @@ export async function POST(request: NextRequest) {
           .slice(-2)
           .map((item) => item.content),
       ].join(" ").slice(0, 1600);
-      const webMemoryMatches = await searchAiChatHistory(userId, webMemoryQuery, 24);
+      let webMemoryMatches: Awaited<ReturnType<typeof searchAiChatHistory>> = [];
+      try {
+        webMemoryMatches = await atStage(
+          "web_chat_database",
+          () => searchAiChatHistory(userId, webMemoryQuery, 24),
+        );
+      } catch (error) {
+        console.error(
+          `[internal/telegram/group-ai] optional web-chat search unavailable; ` +
+          `continuing without web context (group_id=${id}, message_id=${messageId}).`,
+          error,
+        );
+      }
       const webChatMemory = formatWebChatMemory(recentWebMessages, webMemoryMatches);
       const personalMemoryContext = personalMemories.map((item) =>
         [
@@ -758,11 +895,14 @@ export async function POST(request: NextRequest) {
         ...telegramMemoryRecords,
         "Recent Cheya replies are included above when available. Make each new reply specific to this incoming post; do not reuse the wording, opening, or main point of a recent reply. If an answer would substantially repeat one, respond with a genuinely new relevant detail or stay silent.",
       ].join("\n");
-      const generated = await generateTelegramGroupReply(
-        userId,
-        messageForContext || "Please inspect the attached media and respond helpfully.",
-        context,
-        attachments,
+      const generated = await atStage(
+        "ai_generation",
+        () => generateTelegramGroupReply(
+          userId,
+          messageForContext || "Please inspect the attached media and respond helpfully.",
+          context,
+          attachments,
+        ),
       );
       const memoryIds = new Set(personalMemories.map((item) => item.id));
       const memoryChanges: Array<Record<string, unknown>> = [];
@@ -1023,17 +1163,20 @@ export async function POST(request: NextRequest) {
       ) {
         return NextResponse.json({ ok: false, error: "invalid_finalized_message" }, { status: 400 });
       }
-      await finalizeTelegramOwnerMessage({
-        groupId: id,
-        ownerUid,
-        groupTitle: typeof input.groupTitle === "string" ? input.groupTitle.slice(0, 200) : "",
-        ownerMessageId,
-        summary,
-        ...(Array.isArray(botMessages) ? { botMessages } : {}),
-        ...(messageId !== null ? { messageId } : {}),
-        ...(content.trim() ? { content } : {}),
-        ...(timestamp ? { timestamp } : {}),
-      });
+      await atStage(
+        "telegram_memory_sqlite_finalize",
+        () => finalizeTelegramOwnerMessage({
+          groupId: id,
+          ownerUid,
+          groupTitle: typeof input.groupTitle === "string" ? input.groupTitle.slice(0, 200) : "",
+          ownerMessageId,
+          summary,
+          ...(Array.isArray(botMessages) ? { botMessages } : {}),
+          ...(messageId !== null ? { messageId } : {}),
+          ...(content.trim() ? { content } : {}),
+          ...(timestamp ? { timestamp } : {}),
+        }),
+      );
       return NextResponse.json({ ok: true, stored: true });
     }
 
@@ -1041,15 +1184,19 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     if (stagedMessage && !observationOnly) {
       try {
-        await finalizeTelegramOwnerMessage({
-          ...stagedMessage,
-          groupTitle: typeof input.groupTitle === "string"
-            ? input.groupTitle.slice(0, 200)
-            : "",
-          ownerMessageId: stagedMessage.messageId,
-          summary: "Analisis AI terhenti sebelum selesai. Pesan owner tetap disimpan; insight ini adalah penanda sistem, bukan kesimpulan AI.",
-        });
-        stagedMessage = null;
+          await atStage(
+            "telegram_memory_sqlite_recovery",
+            () => finalizeTelegramOwnerMessage({
+              ...stagedMessage!,
+              groupTitle: typeof input.groupTitle === "string"
+                ? input.groupTitle.slice(0, 200)
+                : "",
+              ownerMessageId: stagedMessage!.messageId,
+              summary: "Analisis AI terhenti sebelum selesai. Pesan owner tetap disimpan; insight ini adalah penanda sistem, bukan kesimpulan AI.",
+            }),
+          );
+          stagedMessageRetained = true;
+          stagedMessage = null;
       } catch (retentionError) {
         console.error(
           "[internal/telegram/group-ai] failed to retain staged owner message after AI failure:",
@@ -1057,10 +1204,28 @@ export async function POST(request: NextRequest) {
         );
       }
     }
-    console.error("[internal/telegram/group-ai] request failed:", error);
-    const failure = groupAiFailure(error);
+    const stage = error instanceof GroupAiStageError
+      ? error.stage
+      : processingStage;
+    const cause = error instanceof GroupAiStageError
+      ? error.original
+      : error;
+    const failure = groupAiFailure(cause, stage);
+    console.error(
+      `[internal/telegram/group-ai] action=${input.action} stage=${stage} ` +
+      `group_id=${typeof input.groupId === "number" ? input.groupId : "unknown"} ` +
+      `message_id=${typeof input.messageId === "number" ? input.messageId : "unknown"} ` +
+      `owner_message_retained=${stagedMessageRetained}`,
+      cause,
+    );
     return NextResponse.json(
-      { ok: false, error: failure.code, message: failure.message },
+      {
+        ok: false,
+        error: failure.code,
+        message: failure.message,
+        failureStage: stage,
+        ownerMessageRetained: stagedMessageRetained,
+      },
       { status: failure.code === "unsupported_media" || failure.code === "media_too_large" ? 422 : 503 },
     );
   }

@@ -2,7 +2,6 @@ import asyncio
 import hmac
 import ipaddress
 import json
-import logging
 from typing import Any
 from datetime import datetime
 
@@ -11,10 +10,16 @@ from aiohttp import web
 import memory_telegram as memory
 import memory as personal_memory
 from config import ADMIN_TELEGRAM_IDS, TELEGRAM_AI_MEMORY_SECRET
+from logger import logger
 
 
 MAX_IMPORT_MESSAGES = 100
 MAX_TEXT_LENGTH = 4000
+STALE_MESSAGE_RECOVERY_INTERVAL_SECONDS = 300
+_STALE_RECOVERY_TASK_KEY = web.AppKey(
+    "telegram_ai_stale_recovery_task",
+    asyncio.Task,
+)
 ALLOWED_MEDIA_TYPES = {
     "photo",
     "video",
@@ -142,6 +147,8 @@ async def _handle(request: web.Request) -> web.Response:
                 text=json.dumps({"ok": False, "error": "admin_required"}),
                 content_type="application/json",
             )
+        await asyncio.to_thread(memory.health_check)
+        await asyncio.to_thread(personal_memory.search, owner_uid, "", 1)
         return web.json_response({"ok": True})
 
     if action == "retrieve_owner_memory":
@@ -685,11 +692,71 @@ async def _log_unexpected_memory_error(
             )
         except (json.JSONDecodeError, web.HTTPBadRequest):
             action = "invalid_request"
-        logging.exception(
+        logger.exception(
             "Telegram AI memory operation failed (%s).",
             action,
         )
         raise
+
+
+async def _recover_stale_messages() -> None:
+    while True:
+        try:
+            await asyncio.sleep(STALE_MESSAGE_RECOVERY_INTERVAL_SECONDS)
+            recovered = await asyncio.to_thread(memory.cleanup_stale_owner_messages)
+            if recovered:
+                logger.warning(
+                    "Telegram AI SQLite recovery finalized %s staged owner message(s) "
+                    "after an interrupted analysis.",
+                    recovered,
+                )
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            logger.exception(
+                "Telegram AI SQLite recovery failed; it will retry in %s seconds.",
+                STALE_MESSAGE_RECOVERY_INTERVAL_SECONDS,
+            )
+
+
+async def _start_stale_recovery(app: web.Application) -> None:
+    app[_STALE_RECOVERY_TASK_KEY] = asyncio.create_task(
+        _recover_stale_messages()
+    )
+
+
+async def _stop_stale_recovery(app: web.Application) -> None:
+    task = app.get(_STALE_RECOVERY_TASK_KEY)
+    if task is None:
+        return
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+
+async def _initialize_memory_service(app: web.Application) -> None:
+    await asyncio.to_thread(memory.initialize)
+    stale_messages = await asyncio.to_thread(memory.cleanup_stale_owner_messages)
+    if stale_messages:
+        logger.warning(
+            "Recovered %s stale Telegram AI message(s) left without completed analysis.",
+            stale_messages,
+        )
+    await asyncio.to_thread(personal_memory.initialize)
+    await _start_stale_recovery(app)
+
+
+def create_app() -> web.Application:
+    app = web.Application(
+        client_max_size=2 * 1024 * 1024,
+        middlewares=[_log_unexpected_memory_error],
+    )
+    app.on_startup.append(_initialize_memory_service)
+    app.on_cleanup.append(_stop_stale_recovery)
+    app.router.add_post("/internal/telegram-group-ai", _handle)
+    return app
 
 
 async def start_server(host: str, port: int) -> web.AppRunner:
@@ -697,19 +764,7 @@ async def start_server(host: str, port: int) -> web.AppRunner:
         raise RuntimeError("TELEGRAM_AI_MEMORY_SECRET is required.")
     if host != "localhost" and not ipaddress.ip_address(host).is_loopback:
         raise ValueError("TELEGRAM_AI_MEMORY_HOST must be a loopback address.")
-    memory.initialize()
-    stale_messages = await asyncio.to_thread(memory.cleanup_stale_owner_messages)
-    if stale_messages:
-        logging.warning(
-            "Recovered %s stale Telegram AI message(s) left without completed analysis.",
-            stale_messages,
-        )
-    personal_memory.initialize()
-    app = web.Application(
-        client_max_size=2 * 1024 * 1024,
-        middlewares=[_log_unexpected_memory_error],
-    )
-    app.router.add_post("/internal/telegram-group-ai", _handle)
+    app = create_app()
     runner = web.AppRunner(app, access_log=None)
     await runner.setup()
     site = web.TCPSite(runner, host=host, port=port)
@@ -724,8 +779,7 @@ async def _run_standalone() -> None:
         TELEGRAM_AI_MEMORY_HOST,
         TELEGRAM_AI_MEMORY_PORT,
     )
-    logging.basicConfig(level=logging.INFO)
-    logging.info(
+    logger.info(
         "Telegram AI memory API listening on %s:%s.",
         TELEGRAM_AI_MEMORY_HOST,
         TELEGRAM_AI_MEMORY_PORT,

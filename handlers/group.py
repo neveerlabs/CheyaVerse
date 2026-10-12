@@ -54,7 +54,18 @@ def _mark_bot_channel_post(message: Message) -> None:
 
 
 class GroupAiApiError(RuntimeError):
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        failure_code: str | None = None,
+        failure_stage: str | None = None,
+        owner_message_retained: bool = False,
+    ) -> None:
+        super().__init__(message)
+        self.failure_code = failure_code
+        self.failure_stage = failure_stage
+        self.owner_message_retained = owner_message_retained
 
 
 def _response_preview(body: str) -> str:
@@ -105,13 +116,26 @@ async def _api(action: str, **payload):
                 if not isinstance(data, dict) or not data.get("ok"):
                     message = data.get("message") if isinstance(data, dict) else None
                     error = data.get("error") if isinstance(data, dict) else None
+                    failure_stage = (
+                        data.get("failureStage")
+                        if isinstance(data, dict) and isinstance(data.get("failureStage"), str)
+                        else None
+                    )
+                    retained = (
+                        data.get("ownerMessageRetained") is True
+                        if isinstance(data, dict)
+                        else False
+                    )
                     raise GroupAiApiError(
                         f"{error}: {message}"
                         if isinstance(error, str) and isinstance(message, str)
                         else message
                         if isinstance(message, str)
                         else f"Group AI API returned HTTP {response.status}: "
-                        f"{error if isinstance(error, str) else 'request rejected'}"
+                        f"{error if isinstance(error, str) else 'request rejected'}",
+                        failure_code=error if isinstance(error, str) else None,
+                        failure_stage=failure_stage,
+                        owner_message_retained=retained,
                     )
                 return data
     except (aiohttp.ClientError, TimeoutError) as exc:
@@ -435,21 +459,6 @@ def _message_attachments(message: Message) -> list[dict[str, object]]:
             }
         )
     return attachments
-
-
-async def _rollback_staged_message(message: Message, owner_uid: int) -> None:
-    try:
-        await _api(
-            "rollback_owner_message",
-            groupId=message.chat.id,
-            ownerUid=owner_uid,
-            messageId=message.message_id,
-        )
-    except (GroupAiApiError, TelegramAPIError) as exc:
-        logger.error(
-            f"Could not roll back unresponded Telegram message {message.message_id} "
-            f"in {message.chat.id}: {exc}"
-        )
 
 
 async def _finalize_unanswered_message(
@@ -785,10 +794,22 @@ async def _process_owner_message_locked(
             )
             return
         if processing_started and not reply_sent:
-            await _rollback_staged_message(message, owner_uid)
+            retention_state = (
+                "confirmed"
+                if isinstance(exc, GroupAiApiError) and exc.owner_message_retained
+                else "pending_or_unknown"
+            )
+            logger.warning(
+                f"Group AI recovery queued | channel_id={message.chat.id} "
+                f"telegram_message_id={message.message_id} "
+                f"rollback=skipped staged_message={retention_state}"
+            )
         logger.error(
-            f"Group AI processing failed in {message.chat.id} "
-            f"for Telegram message {message.message_id}: {exc}"
+            f"Group AI failed | channel_id={message.chat.id} "
+            f"telegram_message_id={message.message_id} "
+            f"stage={exc.failure_stage if isinstance(exc, GroupAiApiError) and exc.failure_stage else 'telegram_api' if isinstance(exc, TelegramAPIError) else 'bot_to_vercel'} "
+            f"code={exc.failure_code if isinstance(exc, GroupAiApiError) and exc.failure_code else type(exc).__name__} "
+            f"owner_message_retained={exc.owner_message_retained if isinstance(exc, GroupAiApiError) else False}: {exc}"
         )
         if isinstance(exc, GroupAiApiError) and not reply_sent:
             await _notify_processing_error(message, str(exc))
@@ -798,15 +819,23 @@ async def _process_owner_message_locked(
                 message, owner_uid, text, attachments
             )
             logger.exception(
-                f"Unexpected group AI error in observation-only mode for "
-                f"{message.chat.id} message {message.message_id}"
+                f"Group AI failed | channel_id={message.chat.id} "
+                f"telegram_message_id={message.message_id} "
+                f"stage=observation_only_processing code={type(exc).__name__} "
+                "rollback=skipped staged_message=pending_or_unknown"
             )
             return
         if processing_started and not reply_sent:
-            await _rollback_staged_message(message, owner_uid)
+            logger.warning(
+                f"Group AI recovery queued | channel_id={message.chat.id} "
+                f"telegram_message_id={message.message_id} "
+                "rollback=skipped staged_message=pending_or_unknown"
+            )
         logger.exception(
-            f"Unexpected group AI error in {message.chat.id} "
-            f"for Telegram message {message.message_id}"
+            f"Group AI failed | channel_id={message.chat.id} "
+            f"telegram_message_id={message.message_id} "
+            f"stage=bot_message_processing code={type(exc).__name__} "
+            "rollback=skipped staged_message=pending_or_unknown"
         )
         if not reply_sent:
             await _notify_processing_error(
@@ -819,12 +848,24 @@ def _user_facing_error(detail: str) -> str:
     normalized = detail.lower()
     if any(token in normalized for token in ("rate limit", "rate_limit", "quota", "429", "resource_exhausted")):
         return "⚠️ Cheya gagal mencerna pesan: provider AI sedang kena rate limit/kuota. Ringkasan pesan ini belum tersimpan."
+    if "group_settings_database_error" in normalized:
+        return "⚠️ Cheya gagal membaca pengaturan AI grup dari Supabase. Pesan akan dipertahankan untuk pemulihan."
+    if "web_chat_database_error" in normalized:
+        return "⚠️ Cheya gagal mencari riwayat chat web di Supabase. Pesan Telegram dipertahankan; konteks web tidak tersedia."
+    if "memory_service_unavailable" in normalized:
+        return "⚠️ Koneksi tunnel ke SQLite memory service terputus. Pesan dipertahankan atau menunggu pemulihan; insight AI belum dipastikan."
+    if "telegram_memory_database_error" in normalized:
+        return "⚠️ SQLite memori Telegram gagal merespons. Pesan dipertahankan untuk pemulihan; insight AI belum dipastikan."
+    if "voice_transcription_error" in normalized:
+        return "⚠️ Provider AI gagal mentranskripsi voice note. Pesan dipertahankan; transkrip/analisis belum tersedia."
+    if "ai_generation_error" in normalized:
+        return "⚠️ Provider AI gagal menganalisis pesan atau membuat balasan. Pesan dipertahankan; analisis akan dicoba lagi setelah masalah provider pulih."
     if any(token in normalized for token in ("database", "postgres", "supabase", "query", "sql", "pool")):
-        return "⚠️ Cheya gagal mencerna pesan: database/koneksi query bermasalah. Ringkasan pesan ini belum tersimpan."
+        return "⚠️ Cheya mengalami gangguan database. Pesan dipertahankan untuk pemulihan; cek log Vercel berdasarkan channel dan message ID."
     if any(token in normalized for token in ("connection", "cannot connect", "connector", "name resolution", "dns", "timeout", "timed out", "fetch failed", "econn", "enotfound", "network")):
-        return "⚠️ Cheya gagal mencerna pesan: koneksi ke Telegram, dashboard, atau provider AI bermasalah."
+        return "⚠️ Cheya gagal terhubung ke Telegram, dashboard, SQLite memory service, atau provider AI. Pesan dipertahankan untuk pemulihan."
     if any(token in normalized for token in ("api key", "credential", "unauthorized", "401", "403")):
-        return "⚠️ Cheya gagal mencerna pesan: API key/provider menolak akses. Periksa pengaturan provider AI."
+        return "⚠️ Cheya gagal: API key/provider menolak akses. Periksa pengaturan provider AI."
     if any(token in normalized for token in ("media", "gemini")):
         return "⚠️ Cheya gagal mencerna media: format tidak didukung, file terlalu besar, atau Gemini multimodal belum aktif."
     return "⚠️ Cheya gagal mencerna pesan karena error internal. Pesan ini belum masuk ke memori."
