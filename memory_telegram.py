@@ -813,14 +813,23 @@ def cleanup_stale_owner_messages() -> int:
             """,
             (),
         )
-    return sum(
-        rollback_owner_message(
-            int(row["group_id"]),
-            int(row["owner_uid"]),
-            int(row["telegram_message_id"]),
-        )
-        for row in stale
-    )
+    recovered = 0
+    for row in stale:
+        try:
+            finalize_owner_message(
+                group_id=int(row["group_id"]),
+                owner_uid=int(row["owner_uid"]),
+                group_title="",
+                owner_message_id=int(row["telegram_message_id"]),
+                summary=(
+                    "Analisis AI terhenti sebelum selesai. Pesan owner tetap disimpan; "
+                    "insight ini adalah penanda sistem, bukan kesimpulan AI."
+                ),
+            )
+        except ValueError:
+            continue
+        recovered += 1
+    return recovered
 
 
 def store_owner_message(
@@ -1028,6 +1037,17 @@ def finalize_owner_message(
             (group_id, owner_uid, owner_message_id),
         ).fetchone()
         if pending is None:
+            existing = connection.execute(
+                """
+                SELECT 1 FROM telegram_ai_messages
+                WHERE group_id = ? AND sender_uid = ? AND telegram_message_id = ?
+                LIMIT 1
+                """,
+                (group_id, owner_uid, owner_message_id),
+            ).fetchone()
+            if existing is not None:
+                connection.rollback()
+                return
             connection.rollback()
             raise ValueError("Owner message is not awaiting AI completion.")
         if summary.strip():

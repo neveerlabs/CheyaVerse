@@ -227,6 +227,12 @@ function mediaTypes(value: unknown): string[] {
 function groupAiFailure(error: unknown): { code: string; message: string } {
   const detail = error instanceof Error ? error.message : "";
   const normalized = detail.toLowerCase();
+  if (/telegram ai memory service is unreachable|telegram ai memory service rejected .*http 50[234]/.test(normalized)) {
+    return {
+      code: "memory_service_unavailable",
+      message: "Koneksi tunnel ke penyimpanan memori AI lokal terputus. Pesan Telegram tetap dipertahankan untuk pemulihan; analisis AI akan dilewati.",
+    };
+  }
   if (/429|rate.?limit|quota|resource_exhausted|too many requests/.test(normalized)) {
     return {
       code: "ai_rate_limited",
@@ -1035,11 +1041,19 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     if (stagedMessage && !observationOnly) {
       try {
-        await rollbackTelegramOwnerMessage(stagedMessage);
-      } catch (rollbackError) {
+        await finalizeTelegramOwnerMessage({
+          ...stagedMessage,
+          groupTitle: typeof input.groupTitle === "string"
+            ? input.groupTitle.slice(0, 200)
+            : "",
+          ownerMessageId: stagedMessage.messageId,
+          summary: "Analisis AI terhenti sebelum selesai. Pesan owner tetap disimpan; insight ini adalah penanda sistem, bukan kesimpulan AI.",
+        });
+        stagedMessage = null;
+      } catch (retentionError) {
         console.error(
-          "[internal/telegram/group-ai] failed to roll back staged owner message:",
-          rollbackError,
+          "[internal/telegram/group-ai] failed to retain staged owner message after AI failure:",
+          retentionError,
         );
       }
     }

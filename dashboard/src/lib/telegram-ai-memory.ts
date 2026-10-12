@@ -76,6 +76,14 @@ type MemoryResponse = {
   changed?: boolean;
 }
 
+const MEMORY_REQUEST_ATTEMPTS = 3;
+const MEMORY_RETRY_DELAY_MS = [300, 900] as const;
+const RETRYABLE_MEMORY_STATUSES = new Set([502, 503, 504]);
+
+function isRetryableMemoryAction(action: string): boolean {
+  return action !== "personal_memory_create";
+}
+
 function memoryEndpoint(): URL {
   if (!config.telegramAiMemoryUrl || !config.telegramAiMemorySecret) {
     throw new Error(
@@ -111,26 +119,69 @@ async function requestMemoryService(
   payload: Record<string, unknown> = {},
 ): Promise<MemoryResponse> {
   const endpoint = memoryEndpoint();
-  let response: Response;
-  try {
-    response = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${config.telegramAiMemorySecret}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ action, ownerUid, ...payload }),
-      cache: "no-store",
-      signal: AbortSignal.timeout(20_000),
-    });
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : "network request failed";
+  const shouldRetry = isRetryableMemoryAction(action);
+  let lastNetworkError: unknown;
+  let response: Response | null = null;
+  for (let attempt = 0; attempt < MEMORY_REQUEST_ATTEMPTS; attempt += 1) {
+    try {
+      response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${config.telegramAiMemorySecret}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ action, ownerUid, ...payload }),
+        cache: "no-store",
+        signal: AbortSignal.timeout(20_000),
+      });
+      if (
+        !RETRYABLE_MEMORY_STATUSES.has(response.status) ||
+        !shouldRetry ||
+        attempt === MEMORY_REQUEST_ATTEMPTS - 1
+      ) {
+        break;
+      }
+      await response.body?.cancel();
+      console.warn(
+        `[telegram-ai-memory] ${action} returned HTTP ${response.status}; ` +
+        `retrying (${attempt + 2}/${MEMORY_REQUEST_ATTEMPTS}).`,
+      );
+    } catch (error) {
+      lastNetworkError = error;
+      if (
+        !shouldRetry ||
+        attempt === MEMORY_REQUEST_ATTEMPTS - 1
+      ) {
+        const detail = error instanceof Error ? error.message : "network request failed";
+        throw new Error(
+          `Telegram AI memory service is unreachable${shouldRetry ? ` after ${MEMORY_REQUEST_ATTEMPTS} attempts` : ""}: ${detail}`,
+        );
+      }
+      console.warn(
+        `[telegram-ai-memory] ${action} network request failed; ` +
+        `retrying (${attempt + 2}/${MEMORY_REQUEST_ATTEMPTS}).`,
+      );
+    }
+
+    await new Promise((resolve) =>
+      setTimeout(resolve, MEMORY_RETRY_DELAY_MS[attempt]),
+    );
+  }
+
+  if (!response) {
+    const detail = lastNetworkError instanceof Error
+      ? lastNetworkError.message
+      : "network request failed";
     throw new Error(`Telegram AI memory service is unreachable: ${detail}`);
   }
 
   const result = (await response.json().catch(() => null)) as MemoryResponse | null;
   if (!response.ok || !result || result.ok !== true) {
-    const code = result && typeof result.error === "string" ? result.error : "invalid_response";
+    const code = result && typeof result.error === "string"
+      ? result.error
+      : response.status >= 500
+        ? "upstream_unavailable"
+        : "invalid_response";
     throw new Error(
       `Telegram AI memory service rejected ${action} (HTTP ${response.status}: ${code}).`,
     );

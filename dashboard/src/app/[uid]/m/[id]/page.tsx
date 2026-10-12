@@ -14,8 +14,8 @@ export default async function ViewerPage({
   if (!Number.isInteger(uid) || uid <= 0) notFound();
   if (!MEDIA_ID_RE.test(params.id)) notFound();
 
-  const meta = await fetchMedia(params.id).catch(() => null);
-  if (!meta?.storage_path) notFound();
+  const meta = await fetchMedia(params.id);
+  if (!meta?.storage_path || meta.owner_id !== uid) notFound();
 
   return (
     <ViewerClient

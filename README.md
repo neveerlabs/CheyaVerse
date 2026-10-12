@@ -154,7 +154,7 @@ Aturan pemilihan tabel untuk AI: `memory` hanya untuk profil/fakta jangka panjan
 
 Jalankan `python data/memory.py` untuk membuat snapshot JSON di `data/backups`: `group.json`, `message.json`, `insight.json`, dan `memory.json`. Snapshot `memory.json` diekspor dari tabel SQLite `memory`; script ini tidak menyalin file SQLite. Direktori snapshot diberi permission `0700` dan file `0600` pada sistem yang mendukung permission Unix. Sebaliknya, `python backup.py` mengarsipkan file project dan dapat menyertakan database SQLite maupun snapshot JSON yang ada; ZIP tidak dienkripsi secara otomatis, jadi simpan dan pindahkan backup dengan perlindungan yang sesuai.
 
-Setelah itu, jalankan bot dan Cloudflare Tunnel. Untuk pengujian sementara, `cloudflared tunnel --url http://127.0.0.1:8765` membuat hostname Quick Tunnel; untuk deployment gunakan hostname named tunnel yang stabil. Tunnel harus tetap hidup selama fitur pencarian memori Telegram dari web digunakan.
+Setelah itu, jalankan bot dan Cloudflare Tunnel. Untuk pengujian sementara, `cloudflared tunnel --url http://127.0.0.1:8765` membuat hostname Quick Tunnel; untuk deployment gunakan hostname named tunnel yang stabil. Tunnel harus tetap hidup selama fitur pencarian memori Telegram dari web digunakan. Jika jaringan sering memutus QUIC/UDP, coba `cloudflared tunnel --protocol http2 --url http://127.0.0.1:8765` untuk memakai HTTP/2 melalui TCP. Ini membantu menghindari gangguan UDP, tetapi tidak memperbaiki DNS atau koneksi internet yang terputus.
 
 Jalankan web:
 

@@ -666,6 +666,32 @@ async def _handle(request: web.Request) -> web.Response:
     )
 
 
+@web.middleware
+async def _log_unexpected_memory_error(
+    request: web.Request,
+    handler,
+) -> web.StreamResponse:
+    try:
+        return await handler(request)
+    except web.HTTPException:
+        raise
+    except Exception:
+        try:
+            body = await request.json()
+            action = (
+                body.get("action", "request")
+                if isinstance(body, dict)
+                else "request"
+            )
+        except (json.JSONDecodeError, web.HTTPBadRequest):
+            action = "invalid_request"
+        logging.exception(
+            "Telegram AI memory operation failed (%s).",
+            action,
+        )
+        raise
+
+
 async def start_server(host: str, port: int) -> web.AppRunner:
     if not TELEGRAM_AI_MEMORY_SECRET:
         raise RuntimeError("TELEGRAM_AI_MEMORY_SECRET is required.")
@@ -675,11 +701,14 @@ async def start_server(host: str, port: int) -> web.AppRunner:
     stale_messages = await asyncio.to_thread(memory.cleanup_stale_owner_messages)
     if stale_messages:
         logging.warning(
-            "Rolled back %s stale Telegram AI message(s) left without a reply.",
+            "Recovered %s stale Telegram AI message(s) left without completed analysis.",
             stale_messages,
         )
     personal_memory.initialize()
-    app = web.Application(client_max_size=2 * 1024 * 1024)
+    app = web.Application(
+        client_max_size=2 * 1024 * 1024,
+        middlewares=[_log_unexpected_memory_error],
+    )
     app.router.add_post("/internal/telegram-group-ai", _handle)
     runner = web.AppRunner(app, access_log=None)
     await runner.setup()

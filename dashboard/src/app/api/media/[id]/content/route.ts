@@ -3,6 +3,7 @@ import { fetchMedia } from "@/lib/storage";
 import { getCachedMedia } from "@/lib/media-cache";
 import type { MediaMeta } from "@/lib/storage";
 import { fetchUserMediaObject } from "@/lib/supabase-storage";
+import { getUserSession } from "@/lib/auth-request";
 
 export const runtime = "nodejs";
 
@@ -14,7 +15,18 @@ export async function GET(
   { params }: { params: { id: string } },
 ) {
   if (!MEDIA_ID_RE.test(params.id)) {
-    return new NextResponse("Invalid media link.", { status: 400 });
+    return new NextResponse("Invalid media link.", {
+      status: 400,
+      headers: { "Cache-Control": "no-store" },
+    });
+  }
+
+  const session = await getUserSession(req);
+  if (!session) {
+    return new NextResponse("Sign in to access this media.", {
+      status: 401,
+      headers: { "Cache-Control": "no-store" },
+    });
   }
 
   let meta: MediaMeta | null;
@@ -27,15 +39,18 @@ export async function GET(
       headers: { "Cache-Control": "no-store", "Retry-After": "5" },
     });
   }
-  if (!meta?.storage_path) {
-    return new NextResponse("Media not found.", { status: 404 });
+  if (!meta?.storage_path || meta.owner_id !== session.uid) {
+    return new NextResponse("Media not found.", {
+      status: 404,
+      headers: { "Cache-Control": "no-store" },
+    });
   }
 
   const rangeHeader = req.headers.get("range");
   const baseHeaders: Record<string, string> = {
     "Content-Type": meta.content_type || "application/octet-stream",
     "Accept-Ranges": "bytes",
-    "Cache-Control": "public, max-age=86400, immutable",
+    "Cache-Control": "private, no-store",
     "X-Content-Type-Options": "nosniff",
   };
 

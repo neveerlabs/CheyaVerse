@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS public."akun-telegram" (
 
 CREATE INDEX IF NOT EXISTS idx_akun_telegram_name
   ON public."akun-telegram"(first_name, last_name);
+
 CREATE INDEX IF NOT EXISTS idx_akun_telegram_username
   ON public."akun-telegram"(username);
 
@@ -66,8 +67,10 @@ CREATE TABLE IF NOT EXISTS public.messages (
   ai_output_tokens BIGINT,
   sender_device_id TEXT
 );
+
 CREATE INDEX IF NOT EXISTS idx_messages_uid_created
   ON public.messages(uid, created_at);
+
 CREATE INDEX IF NOT EXISTS idx_messages_ai_memory_search
   ON public.messages USING GIN (to_tsvector('simple'::regconfig, content))
   WHERE deleted_at IS NULL;
@@ -83,6 +86,7 @@ CREATE TABLE IF NOT EXISTS public.notifications (
   read INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL
 );
+
 CREATE INDEX IF NOT EXISTS idx_notifications_uid_created
   ON public.notifications(uid, created_at);
 
@@ -175,12 +179,14 @@ $$;
 
 DROP TRIGGER IF EXISTS telegram_bot_user_ids_no_update
   ON public.telegram_bot_user_ids;
+
 CREATE TRIGGER telegram_bot_user_ids_no_update
 BEFORE UPDATE ON public.telegram_bot_user_ids
 FOR EACH ROW EXECUTE FUNCTION public.prevent_telegram_bot_user_id_mutation();
 
 DROP TRIGGER IF EXISTS telegram_bot_user_ids_no_delete
   ON public.telegram_bot_user_ids;
+
 CREATE TRIGGER telegram_bot_user_ids_no_delete
 BEFORE DELETE ON public.telegram_bot_user_ids
 FOR EACH ROW EXECUTE FUNCTION public.prevent_telegram_bot_user_id_mutation();
@@ -195,6 +201,7 @@ CREATE TABLE IF NOT EXISTS public.telegram_login_challenges (
   approved_at BIGINT,
   consumed_at BIGINT
 );
+
 CREATE INDEX IF NOT EXISTS idx_login_challenges_requester_created
   ON public.telegram_login_challenges(requester_hash, created_at);
 
@@ -239,6 +246,7 @@ CREATE TABLE IF NOT EXISTS public.device_link_tokens (
   expires_at BIGINT NOT NULL,
   consumed_at BIGINT
 );
+
 CREATE INDEX IF NOT EXISTS idx_device_link_tokens_expiry
   ON public.device_link_tokens(expires_at);
 
@@ -259,8 +267,10 @@ CREATE TABLE IF NOT EXISTS public.library_nodes (
   created_at BIGINT NOT NULL,
   updated_at BIGINT NOT NULL
 );
+
 CREATE INDEX IF NOT EXISTS library_nodes_owner_parent
   ON public.library_nodes(owner_uid, parent_id);
+
 CREATE UNIQUE INDEX IF NOT EXISTS library_nodes_unique_location
   ON public.library_nodes(owner_uid, COALESCE(parent_id, ''), lower(name));
 
@@ -284,8 +294,10 @@ CREATE TABLE IF NOT EXISTS public.ai_provider_keys (
   last_error TEXT,
   endpoint_url TEXT
 );
+
 ALTER TABLE public.ai_provider_keys
   ADD COLUMN IF NOT EXISTS endpoint_url TEXT;
+
 ALTER TABLE public.ai_provider_keys
   ALTER COLUMN uid TYPE BIGINT USING uid::BIGINT;
 
@@ -299,8 +311,10 @@ CREATE TABLE IF NOT EXISTS public.telegram_group_ai_settings (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+
 ALTER TABLE public.telegram_group_ai_settings
   ADD COLUMN IF NOT EXISTS send_enabled INTEGER NOT NULL DEFAULT 0;
+
 CREATE TABLE IF NOT EXISTS public.telegram_group_ai_consents (
   group_id BIGINT NOT NULL,
   telegram_uid BIGINT NOT NULL,
@@ -310,6 +324,7 @@ CREATE TABLE IF NOT EXISTS public.telegram_group_ai_consents (
   revoked_at TEXT,
   PRIMARY KEY (group_id, telegram_uid)
 );
+
 CREATE TABLE IF NOT EXISTS public.system_incident_alerts (
   fingerprint TEXT PRIMARY KEY,
   last_notified_at BIGINT NOT NULL
@@ -402,14 +417,17 @@ $$;
 
 -- Browser clients may subscribe to changes but can only see their own rows.
 REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon, authenticated;
+
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
   REVOKE ALL ON TABLES FROM anon, authenticated;
+
 REVOKE ALL ON public.messages, public.notifications, public.media, public.user_covers,
   public.chat_message_hides, public.chat_message_pins, public.chat_notification_pins,
   public.session_blacklist, public.library_nodes, public.web_presence,
   public.device_account_state, public.telegram_group_ai_settings,
   public.telegram_group_ai_consents
   FROM anon, authenticated;
+
 GRANT SELECT ON public.messages, public.notifications, public.media, public.user_covers,
   public.chat_message_hides, public.chat_message_pins, public.chat_notification_pins,
   public.session_blacklist, public.library_nodes
@@ -430,6 +448,7 @@ ALTER TABLE public.telegram_group_ai_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.telegram_group_ai_consents ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS messages_realtime_own_rows ON public.messages;
+
 CREATE POLICY messages_realtime_own_rows ON public.messages
   FOR SELECT TO authenticated
   USING (
@@ -440,6 +459,7 @@ CREATE POLICY messages_realtime_own_rows ON public.messages
   );
 
 DROP POLICY IF EXISTS notifications_realtime_own_rows ON public.notifications;
+
 CREATE POLICY notifications_realtime_own_rows ON public.notifications
   FOR SELECT TO authenticated
   USING (
@@ -450,6 +470,7 @@ CREATE POLICY notifications_realtime_own_rows ON public.notifications
   );
 
 DROP POLICY IF EXISTS media_realtime_own_rows ON public.media;
+
 CREATE POLICY media_realtime_own_rows ON public.media
   FOR SELECT TO authenticated
   USING (
@@ -460,6 +481,7 @@ CREATE POLICY media_realtime_own_rows ON public.media
   );
 
 DROP POLICY IF EXISTS user_covers_realtime_own_rows ON public.user_covers;
+
 CREATE POLICY user_covers_realtime_own_rows ON public.user_covers
   FOR SELECT TO authenticated
   USING (
@@ -471,6 +493,7 @@ CREATE POLICY user_covers_realtime_own_rows ON public.user_covers
 
 DROP POLICY IF EXISTS chat_message_hides_realtime_own_rows
   ON public.chat_message_hides;
+
 CREATE POLICY chat_message_hides_realtime_own_rows ON public.chat_message_hides
   FOR SELECT TO authenticated
   USING (
@@ -482,6 +505,7 @@ CREATE POLICY chat_message_hides_realtime_own_rows ON public.chat_message_hides
 
 DROP POLICY IF EXISTS chat_message_pins_realtime_own_rows
   ON public.chat_message_pins;
+
 CREATE POLICY chat_message_pins_realtime_own_rows ON public.chat_message_pins
   FOR SELECT TO authenticated
   USING (
@@ -493,6 +517,7 @@ CREATE POLICY chat_message_pins_realtime_own_rows ON public.chat_message_pins
 
 DROP POLICY IF EXISTS chat_notification_pins_realtime_own_rows
   ON public.chat_notification_pins;
+
 CREATE POLICY chat_notification_pins_realtime_own_rows
   ON public.chat_notification_pins
   FOR SELECT TO authenticated
@@ -505,6 +530,7 @@ CREATE POLICY chat_notification_pins_realtime_own_rows
 
 DROP POLICY IF EXISTS session_blacklist_realtime_own_rows
   ON public.session_blacklist;
+
 CREATE POLICY session_blacklist_realtime_own_rows ON public.session_blacklist
   FOR SELECT TO authenticated
   USING (
@@ -515,6 +541,7 @@ CREATE POLICY session_blacklist_realtime_own_rows ON public.session_blacklist
   );
 
 DROP POLICY IF EXISTS library_nodes_realtime_own_rows ON public.library_nodes;
+
 CREATE POLICY library_nodes_realtime_own_rows ON public.library_nodes
   FOR SELECT TO authenticated
   USING (

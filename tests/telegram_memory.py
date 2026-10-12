@@ -301,6 +301,53 @@ class TelegramMemoryCrudTests(unittest.TestCase):
             ).fetchone()[0]
         self.assertEqual(pending, 0)
 
+    def test_stale_staged_message_is_recovered_with_factual_fallback_insight(self) -> None:
+        staged = memory_telegram.stage_owner_message(
+            group_id=self.group_id,
+            owner_uid=self.owner_uid,
+            group_title="Recovery test",
+            message_id=302,
+            sender_name="Owner",
+            content="A message that was staged before a network failure.",
+            media_types=[],
+            reply_to_message_id=None,
+            edited=False,
+            timestamp="2026-10-09T10:00:00Z",
+        )
+        self.assertEqual(staged, "staged")
+        with memory_telegram.database() as connection:
+            connection.execute(
+                """
+                UPDATE telegram_ai_pending_messages
+                SET staged_at = datetime('now', '-31 minutes')
+                WHERE group_id = ? AND owner_uid = ? AND telegram_message_id = ?
+                """,
+                (self.group_id, self.owner_uid, 302),
+            )
+
+        self.assertEqual(memory_telegram.cleanup_stale_owner_messages(), 1)
+        self.assertTrue(
+            memory_telegram.owner_message_exists(
+                self.group_id,
+                self.owner_uid,
+                302,
+            )
+        )
+        self.assertEqual(
+            memory_telegram.get_insight(self.group_id, self.owner_uid, 302),
+            "Analisis AI terhenti sebelum selesai. Pesan owner tetap disimpan; "
+            "insight ini adalah penanda sistem, bukan kesimpulan AI.",
+        )
+        with memory_telegram.database() as connection:
+            pending = connection.execute(
+                """
+                SELECT COUNT(*) FROM telegram_ai_pending_messages
+                WHERE group_id = ? AND owner_uid = ? AND telegram_message_id = ?
+                """,
+                (self.group_id, self.owner_uid, 302),
+            ).fetchone()[0]
+        self.assertEqual(pending, 0)
+
     def test_voice_transcript_and_multiple_replies_are_persisted(self) -> None:
         staged = memory_telegram.stage_owner_message(
             group_id=self.group_id,

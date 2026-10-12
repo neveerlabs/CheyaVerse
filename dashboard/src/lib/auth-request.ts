@@ -30,9 +30,17 @@ export async function getUserSession(
   request: NextRequest,
   expectedUid?: number,
 ): Promise<UserSession | null> {
-  const session = readSessionToken(
+  return getUserSessionFromToken(
     request.cookies.get(SESSION_COOKIE_NAME)?.value,
+    expectedUid,
   );
+}
+
+export async function getUserSessionFromToken(
+  token: string | undefined,
+  expectedUid?: number,
+): Promise<UserSession | null> {
+  const session = readSessionToken(token);
   if (!session || (expectedUid !== undefined && session.uid !== expectedUid)) {
     return null;
   }
