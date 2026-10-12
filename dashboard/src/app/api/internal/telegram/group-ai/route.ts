@@ -248,6 +248,35 @@ function groupAiFailure(
 ): { code: string; message: string } {
   const detail = error instanceof Error ? error.message : "";
   const normalized = detail.toLowerCase();
+  if (
+    stage.startsWith("telegram_memory_sqlite") ||
+    stage === "personal_memory_sqlite"
+  ) {
+    if (normalized.includes("sqlite_busy")) {
+      return {
+        code: "telegram_memory_sqlite_busy",
+        message: "SQLite memori Telegram sedang dipakai proses lain. Pesan dipertahankan dan pemulihan akan mencoba lagi.",
+      };
+    }
+    if (normalized.includes("sqlite_storage")) {
+      return {
+        code: "telegram_memory_sqlite_storage",
+        message: "SQLite memori Telegram tidak dapat membaca/menulis file database. Periksa path dan izin file pada mesin bot.",
+      };
+    }
+    if (normalized.includes("sqlite_integrity")) {
+      return {
+        code: "telegram_memory_sqlite_integrity",
+        message: "Pemeriksaan SQLite menemukan kerusakan database. Pesan dipertahankan; database perlu diperiksa sebelum penulisan dilanjutkan.",
+      };
+    }
+    if (normalized.includes("sqlite_error")) {
+      return {
+        code: "telegram_memory_sqlite_error",
+        message: "Operasi SQLite memori Telegram gagal. Lihat log memory service untuk jenis error dan operasi yang gagal.",
+      };
+    }
+  }
   if (/telegram ai memory service is unreachable|telegram ai memory service rejected .*http 50[234]/.test(normalized)) {
     return {
       code: "memory_service_unavailable",

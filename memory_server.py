@@ -2,6 +2,7 @@ import asyncio
 import hmac
 import ipaddress
 import json
+import sqlite3
 from typing import Any
 from datetime import datetime
 
@@ -682,21 +683,44 @@ async def _log_unexpected_memory_error(
         return await handler(request)
     except web.HTTPException:
         raise
+    except sqlite3.Error as error:
+        try:
+            body = await request.json()
+            action = body.get("action", "request") if isinstance(body, dict) else "request"
+        except (json.JSONDecodeError, web.HTTPBadRequest):
+            action = "invalid_request"
+        normalized = str(error).lower()
+        if "locked" in normalized or "busy" in normalized:
+            code = "sqlite_busy"
+        elif any(
+            marker in normalized
+            for marker in ("unable to open", "readonly", "read-only", "disk i/o")
+        ):
+            code = "sqlite_storage"
+        elif any(marker in normalized for marker in ("malformed", "corrupt", "not a database")):
+            code = "sqlite_integrity"
+        else:
+            code = "sqlite_error"
+        logger.exception(
+            "Telegram AI SQLite operation failed | action=%s | category=%s",
+            action,
+            code,
+        )
+        return web.json_response(
+            {"ok": False, "error": code},
+            status=503,
+        )
     except Exception:
         try:
             body = await request.json()
-            action = (
-                body.get("action", "request")
-                if isinstance(body, dict)
-                else "request"
-            )
+            action = body.get("action", "request") if isinstance(body, dict) else "request"
         except (json.JSONDecodeError, web.HTTPBadRequest):
             action = "invalid_request"
-        logger.exception(
-            "Telegram AI memory operation failed (%s).",
-            action,
+        logger.exception("Telegram AI memory operation failed | action=%s", action)
+        return web.json_response(
+            {"ok": False, "error": "memory_operation_failed"},
+            status=500,
         )
-        raise
 
 
 async def _recover_stale_messages() -> None:

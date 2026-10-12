@@ -125,7 +125,7 @@ class TelegramMemoryServiceTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertTrue(deleted["deleted"])
 
-    async def test_sqlite_health_failure_returns_error_without_stopping_service(self) -> None:
+    async def test_sqlite_health_failure_returns_category_without_stopping_service(self) -> None:
         with patch.object(
             memory_server.memory,
             "health_check",
@@ -136,7 +136,11 @@ class TelegramMemoryServiceTests(unittest.IsolatedAsyncioTestCase):
                 json={"action": "health", "ownerUid": 123},
                 headers={"Authorization": "Bearer test-memory-secret"},
             )
-            self.assertEqual(response.status, 500)
+            self.assertEqual(response.status, 503)
+            self.assertEqual(
+                await response.json(),
+                {"ok": False, "error": "sqlite_busy"},
+            )
 
         recovered = await self._post("health")
         self.assertTrue(recovered["ok"])

@@ -263,6 +263,12 @@ class GroupAiRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Supabase", notice)
         self.assertIn("riwayat chat web", notice)
 
+    def test_sqlite_busy_notice_explains_retention_and_retry(self) -> None:
+        notice = group._user_facing_error("telegram_memory_sqlite_busy")
+        self.assertIn("SQLite", notice)
+        self.assertIn("dipertahankan", notice)
+        self.assertIn("mencoba lagi", notice)
+
 
 if __name__ == "__main__":
     unittest.main()

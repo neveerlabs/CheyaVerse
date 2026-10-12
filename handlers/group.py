@@ -852,6 +852,14 @@ def _user_facing_error(detail: str) -> str:
         return "⚠️ Cheya gagal membaca pengaturan AI grup dari Supabase. Pesan akan dipertahankan untuk pemulihan."
     if "web_chat_database_error" in normalized:
         return "⚠️ Cheya gagal mencari riwayat chat web di Supabase. Pesan Telegram dipertahankan; konteks web tidak tersedia."
+    if "telegram_memory_sqlite_busy" in normalized:
+        return "⚠️ SQLite memori sedang sibuk dipakai proses lain. Pesan Telegram dipertahankan; pemulihan akan mencoba lagi."
+    if "telegram_memory_sqlite_storage" in normalized:
+        return "⚠️ File SQLite memori tidak dapat dibaca/ditulis. Periksa lokasi database dan izin file pada komputer bot; pesan dipertahankan."
+    if "telegram_memory_sqlite_integrity" in normalized:
+        return "⚠️ Pemeriksaan SQLite menemukan kerusakan database. Pesan dipertahankan; hentikan penghapusan/perubahan file database dan cek log bot."
+    if "telegram_memory_sqlite_error" in normalized:
+        return "⚠️ Operasi SQLite memori gagal. Pesan dipertahankan; cek log memory service untuk detail penyebab."
     if "memory_service_unavailable" in normalized:
         return "⚠️ Koneksi tunnel ke SQLite memory service terputus. Pesan dipertahankan atau menunggu pemulihan; insight AI belum dipastikan."
     if "telegram_memory_database_error" in normalized:
